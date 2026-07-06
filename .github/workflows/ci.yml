@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck-build:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit strict)
+        run: npm run typecheck
+
+      - name: Build (Vite)
+        run: npm run build
+
+      - name: Verify PWA assets
+        run: |
+          test -f dist/index.html
+          test -f dist/manifest.webmanifest
+          test -f dist/sw.js
+          # Con injectRegister: false (Pattern 10), la registrazione SW è inline in index-*.js
+          # come riferimento al chunk virtual_pwa-register-*.js
+          grep -l "pwa-register" dist/assets/index-*.js > /dev/null
+          ls dist/assets/virtual_pwa-register-*.js > /dev/null
+          # Verifica code-splitting: ogni vista in chunk separato
+          ls dist/assets/dashboard-*.js > /dev/null
+          ls dist/assets/foods-*.js > /dev/null
+          ls dist/assets/recipes-*.js > /dev/null
+          ls dist/assets/settings-*.js > /dev/null
+          # Verifica worker
+          ls dist/assets/stats.worker-*.js > /dev/null
+          # Verifica manualChunks (api)
+          ls dist/assets/api-*.js > /dev/null
+          echo "PWA assets OK"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7

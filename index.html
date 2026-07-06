@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+
+    <!-- iOS PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NutriTrack" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Theme -->
+    <meta name="theme-color" content="#10b981" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="Tracker di calorie e macro personalizzato con ricette custom, ingredienti personalizzati e database Open Food Facts. PWA installabile." />
+
+    <!-- Icons -->
+    <link rel="icon" href="/icons/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Preconnect Open Food Facts (multi-istanza) -->
+    <link rel="preconnect" href="https://it.openfoodfacts.org" crossorigin />
+    <link rel="preconnect" href="https://world.openfoodfacts.org" crossorigin />
+    <link rel="preconnect" href="https://fr.openfoodfacts.org" crossorigin />
+
+    <title>NutriTrack - Calorie & Macro</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Splash iniziale (sostituito da main.ts) -->
+      <div class="splash">
+        <div class="splash-icon">🍎</div>
+        <p>Caricamento NutriTrack…</p>
+      </div>
+    </div>
+    <noscript>
+      <p style="text-align:center;padding:2rem;font-family:sans-serif">
+        NutriTrack richiede JavaScript abilitato.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
