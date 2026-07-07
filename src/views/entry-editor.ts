@@ -64,7 +64,6 @@ export function renderEntryEditorModal(entryId: string): void {
       return result;
     },
     onClose: () => closeEntryEditor(),
-    sticky: true,
   });
 
   bindEvents();

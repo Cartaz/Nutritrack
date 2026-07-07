@@ -78,7 +78,6 @@ export function renderFoodEditorModal(foodId: string | null): void {
     },
     // Fix B6: cleanup state quando il modal viene chiuso (✕, ESC, overlay, o conferma successful)
     onClose: () => closeFoodEditor(),
-    sticky: true,
   });
 
   bindEvents();

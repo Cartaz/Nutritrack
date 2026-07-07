@@ -2,7 +2,7 @@
 
 import { getState, closeRecipeEditor, addRecipe, updateRecipe, openFoodEditor, emitChange } from '../lib/store';
 import { showToast } from '../components/toast';
-import { showModal } from '../components/modal';
+import { showModal, closeModalById } from '../components/modal';
 import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
 import { searchOff } from '../lib/api';
@@ -70,7 +70,6 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
     },
     // Fix B6: cleanup state quando il modal viene chiuso
     onClose: () => closeRecipeEditor(),
-    sticky: true,
   });
 
   bindEvents();
@@ -131,7 +130,6 @@ function editorBody(): string {
         </div>
       </div>
     </div>
-    <div id="re-search-mount"></div>
   `;
 }
 
@@ -163,45 +161,122 @@ function computeTotals(ingredients: RecipeIngredient[]) {
   return sumNutrition(nutritions);
 }
 
-// ============ Sub-dialog: ingredient search ============
+// ============ Sub-dialog: ingredient search (proper modal with zone updates) ============
+// Pattern: il sub-search è un modal top-level registrato via showModal().
+// La shell (overlay + header con X + zone vuote) viene creata UNA volta.
+// Ad ogni cambio di stato, solo le zone dinamiche (tabs, list) vengono aggiornate.
+// L'input #re-search-input non viene MAI toccato dopo la creazione per non perdere focus.
 
-function searchBody(): string {
+let _subOverlay: HTMLElement | null = null;
+
+function openSubSearch(): void {
+  const state = getState();
+  _es.searchOpen = true;
+  _es.searchTab = state.favoriteFoodIds.length > 0 ? 'favorites' : (state.foods.length > 0 ? 'saved' : 'search');
+  _es.searchQuery = '';
+  _es.searchResults = [];
+  _es.searchLoading = false;
+
+  _subOverlay = showModal({
+    modalId: 'recipe-search-sub',
+    title: 'Aggiungi ingrediente',
+    bodyHtml: subSearchShell(),
+    actions: [],
+    onClose: () => {
+      _es.searchOpen = false;
+      _subOverlay = null;
+      // Abort ricerca in corso
+      if (_es.searchAbort) {
+        try { _es.searchAbort.abort(); } catch { /* noop */ }
+        _es.searchAbort = null;
+      }
+      _es.searchLoading = false;
+    },
+  });
+
+  updateSubSearchContent();
+
+  // Focus sul campo di ricerca se siamo sul tab search
+  if (_es.searchTab === 'search') {
+    setTimeout(() => {
+      const inp = _subOverlay?.querySelector<HTMLInputElement>('#re-search-input');
+      if (inp) inp.focus();
+    }, 100);
+  }
+}
+
+function subSearchShell(): string {
+  return `
+    <div class="search-tabs" data-sub-zone="tabs"></div>
+    <div data-sub-zone="searchbox"></div>
+    <div class="search-list-scroll" data-sub-zone="list"></div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline btn-block" data-action="re-search-custom">✏️ Oppure crea ingrediente custom</button>
+    </div>
+  `;
+}
+
+function updateSubSearchContent(): void {
+  if (!_subOverlay) return;
+  const state = getState();
+  const favorites = state.foods.filter((f) => state.favoriteFoodIds.includes(f.id));
+
+  // --- Tabs ---
+  const tabsEl = _subOverlay.querySelector<HTMLElement>('[data-sub-zone="tabs"]');
+  if (tabsEl) {
+    const tabBtn = (id: 'favorites' | 'saved' | 'search', label: string, disabled: boolean) => `
+      <button type="button" class="tab-btn${_es.searchTab === id ? ' active' : ''}" data-action="re-search-tab" data-tab="${id}"${disabled ? ' disabled' : ''}>${escapeHtml(label)}</button>
+    `;
+    tabsEl.innerHTML = `
+      ${tabBtn('favorites', '★ Preferiti', favorites.length === 0)}
+      ${tabBtn('saved', 'Salvati', state.foods.length === 0)}
+      ${tabBtn('search', '🔍 Cerca', false)}
+    `;
+  }
+
+  // --- Searchbox (only on search tab) — created once, never touched after ---
+  const boxEl = _subOverlay.querySelector<HTMLElement>('[data-sub-zone="searchbox"]');
+  if (boxEl) {
+    const shouldShow = _es.searchTab === 'search';
+    const hasContent = boxEl.children.length > 0;
+    if (shouldShow && !hasContent) {
+      // Crea il searchbox con input vergine
+      boxEl.innerHTML = `
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input id="re-search-input" type="search" placeholder="Cerca su Open Food Facts…" autocomplete="off" />
+        </div>
+      `;
+      // Autofocus
+      setTimeout(() => {
+        const inp = boxEl.querySelector<HTMLInputElement>('#re-search-input');
+        if (inp) inp.focus();
+      }, 0);
+    } else if (!shouldShow && hasContent) {
+      // Rimuovi il searchbox
+      boxEl.innerHTML = '';
+    }
+    // Se shouldShow && hasContent: NON toccare l'input (preserva focus e cursore)
+  }
+
+  // --- List ---
+  updateSubSearchList();
+}
+
+function updateSubSearchList(): void {
+  if (!_subOverlay) return;
   const state = getState();
   const favorites = state.foods.filter((f) => state.favoriteFoodIds.includes(f.id));
   const list = _es.searchTab === 'favorites' ? favorites
     : _es.searchTab === 'saved' ? state.foods
     : _es.searchResults;
-  const tabBtn = (id: 'favorites' | 'saved' | 'search', label: string, disabled: boolean) => `
-    <button type="button" class="tab-btn${_es.searchTab === id ? ' active' : ''}" data-action="re-search-tab" data-tab="${id}"${disabled ? ' disabled' : ''}>${escapeHtml(label)}</button>
-  `;
-  const searchBox = _es.searchTab === 'search'
-    ? `<div class="search-box"><span class="search-icon">🔍</span><input id="re-search-input" type="search" placeholder="Cerca su Open Food Facts…" value="${escapeAttr(_es.searchQuery)}" autocomplete="off" /></div>`
-    : '';
   const listHtml = _es.searchLoading
     ? `<div class="search-loading"><span class="spinner"></span> Ricerca…</div>`
     : list.length === 0
       ? `<div class="search-empty">${_es.searchTab === 'search' ? 'Inizia a cercare un prodotto reale.' : 'Nessun alimento qui.'}</div>`
       : `<div class="search-list">${list.map((f) => searchRow(f)).join('')}</div>`;
-  return `
-    <div class="modal-overlay modal-show" data-modal-id="recipe-search-sub">
-      <div class="modal modal-search-sub" role="dialog" aria-modal="true">
-        <div class="modal-header">
-          <h3 class="modal-title">Aggiungi ingrediente</h3>
-          <button type="button" class="modal-close" data-action="re-search-close" aria-label="Chiudi">✕</button>
-        </div>
-        <div class="search-tabs">
-          ${tabBtn('favorites', '★ Preferiti', favorites.length === 0)}
-          ${tabBtn('saved', 'Salvati', state.foods.length === 0)}
-          ${tabBtn('search', '🔍 Cerca', false)}
-        </div>
-        ${searchBox}
-        <div class="search-list-scroll">${listHtml}</div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline btn-block" data-action="re-search-custom">✏️ Oppure crea ingrediente custom</button>
-        </div>
-      </div>
-    </div>
-  `;
+  const listEl = _subOverlay.querySelector<HTMLElement>('[data-sub-zone="list"]');
+  if (listEl) listEl.innerHTML = listHtml;
 }
 
 function searchRow(f: FoodItem): string {
@@ -218,30 +293,18 @@ function searchRow(f: FoodItem): string {
   `;
 }
 
-function rerenderSubSearch(): void {
-  const mount = document.getElementById('re-search-mount');
-  if (!mount) return;
-  if (!_es.searchOpen) {
-    mount.innerHTML = '';
-    return;
-  }
-  mount.innerHTML = searchBody();
-}
-
 function rerenderEditorBody(): void {
   const overlay = document.querySelector('[data-modal-id="recipe-editor"]');
   if (!overlay) return;
   const body = overlay.querySelector('.modal-body') as HTMLElement;
   if (body) body.innerHTML = editorBody();
-  // re-render sub-dialog se aperto
-  rerenderSubSearch();
 }
 
 const runSubSearch = debounce(async (query: string) => {
   if (query.trim().length < SEARCH_MIN_QUERY) {
     _es.searchResults = [];
     _es.searchLoading = false;
-    rerenderSubSearch();
+    updateSubSearchList();
     return;
   }
   if (_es.searchAbort) {
@@ -261,7 +324,7 @@ const runSubSearch = debounce(async (query: string) => {
   } finally {
     if (_es.searchAbort === ctrl) _es.searchAbort = null;
     _es.searchLoading = false;
-    rerenderSubSearch();
+    updateSubSearchList();
   }
 }, SEARCH_DEBOUNCE_MS);
 
@@ -287,11 +350,14 @@ function bindEvents(): void {
       _es.searchQuery = (t as HTMLInputElement).value;
       if (_es.searchQuery.trim().length < SEARCH_MIN_QUERY) {
         _es.searchResults = [];
-        rerenderSubSearch();
+        _es.searchLoading = false;
+        // Aggiorna SOLO la lista — non toccare il searchbox (preserva focus)
+        updateSubSearchList();
         return;
       }
       _es.searchLoading = true;
-      rerenderSubSearch();
+      // Aggiorna SOLO la lista (mostra spinner) — non toccare il searchbox
+      updateSubSearchList();
       runSubSearch(_es.searchQuery);
       return;
     }
@@ -305,26 +371,23 @@ function bindEvents(): void {
     if (!action) return;
 
     if (action === 're-open-search') {
-      const state = getState();
-      _es.searchOpen = true;
-      _es.searchTab = state.favoriteFoodIds.length > 0 ? 'favorites' : (state.foods.length > 0 ? 'saved' : 'search');
-      _es.searchQuery = '';
-      _es.searchResults = [];
-      rerenderSubSearch();
-      setTimeout(() => {
-        const inp = document.getElementById('re-search-input');
-        if (inp) inp.focus();
-      }, 100);
-      return;
-    }
-    if (action === 're-search-close') {
-      _es.searchOpen = false;
-      rerenderSubSearch();
+      if (!_es.searchOpen) openSubSearch();
       return;
     }
     if (action === 're-search-tab') {
-      _es.searchTab = target.dataset.tab as 'favorites' | 'saved' | 'search';
-      rerenderSubSearch();
+      const newTab = target.dataset.tab as 'favorites' | 'saved' | 'search';
+      if (newTab === _es.searchTab) return;
+      // Se lasciamo il tab search, abortisce la ricerca in corso
+      if (_es.searchTab === 'search' && newTab !== 'search') {
+        if (_es.searchAbort) {
+          try { _es.searchAbort.abort(); } catch { /* noop */ }
+          _es.searchAbort = null;
+        }
+        _es.searchLoading = false;
+        _es.searchResults = [];
+      }
+      _es.searchTab = newTab;
+      updateSubSearchContent();
       return;
     }
     if (action === 're-search-pick') {
@@ -347,8 +410,7 @@ function bindEvents(): void {
               foodSnapshot: foodRef,
               grams: foodRef.servingSize,
             }];
-            _es.searchOpen = false;
-            rerenderSubSearch();
+            closeModalById('recipe-search-sub');
             rerenderEditorBody();
             showToast(`${foodRef.name} aggiunto`, 'success');
           });
@@ -360,18 +422,15 @@ function bindEvents(): void {
           foodSnapshot: foodRef,
           grams: foodRef.servingSize,
         }];
-        _es.searchOpen = false;
-        rerenderSubSearch();
+        closeModalById('recipe-search-sub');
         rerenderEditorBody();
         showToast(`${foodRef.name} aggiunto`, 'success');
       }
       return;
     }
     if (action === 're-search-custom') {
-      _es.searchOpen = false;
-      rerenderSubSearch();
+      closeModalById('recipe-search-sub');
       openFoodEditor('new');
-      // dopo che il food editor viene chiuso, l'utente dovrà riaprire il search; per semplicità qui non implementiamo callback automatico
       return;
     }
     if (action === 're-ing-remove') {
@@ -419,8 +478,11 @@ function handleSave(recipeId: string | null): boolean {
 // Esposto per refresh da food-editor (caso: custom food creato da dentro recipe editor)
 export function refreshRecipeEditor(): void {
   if (getState()._editingRecipeId !== null) {
-    _es.searchOpen = true;
+    // Riapri il sub-search sul tab salvati per mostrare il nuovo food custom
+    if (!_es.searchOpen) {
+      openSubSearch();
+    }
     _es.searchTab = 'saved';
-    rerenderEditorBody();
+    updateSubSearchContent();
   }
 }

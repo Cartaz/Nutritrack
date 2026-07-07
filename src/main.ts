@@ -18,7 +18,6 @@ function init(): void {
       title: 'Modalità privata',
       bodyHtml: '<p>Il salvataggio non è disponibile in questa sessione (modalità privata o storage disabilitato). I dati non verranno persistiti tra le sessioni.</p>',
       actions: [{ label: 'OK', action: 'close', variant: 'primary' }],
-      sticky: true,
     });
   } else {
     loadData();

@@ -146,6 +146,13 @@ export function bindSearchEvents(): void {
 
   document.addEventListener('click', (e) => {
     if (!getState()._searchOpen) return;
+    // Background-click closing: se il click è direttamente sull'overlay (sfondo), chiudi
+    const overlayEl = e.target as HTMLElement;
+    if (overlayEl.classList.contains('modal-overlay') && overlayEl.dataset.modalId === 'search-dialog') {
+      closeFoodSearch();
+      resetLocal();
+      return;
+    }
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-search-action]');
     if (!target) return;
     const action = target.dataset.searchAction;
@@ -411,7 +418,7 @@ export function renderSearchShell(): string {
   const s = getState();
   // La shell contiene placeholder vuoti che verranno riempiti da updateSearchContent
   return `
-    <div class="modal-overlay modal-show" data-modal-id="search-dialog" data-search-sticky>
+    <div class="modal-overlay modal-show" data-modal-id="search-dialog">
       <div class="modal modal-search" role="dialog" aria-modal="true">
         <div class="modal-header">
           <h3 class="modal-title"><span aria-hidden="true">${MEAL_ICONS[s._searchMeal]}</span> Aggiungi a ${escapeHtml(MEAL_LABELS[s._searchMeal])}</h3>
