@@ -26,11 +26,10 @@ export function renderSettings(main: HTMLElement): void {
   const split = _localSplit ?? s.macroSplit;
 
   // Signature cache: skip se niente è cambiato.
-  // Importante: NON includere i valori dei campi del form (l'utente sta digitando,
-  // li gestiamo via input handler con update mirato, non via re-render completo).
+  // Importante: NON includere cal/split qui — altrimenti ogni keystroke/slide
+  // distrugge il focus del calorie input e interrompe il drag dei macro slider.
+  // Quei valori vengono gestiti via input handler con update mirato del DOM.
   const renderSig = JSON.stringify({
-    cal: s.calorieGoal,
-    split,
     theme: s.theme,
     sex: s.sex ?? '',
     activity: s.activityLevel ?? '',

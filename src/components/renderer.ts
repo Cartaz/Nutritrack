@@ -1,7 +1,7 @@
 // Renderer principale: render() con RAF + code-splitting viste via dynamic import + event delegation globale.
 // Pattern 2 + 3 dello standard.
 
-import { getState, emitChange, switchView, closeRecipeMealPicker } from '../lib/store';
+import { getState, emitChange, switchView, closeRecipeMealPicker, closeConfirmDeleteFood, closeConfirmDeleteRecipe, closeConfirmReset, getStoreState, resetAll } from '../lib/store';
 import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
 import { bindSearchEvents, renderSearchShell, updateSearchContent } from './search';
@@ -10,7 +10,6 @@ import { showModal } from './modal';
 import { escapeHtml, escapeAttr } from '../lib/utils';
 import type { ViewName, FoodItem, Recipe } from '../types';
 import { MEAL_LABELS } from '../types';
-import { getStoreState, closeConfirmReset, resetAll } from '../lib/store';
 import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
 import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
@@ -175,6 +174,7 @@ function renderConfirmDeleteFood(): void {
       confirmDeleteFood();
       closeModalCleanup();
     },
+    onClose: () => closeConfirmDeleteFood(),
   });
 }
 
@@ -197,6 +197,7 @@ function renderConfirmDeleteRecipe(): void {
       confirmDeleteRecipe();
       closeModalCleanup();
     },
+    onClose: () => closeConfirmDeleteRecipe(),
   });
 }
 
@@ -219,6 +220,7 @@ function renderConfirmReset(): void {
       showToast('Dati resettati', 'success');
       closeModalCleanup();
     },
+    onClose: () => closeConfirmReset(),
   });
 }
 
@@ -301,7 +303,7 @@ function renderRecipeMealPicker(): void {
     title: 'Aggiungi a quale pasto?',
     bodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per oggi</p><div class="grid-2">${buttons}</div>`,
     actions: [{ label: 'Annulla', action: 'close', variant: 'outline' }],
-    sticky: false,
+    onClose: () => closeRecipeMealPicker(),
   });
 }
 

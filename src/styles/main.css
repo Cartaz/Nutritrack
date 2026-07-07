@@ -664,6 +664,7 @@ input[type="range"]::-moz-range-thumb {
 .about strong { color: var(--text-primary); }
 
 /* ============ Modal ============ */
+/* z-index scale: 10 header/nav, 1000 modals, 2000 toasts */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -673,10 +674,16 @@ input[type="range"]::-moz-range-thumb {
   justify-content: center;
   z-index: 1000;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
   padding: var(--space-3);
 }
-.modal-overlay.modal-show { opacity: 1; }
+.modal-overlay.modal-show {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
 .modal {
   background-color: var(--bg-card);
   border-radius: var(--radius-lg);
@@ -688,6 +695,7 @@ input[type="range"]::-moz-range-thumb {
   overflow: hidden;
   transform: scale(0.95);
   transition: transform 0.2s ease;
+  pointer-events: auto;
 }
 .modal-overlay.modal-show .modal { transform: scale(1); }
 .modal-header {

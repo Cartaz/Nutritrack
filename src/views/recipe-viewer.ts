@@ -2,7 +2,7 @@
 
 import { getState, closeRecipeViewer, openRecipeMealPicker } from '../lib/store';
 import { showModal } from '../components/modal';
-import { escapeHtml, escapeAttr, round } from '../lib/utils';
+import { escapeHtml, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
 import { imgTag } from '../components/img';
 import type { Recipe } from '../types';
@@ -56,7 +56,7 @@ export function renderRecipeViewerModal(recipeId: string): void {
       closeRecipeViewer();
       openRecipeMealPicker(recipe.id);
     },
-    sticky: false,
+    onClose: () => closeRecipeViewer(),
   });
 }
 
@@ -74,5 +74,3 @@ function calcPerServing(r: Recipe): { calories: number; protein: number; carbs: 
     fat:      r.servings > 0 ? round(t.fat      / r.servings, 1) : 0,
   };
 }
-
-void escapeAttr;

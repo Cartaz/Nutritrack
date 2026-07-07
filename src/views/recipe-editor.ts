@@ -1,6 +1,6 @@
 // Modal: editor ricetta. Form nome/desc/servings + lista ingredienti con ricerca OFF.
 
-import { getState, closeRecipeEditor, addRecipe, updateRecipe, openFoodEditor, emitChange } from '../lib/store';
+import { getState, closeRecipeEditor, addRecipe, updateRecipe, openFoodEditor, emitChange, addFood } from '../lib/store';
 import { showToast } from '../components/toast';
 import { showModal, closeModalById } from '../components/modal';
 import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
@@ -141,7 +141,7 @@ function ingRow(ing: RecipeIngredient): string {
       <div class="ing-info">
         <p class="ing-name">${escapeHtml(ing.foodSnapshot.name)}</p>
         ${ing.foodSnapshot.brand ? `<p class="ing-brand">${escapeHtml(ing.foodSnapshot.brand)}</p>` : ''}
-        <p class="ing-meta">${scaled.calories} kcal · P${scaled.protein}g · C${scaled.carbs}g · G${scaled.fat}g</p>
+        <p class="ing-meta">${Math.round(scaled.calories)} kcal · P${Math.round(scaled.protein)}g · C${Math.round(scaled.carbs)}g · G${Math.round(scaled.fat)}g</p>
       </div>
       <div class="ing-qty">
         <input type="number" min="0" value="${ing.grams}" data-action="re-ing-grams" data-ing-id="${escapeAttr(ing.id)}" />
@@ -401,19 +401,16 @@ function bindEvents(): void {
         let foodRef = f;
         if (f.source === 'openfoodfacts' && !state.foods.find((x) => x.id === f.id)) {
           foodRef = { ...f, id: safeId('food_') };
-          // Aggiungiamo allo store
-          import('../lib/store').then(({ addFood }) => {
-            addFood(foodRef);
-            _es.ingredients = [..._es.ingredients, {
-              id: safeId('ing_'),
-              foodId: foodRef.id,
-              foodSnapshot: foodRef,
-              grams: foodRef.servingSize,
-            }];
-            closeModalById('recipe-search-sub');
-            rerenderEditorBody();
-            showToast(`${foodRef.name} aggiunto`, 'success');
-          });
+          addFood(foodRef);
+          _es.ingredients = [..._es.ingredients, {
+            id: safeId('ing_'),
+            foodId: foodRef.id,
+            foodSnapshot: foodRef,
+            grams: foodRef.servingSize,
+          }];
+          closeModalById('recipe-search-sub');
+          rerenderEditorBody();
+          showToast(`${foodRef.name} aggiunto`, 'success');
           return;
         }
         _es.ingredients = [..._es.ingredients, {

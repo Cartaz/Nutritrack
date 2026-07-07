@@ -356,7 +356,9 @@ function confirmAdd(): void {
 
 /** Crea una nuova porzione personalizzata per il food attualmente selezionato.
  *  Se il food è già salvato → persistenza immediata via store.
- *  Se il food non è salvato (OFF search result) → memorizza in pendingCustomPortions. */
+ *  Se il food non è salvato (OFF search result) → memorizza in pendingCustomPortions.
+ *  NOTA: non aggiornare _local.results qui. Il merge di pendingCustomPortions
+ *  avviene in renderSelectedFooter() e confirmAdd(), evitando duplicati. */
 function createCustomPortion(): void {
   const list = currentList();
   const f = _local.selectedId ? list.find((x) => x.id === _local.selectedId) : null;
@@ -367,7 +369,7 @@ function createCustomPortion(): void {
     showToast('Inserisci un nome per la porzione', 'info');
     return;
   }
-  if (!grams || grams <= 0) {
+  if (!Number.isFinite(grams) || grams <= 0) {
     showToast('Inserisci i grammi della porzione', 'info');
     return;
   }
@@ -375,18 +377,13 @@ function createCustomPortion(): void {
   if (isSaved) {
     addCustomPortionToFood(f.id, label, grams);
   } else {
-    // Food non ancora salvato: mantieni in pending
+    // Food non ancora salvato: mantieni solo in pendingCustomPortions.
+    // Il merge con selectedFood.customPortions avviene in renderSelectedFooter().
     const portion: CustomPortion = {
       id: safeId('port_'),
       label,
       grams: Math.max(0.1, Math.round(grams * 10) / 10),
     };
-    // Aggiungi anche al food in _local.results così appare nei ri-render
-    _local.results = _local.results.map((r) =>
-      r.id === f.id
-        ? { ...r, customPortions: [...(r.customPortions || []), portion] }
-        : r
-    );
     _local.pendingCustomPortions = [..._local.pendingCustomPortions, portion];
   }
   _local.creatingPortion = false;
@@ -402,13 +399,8 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
     removeCustomPortionFromFood(foodId, portionId);
     return;
   }
-  // Pending: rimuovi da _local.pendingCustomPortions e dal food in _local.results
+  // Pending: rimuovi solo da _local.pendingCustomPortions
   _local.pendingCustomPortions = _local.pendingCustomPortions.filter((p) => p.id !== portionId);
-  _local.results = _local.results.map((r) =>
-    r.id === foodId
-      ? { ...r, customPortions: (r.customPortions || []).filter((p) => p.id !== portionId) }
-      : r
-  );
   emitChange();
 }
 

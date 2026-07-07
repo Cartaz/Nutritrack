@@ -50,7 +50,7 @@ function initModal(): void {
       closeModal(overlay);
       return;
     }
-    if (action === 'overlay-close' && target === overlay) {
+    if (action === 'overlay-close' && e.target === overlay) {
       closeModal(overlay);
     }
   });
@@ -82,8 +82,11 @@ function closeModal(el: HTMLElement): void {
     if (cb?.onClose) {
       try { cb.onClose(); } catch (e) { console.error('[modal] onClose error', e); }
     }
-    // Fix B20: cleanup callbacks per evitare memory leak
-    _callbacks.delete(modalId);
+    // Fix race condition: cancella i callback SOLO se non sono stati
+    // già sostituiti da un nuovo showModal con lo stesso modalId
+    if (_callbacks.get(modalId) === cb) {
+      _callbacks.delete(modalId);
+    }
     _closing.delete(el);
   }, 200);
 }

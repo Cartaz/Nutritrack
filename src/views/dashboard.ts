@@ -307,6 +307,8 @@ function bindDashboardEvents(main: HTMLElement): void {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action="editEntry"]');
     if (!target) return;
+    // Skip se il focus è su un bottone figlio (delete, +/−): lascia che il click nativo del bottone proceda
+    if (e.target !== target) return;
     e.preventDefault();
     const id = target.dataset.entryId || '';
     if (id) openEntryEditor(id);

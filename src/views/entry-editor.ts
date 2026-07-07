@@ -2,8 +2,7 @@
 // Permette di modificare la quantità di un cibo già inserito cliccando sulla riga.
 // Supporta grammi liberi + porzioni personalizzate salvate sul food.
 
-import { getState, closeEntryEditor, emitChange } from '../lib/store';
-import { updateDiaryEntry } from '../lib/store';
+import { getState, closeEntryEditor, updateDiaryEntry } from '../lib/store';
 import { addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
 import { showToast } from '../components/toast';
 import { showModal } from '../components/modal';
@@ -302,25 +301,31 @@ function createCustomPortion(): void {
     showToast('Inserisci un nome per la porzione', 'info');
     return;
   }
-  if (!grams || grams <= 0) {
+  if (!Number.isFinite(grams) || grams <= 0) {
     showToast('Inserisci i grammi della porzione', 'info');
     return;
   }
-  const portion: CustomPortion = {
-    id: safeId('port_'),
-    label,
-    grams: Math.max(0.1, Math.round(grams * 10) / 10),
-  };
-  const newCustomPortions = [...(f.customPortions || []), portion];
-  // Aggiorna sempre lo snapshot della entry (così la UI si aggiorna)
-  updateDiaryEntry(entry.id, {
-    foodSnapshot: { ...f, customPortions: newCustomPortions },
-  });
-  // Se il food è anche salvato nei foods, persisti la porzione anche lì
+  // Se il food è salvato: persisti prima via store (genera l'id reale),
+  // poi aggiorna lo snapshot con la porzione ritornata (stesso id).
+  // Se non è salvato: genera id locale per lo snapshot.
   const isSaved = getState().foods.some((x) => x.id === f.id);
+  let portion: CustomPortion;
   if (isSaved) {
-    addCustomPortionToFood(f.id, label, grams);
+    const created = addCustomPortionToFood(f.id, label, grams);
+    if (!created) return;
+    portion = created;
+  } else {
+    portion = {
+      id: safeId('port_'),
+      label,
+      grams: Math.max(0.1, Math.round(grams * 10) / 10),
+    };
   }
+  const newCustomPortions = [...(f.customPortions || []), portion];
+  // Aggiorna lo snapshot della entry (così la UI si aggiorna e l'id è coerente)
+  updateDiaryEntry(entry.id, {
+    foodSnapshot: { ...f, customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined },
+  });
   _form.creatingPortion = false;
   _form.newPortionLabel = '';
   _form.newPortionGrams = '';
@@ -332,9 +337,9 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
   if (!entry) return;
   const f = entry.foodSnapshot;
   const newCustomPortions = (f.customPortions || []).filter((p) => p.id !== portionId);
-  // Aggiorna sempre lo snapshot della entry
+  // Aggiorna lo snapshot della entry (undefined se vuoto, per consistenza col normalizer)
   updateDiaryEntry(entry.id, {
-    foodSnapshot: { ...f, customPortions: newCustomPortions },
+    foodSnapshot: { ...f, customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined },
   });
   // Se il food è salvato, rimuovi la porzione anche dai foods
   const isSaved = getState().foods.some((x) => x.id === foodId);
@@ -346,7 +351,7 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
 
 function handleSave(entry: DiaryEntry): boolean {
   const grams = Number(_form.grams);
-  if (!grams || grams <= 0) {
+  if (!Number.isFinite(grams) || grams <= 0) {
     showToast('Inserisci i grammi', 'info');
     return false;
   }
@@ -355,6 +360,5 @@ function handleSave(entry: DiaryEntry): boolean {
     gramsOverride: grams,
   });
   showToast('Quantità aggiornata', 'success');
-  emitChange();
   return true;
 }
