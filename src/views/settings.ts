@@ -1,8 +1,8 @@
 // Vista Settings: calorie goal, macro split, TDEE calculator, export/import, reset, about.
 
-import { getState, setCalorieGoal, setMacroSplit, updateSettings, emitChange, openConfirmReset } from '../lib/store';
+import { getState, setCalorieGoal, setMacroSplit, updateSettings, openConfirmReset } from '../lib/store';
 import { calcMacroGrams, calcBMR, calcTDEE, normalizeMacroSplit, kcalFromMacros } from '../lib/nutrition';
-import { escapeHtml, escapeAttr, clamp, debounce } from '../lib/utils';
+import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
 import { handleExport, handleImport } from '../components/exportImport';
 import { showToast } from '../components/toast';
 import { applyTheme } from '../components/renderer';
@@ -19,17 +19,74 @@ export function resetSettingsSignature(): void {
   _settingsRenderSig = '';
 }
 
-const _emit = debounce(() => { _settingsRenderSig = ''; emitChange(); }, 80);
+/** Update mirato del DOM per i display macro — preserva focus su input/slider.
+ *  Usato durante il drag dei macro slider e la digitazione nel calorie input,
+ *  invece di triggerare un full re-render che distruggerebbe il focus. */
+function updateMacroDisplayLive(): void {
+  const s = getState().settings;
+  const split = _localSplit ?? s.macroSplit;
+  const macroGrams = calcMacroGrams(s.calorieGoal, split);
+  const splitSum = split.proteinPct + split.carbsPct + split.fatPct;
+  const kcalCheck = kcalFromMacros(macroGrams);
+
+  const scope = document.querySelector('.settings-view');
+  if (!scope) return;
+
+  // Macro slider values spans (non toccare gli <input type="range">)
+  const rows = scope.querySelectorAll<HTMLElement>('.macro-slider-row');
+  const keys: Array<'proteinPct' | 'carbsPct' | 'fatPct'> = ['proteinPct', 'carbsPct', 'fatPct'];
+  const gramsVals = [macroGrams.protein, macroGrams.carbs, macroGrams.fat];
+  rows.forEach((row, i) => {
+    const values = row.querySelector<HTMLElement>('.macro-slider-values');
+    if (values && keys[i]) {
+      values.innerHTML = `<strong>${split[keys[i]]}%</strong> · ${gramsVals[i]}g`;
+    }
+  });
+
+  // Split sum badge
+  const badge = scope.querySelector<HTMLElement>('.setting-head .badge');
+  if (badge) {
+    badge.className = `badge ${Math.abs(splitSum - 100) < 1 ? 'badge-secondary' : 'badge-danger'}`;
+    badge.textContent = `Somma: ${splitSum}%`;
+  }
+
+  // Preview values
+  const previewValues = scope.querySelector<HTMLElement>('.preview-values');
+  if (previewValues) {
+    previewValues.innerHTML = `P <strong>${macroGrams.protein}g</strong> · C <strong>${macroGrams.carbs}g</strong> · G <strong>${macroGrams.fat}g</strong>`;
+  }
+  const previewCheck = scope.querySelector<HTMLElement>('.preview-check');
+  if (previewCheck) previewCheck.textContent = `Verifica kcal da macro: ${kcalCheck} kcal`;
+
+  // Warning text (toggle visibility)
+  let warning = scope.querySelector<HTMLElement>('.warning-text');
+  if (Math.abs(splitSum - 100) > 0.5) {
+    if (!warning) {
+      const slidersContainer = scope.querySelector('.macro-sliders');
+      if (slidersContainer) {
+        warning = document.createElement('p');
+        warning.className = 'warning-text';
+        warning.textContent = 'Lo split non somma a 100%. Verrà normalizzato automaticamente al salvataggio.';
+        slidersContainer.insertAdjacentElement('afterend', warning);
+      }
+    }
+  } else if (warning) {
+    warning.remove();
+  }
+}
 
 export function renderSettings(main: HTMLElement): void {
   const s = getState().settings;
   const split = _localSplit ?? s.macroSplit;
 
   // Signature cache: skip se niente è cambiato.
-  // Importante: NON includere cal/split qui — altrimenti ogni keystroke/slide
-  // distrugge il focus del calorie input e interrompe il drag dei macro slider.
-  // Quei valori vengono gestiti via input handler con update mirato del DOM.
+  // Importante: NON includere cal qui — altrimenti ogni keystroke nel calorie input
+  // distrugge il focus. cal viene gestito via input handler con update mirato del DOM.
+  // split È incluso: i preset e "Salva split" devono triggerare il re-render.
+  // Il drag dei macro slider usa update mirato (updateMacroDisplayLive) invece di emit,
+  // quindi non triggera re-render e non interrompe il drag.
   const renderSig = JSON.stringify({
+    split,
     theme: s.theme,
     sex: s.sex ?? '',
     activity: s.activityLevel ?? '',
@@ -232,13 +289,19 @@ function bindSettingsEvents(main: HTMLElement): void {
     if (target.id === 'calorie-input') {
       const v = Math.max(500, Number((target as HTMLInputElement).value) || 0);
       setCalorieGoal(v);
-      _emit();
+      // Update mirato: aggiorna il calorie slider e i grammi macro senza re-render
+      const slider = main.querySelector<HTMLInputElement>('#calorie-slider');
+      if (slider) slider.value = String(clamp(v, 1000, 4000));
+      updateMacroDisplayLive();
       return;
     }
     if (target.id === 'calorie-slider') {
       const v = Number((target as HTMLInputElement).value);
       setCalorieGoal(v);
-      _emit();
+      // Update mirato: aggiorna il calorie input e i grammi macro senza re-render
+      const input = main.querySelector<HTMLInputElement>('#calorie-input');
+      if (input) input.value = String(v);
+      updateMacroDisplayLive();
       return;
     }
     if (target.dataset.action === 'slideMacro') {
@@ -246,7 +309,8 @@ function bindSettingsEvents(main: HTMLElement): void {
       const v = Number((target as HTMLInputElement).value);
       const base = _localSplit ?? { ...getState().settings.macroSplit };
       _localSplit = { ...base, [key]: v };
-      _emit();
+      // Update mirato: aggiorna % e grammi senza re-render (preserva il drag)
+      updateMacroDisplayLive();
       return;
     }
   });
