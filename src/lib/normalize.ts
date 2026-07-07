@@ -121,6 +121,24 @@ export function normalizeFoodItem(v: unknown): FoodItem | null {
   const nutrition = normalizeNutrition(v.nutrition);
   if (!nutrition) return null;
   const servingSize = safeNum(v.servingSize, 100, 0, 100_000);
+  // Normalizza customPortions (array di { id, label, grams })
+  let customPortions: FoodItem['customPortions'];
+  if (Array.isArray(v.customPortions)) {
+    const seen = new Set<string>();
+    const list: NonNullable<FoodItem['customPortions']>[number][] = [];
+    for (const raw of v.customPortions) {
+      if (!isObject(raw)) continue;
+      const label = normalizeString(raw.label, 100);
+      if (!label) continue;
+      const grams = safeNum(raw.grams, 0, 0.1, 100_000);
+      if (grams <= 0) continue;
+      const id = isString(raw.id) && raw.id ? raw.id : safeId('port_');
+      if (seen.has(id)) continue;
+      seen.add(id);
+      list.push({ id, label, grams });
+    }
+    if (list.length > 0) customPortions = list;
+  }
   const item: FoodItem = {
     id: isString(v.id) && v.id ? v.id : safeId('food_'),
     name,
@@ -129,6 +147,7 @@ export function normalizeFoodItem(v: unknown): FoodItem | null {
     source: normalizeFoodSource(v.source),
     servingSize: servingSize > 0 ? servingSize : 100,
     servingLabel: normalizeOptionalString(v.servingLabel, 100),
+    customPortions,
     nutrition,
     image: safeImageUrl(v.image),
     createdAt: safeNum(v.createdAt, Date.now(), 0),

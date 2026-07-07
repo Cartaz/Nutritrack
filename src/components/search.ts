@@ -7,16 +7,16 @@
 // (lista, footer, tabs active) viene aggiornato via innerHTML mirato. L'input #search-input non viene
 // MAI toccato dopo la creazione per non perdere focus e cursore (causa del bug flickering).
 
-import { escapeHtml, escapeAttr, debounce } from '../lib/utils';
+import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
 import { searchOff } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
 import { getState, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
-import { toggleFoodFavorite } from '../lib/foods';
+import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
 import { showToast } from './toast';
 import { imgTag } from './img';
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
-import type { FoodItem } from '../types';
+import type { FoodItem, CustomPortion } from '../types';
 import { MEAL_ICONS, MEAL_LABELS } from '../types';
 
 // ============ Internal dialog state (NON in store globale) ============
@@ -27,8 +27,14 @@ interface SearchDialogState {
   loading: boolean;
   results: FoodItem[];
   selectedId: string | null;
-  quantity: number;
   gramsOverride: string;
+  // Porzioni personalizzate create durante questa sessione per il food selezionato
+  // (usate solo se il food non è ancora salvato; se è già salvato si persistono subito via store).
+  pendingCustomPortions: CustomPortion[];
+  // UI: form inline per creare una nuova porzione personalizzata
+  creatingPortion: boolean;
+  newPortionLabel: string;
+  newPortionGrams: string;
   abortController: AbortController | null;
 }
 
@@ -38,8 +44,11 @@ const _local: SearchDialogState = {
   loading: false,
   results: [],
   selectedId: null,
-  quantity: 1,
   gramsOverride: '',
+  pendingCustomPortions: [],
+  creatingPortion: false,
+  newPortionLabel: '',
+  newPortionGrams: '',
   abortController: null,
 };
 
@@ -52,8 +61,11 @@ function resetLocal(): void {
   _local.loading = false;
   _local.results = [];
   _local.selectedId = null;
-  _local.quantity = 1;
   _local.gramsOverride = '';
+  _local.pendingCustomPortions = [];
+  _local.creatingPortion = false;
+  _local.newPortionLabel = '';
+  _local.newPortionGrams = '';
   _local.abortController = null;
 }
 
@@ -158,8 +170,12 @@ export function bindSearchEvents(): void {
         const f = list.find((x) => x.id === id);
         if (f) {
           _local.selectedId = f.id;
-          _local.quantity = 1;
-          _local.gramsOverride = '';
+          // Default: preimposta i grammi alla servingSize del food
+          _local.gramsOverride = String(f.servingSize || 100);
+          _local.pendingCustomPortions = [];
+          _local.creatingPortion = false;
+          _local.newPortionLabel = '';
+          _local.newPortionGrams = '';
           emitChange();
         }
         return;
@@ -171,6 +187,8 @@ export function bindSearchEvents(): void {
       }
       case 'clearSelected': {
         _local.selectedId = null;
+        _local.pendingCustomPortions = [];
+        _local.creatingPortion = false;
         emitChange();
         return;
       }
@@ -197,6 +215,45 @@ export function bindSearchEvents(): void {
         emitChange();
         return;
       }
+      case 'usePortion': {
+        // Imposta i grammi al valore di una porzione personalizzata
+        const grams = Number(target.dataset.grams || '0');
+        if (grams > 0) {
+          _local.gramsOverride = String(grams);
+          _local.creatingPortion = false;
+          emitChange();
+        }
+        return;
+      }
+      case 'startCreatePortion': {
+        _local.creatingPortion = true;
+        _local.newPortionLabel = '';
+        _local.newPortionGrams = _local.gramsOverride || '';
+        emitChange();
+        // Autofocus sul campo label dopo il re-render
+        setTimeout(() => {
+          const inp = document.querySelector<HTMLInputElement>('#new-portion-label');
+          if (inp) inp.focus();
+        }, 0);
+        return;
+      }
+      case 'cancelCreatePortion': {
+        _local.creatingPortion = false;
+        _local.newPortionLabel = '';
+        _local.newPortionGrams = '';
+        emitChange();
+        return;
+      }
+      case 'confirmCreatePortion': {
+        createCustomPortion();
+        return;
+      }
+      case 'deleteCustomPortion': {
+        const portionId = target.dataset.portionId || '';
+        const foodId = target.dataset.foodId || '';
+        deleteCustomPortion(foodId, portionId);
+        return;
+      }
     }
   });
 
@@ -220,14 +277,29 @@ export function bindSearchEvents(): void {
       runSearch(_local.query);
       return;
     }
-    if (target.id === 'qty-input') {
-      _local.quantity = Math.max(0, Number((target as HTMLInputElement).value) || 0);
-      emitChange();
-      return;
-    }
     if (target.id === 'grams-input') {
       _local.gramsOverride = (target as HTMLInputElement).value;
       emitChange();
+      return;
+    }
+    if (target.id === 'new-portion-label') {
+      _local.newPortionLabel = (target as HTMLInputElement).value;
+      return;
+    }
+    if (target.id === 'new-portion-grams') {
+      _local.newPortionGrams = (target as HTMLInputElement).value;
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!getState()._searchOpen) return;
+    if (e.key !== 'Enter') return;
+    const target = e.target as HTMLElement;
+    // Enter nel form di creazione porzione → conferma
+    if (target.id === 'new-portion-label' || target.id === 'new-portion-grams') {
+      e.preventDefault();
+      createCustomPortion();
       return;
     }
   });
@@ -250,15 +322,87 @@ function confirmAdd(): void {
     showToast('Seleziona un alimento', 'info');
     return;
   }
-  const grams = _local.gramsOverride ? Number(_local.gramsOverride) : undefined;
+  const grams = _local.gramsOverride ? Number(_local.gramsOverride) : 0;
+  if (!grams || grams <= 0) {
+    showToast('Inserisci i grammi', 'info');
+    return;
+  }
+  // Se ci sono porzioni personalizzate pending (food non ancora salvato), allegale al food
+  // così verranno persistite insieme al food quando addFoodToDiary lo salva.
+  let foodToSave = f;
+  if (_local.pendingCustomPortions.length > 0) {
+    const existing = f.customPortions || [];
+    foodToSave = {
+      ...f,
+      customPortions: [...existing, ..._local.pendingCustomPortions],
+    };
+  }
   addFoodToDiary({
     date: s._searchDate,
     meal: s._searchMeal,
-    food: f,
-    quantity: _local.quantity,
+    food: foodToSave,
+    quantity: 1,
     gramsOverride: grams,
   });
   resetLocal();
+}
+
+/** Crea una nuova porzione personalizzata per il food attualmente selezionato.
+ *  Se il food è già salvato → persistenza immediata via store.
+ *  Se il food non è salvato (OFF search result) → memorizza in pendingCustomPortions. */
+function createCustomPortion(): void {
+  const list = currentList();
+  const f = _local.selectedId ? list.find((x) => x.id === _local.selectedId) : null;
+  if (!f) return;
+  const label = _local.newPortionLabel.trim();
+  const grams = Number(_local.newPortionGrams);
+  if (!label) {
+    showToast('Inserisci un nome per la porzione', 'info');
+    return;
+  }
+  if (!grams || grams <= 0) {
+    showToast('Inserisci i grammi della porzione', 'info');
+    return;
+  }
+  const isSaved = getState().foods.some((x) => x.id === f.id);
+  if (isSaved) {
+    addCustomPortionToFood(f.id, label, grams);
+  } else {
+    // Food non ancora salvato: mantieni in pending
+    const portion: CustomPortion = {
+      id: safeId('port_'),
+      label,
+      grams: Math.max(0.1, Math.round(grams * 10) / 10),
+    };
+    // Aggiungi anche al food in _local.results così appare nei ri-render
+    _local.results = _local.results.map((r) =>
+      r.id === f.id
+        ? { ...r, customPortions: [...(r.customPortions || []), portion] }
+        : r
+    );
+    _local.pendingCustomPortions = [..._local.pendingCustomPortions, portion];
+  }
+  _local.creatingPortion = false;
+  _local.newPortionLabel = '';
+  _local.newPortionGrams = '';
+  emitChange();
+}
+
+/** Elimina una porzione personalizzata (salvata o pending). */
+function deleteCustomPortion(foodId: string, portionId: string): void {
+  const isSaved = getState().foods.some((x) => x.id === foodId);
+  if (isSaved) {
+    removeCustomPortionFromFood(foodId, portionId);
+    return;
+  }
+  // Pending: rimuovi da _local.pendingCustomPortions e dal food in _local.results
+  _local.pendingCustomPortions = _local.pendingCustomPortions.filter((p) => p.id !== portionId);
+  _local.results = _local.results.map((r) =>
+    r.id === foodId
+      ? { ...r, customPortions: (r.customPortions || []).filter((p) => p.id !== portionId) }
+      : r
+  );
+  emitChange();
 }
 
 // ============ Shell render (crea SOLO la struttura statica del modal) ============
@@ -369,15 +513,51 @@ export function updateSearchContent(overlay: HTMLElement): void {
 }
 
 function renderSelectedFooter(selectedFood: FoodItem): string {
-  const selectedGrams = _local.gramsOverride
-    ? Number(_local.gramsOverride)
-    : selectedFood.servingSize * _local.quantity;
+  const selectedGrams = _local.gramsOverride ? Number(_local.gramsOverride) : selectedFood.servingSize;
   const selectedNutrition = {
     calories: Math.round((selectedFood.nutrition.calories * selectedGrams) / 100),
     protein: Math.round((selectedFood.nutrition.protein * selectedGrams) / 100),
     carbs: Math.round((selectedFood.nutrition.carbs * selectedGrams) / 100),
     fat: Math.round((selectedFood.nutrition.fat * selectedGrams) / 100),
   };
+  // Combina le porzioni personalizzate salvate con quelle pending
+  const allPortions: CustomPortion[] = [
+    ...(selectedFood.customPortions || []),
+    ..._local.pendingCustomPortions,
+  ];
+  const portionsHtml = allPortions.length > 0
+    ? `
+      <div class="portion-chips">
+        ${allPortions.map((p) => `
+          <button type="button" class="portion-chip${Number(_local.gramsOverride) === p.grams ? ' active' : ''}" data-search-action="usePortion" data-grams="${p.grams}">
+            <span class="portion-chip-label">${escapeHtml(p.label)}</span>
+            <span class="portion-chip-grams">${p.grams}g</span>
+            <span class="portion-chip-del" data-search-action="deleteCustomPortion" data-food-id="${escapeAttr(selectedFood.id)}" data-portion-id="${escapeAttr(p.id)}" role="button" aria-label="Elimina porzione">✕</span>
+          </button>
+        `).join('')}
+      </div>
+    `
+    : '';
+
+  const createPortionHtml = _local.creatingPortion
+    ? `
+      <div class="portion-create-form">
+        <div class="portion-create-grid">
+          <input id="new-portion-label" type="text" placeholder="Nome (es. 1 fetta, 1 tazza)" value="${escapeAttr(_local.newPortionLabel)}" />
+          <input id="new-portion-grams" type="number" min="0" step="0.1" placeholder="Grammi" value="${escapeAttr(_local.newPortionGrams)}" />
+        </div>
+        <div class="portion-create-actions">
+          <button type="button" class="btn btn-outline btn-sm" data-search-action="cancelCreatePortion">Annulla</button>
+          <button type="button" class="btn btn-primary btn-sm" data-search-action="confirmCreatePortion">Salva porzione</button>
+        </div>
+      </div>
+    `
+    : `
+      <button type="button" class="btn btn-outline btn-sm btn-block portion-create-btn" data-search-action="startCreatePortion">
+        <span aria-hidden="true">＋</span> Crea porzione personalizzata
+      </button>
+    `;
+
   return `
     <div class="search-selected">
       <div class="selected-head">
@@ -385,23 +565,22 @@ function renderSelectedFooter(selectedFood: FoodItem): string {
           <p class="selected-name">${escapeHtml(selectedFood.name)}</p>
           ${selectedFood.brand ? `<p class="selected-brand">${escapeHtml(selectedFood.brand)}</p>` : ''}
           <div class="badge-row">
-            <span class="badge badge-secondary">${selectedFood.nutrition.calories} kcal / 100g</span>
-            <span class="badge">P ${selectedFood.nutrition.protein}g</span>
-            <span class="badge">C ${selectedFood.nutrition.carbs}g</span>
-            <span class="badge">G ${selectedFood.nutrition.fat}g</span>
+            <span class="badge badge-secondary">${Math.round(selectedFood.nutrition.calories)} kcal / 100g</span>
+            <span class="badge">P ${Math.round(selectedFood.nutrition.protein)}g</span>
+            <span class="badge">C ${Math.round(selectedFood.nutrition.carbs)}g</span>
+            <span class="badge">G ${Math.round(selectedFood.nutrition.fat)}g</span>
           </div>
         </div>
         <button type="button" class="icon-btn" data-search-action="clearSelected" aria-label="Deseleziona">✕</button>
       </div>
-      <div class="qty-row">
-        <div>
-          <label for="qty-input" class="field-label">Porzioni ${escapeHtml(selectedFood.servingLabel ? `(${selectedFood.servingLabel})` : `(${selectedFood.servingSize}g)`)}</label>
-          <input id="qty-input" type="number" min="0" step="0.5" value="${_local.quantity}" ${_local.gramsOverride ? 'disabled' : ''} />
-        </div>
-        <div>
-          <label for="grams-input" class="field-label">Oppure grammi/ml esatti</label>
-          <input id="grams-input" type="number" min="0" placeholder="es. 150" value="${escapeAttr(_local.gramsOverride)}" />
-        </div>
+      <div class="qty-row-single">
+        <label for="grams-input" class="field-label">Grammi / ml</label>
+        <input id="grams-input" type="number" min="0" step="0.1" placeholder="es. 150" value="${escapeAttr(_local.gramsOverride)}" />
+      </div>
+      <div class="portion-section">
+        <p class="portion-section-title">Porzioni personalizzate</p>
+        ${portionsHtml}
+        ${createPortionHtml}
       </div>
       <div class="stat-row">
         ${statBox('kcal', String(selectedNutrition.calories))}
@@ -449,8 +628,8 @@ function foodRow(f: FoodItem): string {
         <p class="food-row-name">${escapeHtml(f.name)}</p>
         ${f.brand ? `<p class="food-row-brand">${escapeHtml(f.brand)}</p>` : ''}
         <p class="food-row-meta">
-          <strong>${f.nutrition.calories} kcal</strong> / 100g
-          · P${f.nutrition.protein} C${f.nutrition.carbs} G${f.nutrition.fat}
+          <strong>${Math.round(f.nutrition.calories)} kcal</strong> / 100g
+          · P${Math.round(f.nutrition.protein)} C${Math.round(f.nutrition.carbs)} G${Math.round(f.nutrition.fat)}
         </p>
       </div>
       <button type="button" class="fav-btn${isFav ? ' active' : ''}" data-search-action="toggleFav" data-food-id="${escapeAttr(f.id)}" aria-label="Aggiungi ai preferiti">

@@ -84,10 +84,10 @@ function foodCard(f: FoodItem, isFav: boolean): string {
           <p class="food-card-name">${escapeHtml(f.name)}</p>
           ${f.brand ? `<p class="food-card-brand">${escapeHtml(f.brand)}</p>` : ''}
           <div class="badge-row">
-            <span class="badge badge-secondary">${f.nutrition.calories} kcal/100g</span>
-            <span class="badge">P ${f.nutrition.protein}g</span>
-            <span class="badge">C ${f.nutrition.carbs}g</span>
-            <span class="badge">G ${f.nutrition.fat}g</span>
+            <span class="badge badge-secondary">${Math.round(f.nutrition.calories)} kcal/100g</span>
+            <span class="badge">P ${Math.round(f.nutrition.protein)}g</span>
+            <span class="badge">C ${Math.round(f.nutrition.carbs)}g</span>
+            <span class="badge">G ${Math.round(f.nutrition.fat)}g</span>
             <span class="badge">Porz: ${f.servingSize}g</span>
           </div>
         </div>

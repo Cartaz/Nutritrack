@@ -127,6 +127,7 @@ function renderOverlays(): void {
   void renderRecipeEditor();
   void renderRecipeViewer();
   renderRecipeMealPicker();
+  void renderEntryEditor();
 }
 
 function renderSearchOverlay(): void {
@@ -270,6 +271,19 @@ async function renderRecipeViewer(): Promise<void> {
   if (idAfter !== id) return;
   if (document.querySelector('[data-modal-id="recipe-viewer"]')) return;
   renderRecipeViewerModal(id);
+}
+
+async function renderEntryEditor(): Promise<void> {
+  const id = getStoreState()._editingEntryId;
+  const existing = document.querySelector('[data-modal-id="entry-editor"]');
+  if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
+  if (!id || existing) return;
+  const { renderEntryEditorModal } = await import('../views/entry-editor');
+  // Re-check dopo await
+  const idAfter = getStoreState()._editingEntryId;
+  if (idAfter !== id) return;
+  if (document.querySelector('[data-modal-id="entry-editor"]')) return;
+  renderEntryEditorModal(id);
 }
 
 function renderRecipeMealPicker(): void {

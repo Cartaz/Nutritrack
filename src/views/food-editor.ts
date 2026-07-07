@@ -43,10 +43,10 @@ function loadFromFood(foodId: string): void {
   if (!f) { resetForm(); return; }
   _form.name = f.name;
   _form.brand = f.brand || '';
-  _form.calories = String(f.nutrition.calories);
-  _form.protein = String(f.nutrition.protein);
-  _form.carbs = String(f.nutrition.carbs);
-  _form.fat = String(f.nutrition.fat);
+  _form.calories = String(Math.round(f.nutrition.calories));
+  _form.protein = String(Math.round(f.nutrition.protein));
+  _form.carbs = String(Math.round(f.nutrition.carbs));
+  _form.fat = String(Math.round(f.nutrition.fat));
   _form.fiber = f.nutrition.fiber != null ? String(f.nutrition.fiber) : '';
   _form.sugar = f.nutrition.sugar != null ? String(f.nutrition.sugar) : '';
   _form.salt = f.nutrition.salt != null ? String(f.nutrition.salt) : '';

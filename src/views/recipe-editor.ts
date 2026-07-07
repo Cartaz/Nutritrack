@@ -211,7 +211,7 @@ function searchRow(f: FoodItem): string {
       <div class="food-row-info">
         <p class="food-row-name">${escapeHtml(f.name)}</p>
         ${f.brand ? `<p class="food-row-brand">${escapeHtml(f.brand)}</p>` : ''}
-        <p class="food-row-meta">${f.nutrition.calories} kcal · P${f.nutrition.protein} C${f.nutrition.carbs} G${f.nutrition.fat}</p>
+        <p class="food-row-meta">${Math.round(f.nutrition.calories)} kcal · P${Math.round(f.nutrition.protein)} C${Math.round(f.nutrition.carbs)} G${Math.round(f.nutrition.fat)}</p>
       </div>
       <span class="pick-icon" aria-hidden="true">＋</span>
     </button>

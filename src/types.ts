@@ -37,6 +37,13 @@ export interface NutritionPer100 {
 export const ALLOWED_FOOD_SOURCES = ['custom', 'openfoodfacts'] as const;
 export type FoodSource = (typeof ALLOWED_FOOD_SOURCES)[number];
 
+/** Porzione personalizzata creata dall'utente (es. "1 fetta" = 30g) */
+export interface CustomPortion {
+  id: string;
+  label: string;   // es. "1 fetta", "1 tazza", "1 cucchiaio"
+  grams: number;   // grammi/ml della porzione
+}
+
 /** Ingrediente / cibo salvabile (custom o da Open Food Facts) */
 export interface FoodItem {
   id: string;
@@ -46,6 +53,7 @@ export interface FoodItem {
   source: FoodSource;
   servingSize: number;     // grammi/ml per porzione di default
   servingLabel?: string;   // es. "1 fetta", "1 tazza"
+  customPortions?: CustomPortion[]; // porzioni personalizzate create dall'utente
   nutrition: NutritionPer100;
   image?: string;          // URL thumbnail
   createdAt: number;
@@ -239,4 +247,5 @@ export interface AppState {
   _confirmDeleteRecipeId: string | null;
   _confirmReset: boolean;
   _addRecipeToMealPickerId: string | null;
+  _editingEntryId: string | null;
 }

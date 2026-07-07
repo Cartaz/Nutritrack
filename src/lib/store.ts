@@ -36,6 +36,7 @@ const state: AppState = {
   _confirmDeleteRecipeId: null,
   _confirmReset: false,
   _addRecipeToMealPickerId: null,
+  _editingEntryId: null,
 };
 
 const listeners = new Set<() => void>();
@@ -305,6 +306,18 @@ export function openConfirmReset(): void {
 
 export function closeConfirmReset(): void {
   state._confirmReset = false;
+  emitChange();
+}
+
+// ============ Entry editor dialog (modifica quantità di una entry del diario) ============
+
+export function openEntryEditor(entryId: string): void {
+  state._editingEntryId = entryId;
+  emitChange();
+}
+
+export function closeEntryEditor(): void {
+  state._editingEntryId = null;
   emitChange();
 }
 

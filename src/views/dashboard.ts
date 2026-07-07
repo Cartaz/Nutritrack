@@ -1,6 +1,6 @@
 // Vista Dashboard: diario giornaliero con macro ring + bar + meal cards + riepilogo settimana via worker.
 
-import { getState, openFoodSearch, setCurrentDate, emitChange } from '../lib/store';
+import { getState, openFoodSearch, setCurrentDate, emitChange, openEntryEditor } from '../lib/store';
 import { removeDiaryEntry, changeEntryQuantity } from '../lib/diary';
 import { calcMacroGrams, scaleNutrition, sumNutrition } from '../lib/nutrition';
 import { escapeHtml, escapeAttr, formatDateIT, isToday, toDateKey, parseISODateLocal } from '../lib/utils';
@@ -198,7 +198,7 @@ function entryRow(e: DiaryEntry): string {
     `
     : '';
   return `
-    <div class="entry-row">
+    <div class="entry-row" data-action="editEntry" data-entry-id="${escapeAttr(e.id)}" role="button" tabindex="0" aria-label="Modifica quantità di ${escapeAttr(e.foodSnapshot.name)}">
       ${imgTag(e.foodSnapshot.image, e.foodSnapshot.name, 'thumb', e.foodSnapshot.source === 'custom' ? '✏️' : '🥫')}
       <div class="entry-info">
         <p class="entry-name">${escapeHtml(e.foodSnapshot.name)}</p>
@@ -283,6 +283,7 @@ function bindDashboardEvents(main: HTMLElement): void {
       return;
     }
     if (action === 'deleteEntry') {
+      // stopPropagation non necessario: closest già trova il bottone delete (più vicino)
       const id = target.dataset.entryId || '';
       if (id) removeDiaryEntry(id);
       return;
@@ -290,9 +291,24 @@ function bindDashboardEvents(main: HTMLElement): void {
     if (action === 'qtyInc' || action === 'qtyDec') {
       const id = target.dataset.entryId || '';
       const delta = action === 'qtyInc' ? 0.5 : -0.5;
-      const entry = state.diary[state.currentDate]?.find((e) => e.id === id);
+      const entry = state.diary[state.currentDate]?.find((en) => en.id === id);
       if (entry) changeEntryQuantity(id, delta, entry.quantity);
       return;
     }
+    if (action === 'editEntry') {
+      const id = target.dataset.entryId || '';
+      if (id) openEntryEditor(id);
+      return;
+    }
+  });
+
+  // Supporto tastiera (Enter/Space) per accessibilità sulla riga della entry
+  main.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action="editEntry"]');
+    if (!target) return;
+    e.preventDefault();
+    const id = target.dataset.entryId || '';
+    if (id) openEntryEditor(id);
   });
 }

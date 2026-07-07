@@ -1,9 +1,10 @@
 // Azioni dominio: foods.
 // Le azioni sono orchestrazioni store + side-effect (toast, modal) mantenute semplici.
 
-import type { FoodItem, NutritionPer100 } from '../types';
+import type { FoodItem, NutritionPer100, CustomPortion } from '../types';
 import { addFood, updateFood, deleteFood, toggleFavorite, getState, openConfirmDeleteFood, closeConfirmDeleteFood } from './store';
 import { showToast } from '../components/toast';
+import { safeId } from './utils';
 
 export interface CreateFoodInput {
   name: string;
@@ -52,4 +53,33 @@ export function cancelDeleteFood(): void {
 
 export function toggleFoodFavorite(id: string): void {
   toggleFavorite(id);
+}
+
+// ============ Custom portions ============
+
+/** Crea una nuova porzione personalizzata per un alimento salvato.
+ *  Ritorna la porzione creata (con id generato), oppure null se l'alimento non esiste. */
+export function addCustomPortionToFood(foodId: string, label: string, grams: number): CustomPortion | null {
+  const food = getState().foods.find((f) => f.id === foodId);
+  if (!food) return null;
+  const trimmedLabel = label.trim();
+  if (!trimmedLabel) return null;
+  const safeGrams = Math.max(0.1, Math.round(grams * 10) / 10);
+  const portion: CustomPortion = {
+    id: safeId('port_'),
+    label: trimmedLabel,
+    grams: safeGrams,
+  };
+  const existing = food.customPortions || [];
+  updateFood(foodId, { customPortions: [...existing, portion] });
+  return portion;
+}
+
+/** Rimuove una porzione personalizzata da un alimento salvato. */
+export function removeCustomPortionFromFood(foodId: string, portionId: string): void {
+  const food = getState().foods.find((f) => f.id === foodId);
+  if (!food || !food.customPortions) return;
+  updateFood(foodId, {
+    customPortions: food.customPortions.filter((p) => p.id !== portionId),
+  });
 }

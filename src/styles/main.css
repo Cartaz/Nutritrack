@@ -470,7 +470,10 @@ body {
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background-color var(--transition);
 }
+.entry-row:hover, .entry-row:active { background-color: var(--bg-muted); }
 .entry-row:last-child { border-bottom: none; }
 .entry-info { flex: 1; min-width: 0; }
 .entry-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -863,6 +866,132 @@ body.modal-open { overflow: hidden; }
   border-radius: var(--radius);
   font-size: 14px;
 }
+
+/* Single grams input (search dialog — replaces old qty+grams dual row) */
+.qty-row-single { margin-top: var(--space-3); }
+.qty-row-single input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* ============ Custom portions (search dialog) ============ */
+.portion-section { margin-top: var(--space-3); }
+.portion-section-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.portion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-2);
+}
+.portion-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  padding-right: 24px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+.portion-chip:hover, .portion-chip:active { background-color: var(--bg-muted); }
+.portion-chip.active {
+  background-color: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.portion-chip-label { font-weight: 500; }
+.portion-chip-grams {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.portion-chip.active .portion-chip-grams { color: var(--color-primary); }
+.portion-chip-del {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+  color: var(--text-muted);
+  background-color: transparent;
+  cursor: pointer;
+}
+.portion-chip-del:hover { color: var(--color-danger); background-color: var(--bg-muted); }
+
+.portion-create-btn { margin-top: 4px; }
+
+.portion-create-form {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+.portion-create-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.portion-create-grid input {
+  width: 100%;
+  padding: var(--space-2);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.portion-create-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* ============ Entry editor modal ============ */
+.ee-selected {
+  background-color: var(--bg-muted);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+.ee-food-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.ee-food-info { flex: 1; min-width: 0; }
+.ee-food-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ee-food-brand { font-size: 12px; color: var(--text-muted); }
+.ee-selected .qty-row-single { margin-top: 0; }
+.ee-selected .portion-section { margin-top: var(--space-3); }
+.ee-selected .stat-row { margin-top: var(--space-3); }
 
 /* ============ Forms (food editor, recipe editor) ============ */
 .form { display: flex; flex-direction: column; gap: var(--space-3); }
