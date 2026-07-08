@@ -1,13 +1,13 @@
 // Vista Foods: elenco alimenti salvati con search, preferiti, edit, delete.
 
-import { getState, openFoodEditor, toggleFoodFavorite, emitChange } from '../lib/store';
-import { requestDeleteFood } from '../lib/foods';
+import { getState, openFoodEditor, emitChange } from '../lib/store';
+import { requestDeleteFood, toggleFoodFavorite } from '../lib/foods';
 import { escapeHtml, escapeAttr, debounce } from '../lib/utils';
 import { imgTag } from '../components/img';
 import type { FoodItem } from '../types';
 
 let _foodsBound = false;
-let _query = '';
+let _foodsQuery = '';
 // Signature cache: previene re-render inutili di main.innerHTML
 let _foodsRenderSig = '';
 
@@ -20,7 +20,7 @@ const _filterFoods = debounce(() => { _foodsRenderSig = ''; emitChange(); }, 80)
 
 export function renderFoods(main: HTMLElement): void {
   const state = getState();
-  const q = _query.trim().toLowerCase();
+  const q = _foodsQuery.trim().toLowerCase();
   const filtered = state.foods.filter((f) => {
     if (!q) return true;
     return f.name.toLowerCase().includes(q) || (f.brand || '').toLowerCase().includes(q);
@@ -28,7 +28,7 @@ export function renderFoods(main: HTMLElement): void {
 
   // Signature cache: skip se niente è cambiato
   const renderSig = JSON.stringify({
-    q: _query,
+    q: _foodsQuery,
     foods: state.foods.map((f) => `${f.id}:${f.name}:${f.brand ?? ''}:${f.nutrition.calories}`).join('|'),
     favs: state.favoriteFoodIds.slice().sort().join(','),
   });
@@ -52,7 +52,7 @@ export function renderFoods(main: HTMLElement): void {
       </section>
     `
     : sorted.length === 0
-      ? `<section class="card empty-state muted">Nessun alimento trovato per "${escapeHtml(_query)}"</section>`
+      ? `<section class="card empty-state muted">Nessun alimento trovato per "${escapeHtml(_foodsQuery)}"</section>`
       : `<div class="foods-list">${sorted.map((f) => foodCard(f, state.favoriteFoodIds.includes(f.id))).join('')}</div>`;
 
   main.innerHTML = `
@@ -66,7 +66,7 @@ export function renderFoods(main: HTMLElement): void {
       </div>
       <div class="search-input-wrap">
         <span class="search-icon" aria-hidden="true">🔍</span>
-        <input id="foods-search" type="search" placeholder="Cerca tra i tuoi alimenti…" value="${escapeAttr(_query)}" autocomplete="off" />
+        <input id="foods-search" type="search" placeholder="Cerca tra i tuoi alimenti…" value="${escapeAttr(_foodsQuery)}" autocomplete="off" />
       </div>
       ${listHtml}
     </div>
@@ -133,7 +133,7 @@ function bindFoodsEvents(main: HTMLElement): void {
 
   main.addEventListener('input', (e) => {
     if ((e.target as HTMLElement).id === 'foods-search') {
-      _query = (e.target as HTMLInputElement).value;
+      _foodsQuery = (e.target as HTMLInputElement).value;
       _filterFoods();
     }
   });

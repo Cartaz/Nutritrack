@@ -2,7 +2,7 @@
 // Le azioni sono orchestrazioni store + side-effect (toast, modal) mantenute semplici.
 
 import type { FoodItem, NutritionPer100, CustomPortion } from '../types';
-import { addFood, updateFood, deleteFood, toggleFavorite, getState, openConfirmDeleteFood, closeConfirmDeleteFood } from './store';
+import { addFood, updateFood, deleteFood, toggleFavorite, getState, openDeleteFoodConfirm, closeDeleteFoodConfirm } from './store';
 import { showToast } from '../components/toast';
 import { safeId } from './utils';
 
@@ -36,19 +36,19 @@ export function editFood(id: string, patch: Partial<FoodItem>): void {
 
 /** Elimina alimento (con conferma utente) */
 export function requestDeleteFood(id: string): void {
-  openConfirmDeleteFood(id);
+  openDeleteFoodConfirm(id);
 }
 
 export function confirmDeleteFood(): void {
   const id = getState()._confirmDeleteFoodId;
   if (!id) return;
   deleteFood(id);
-  closeConfirmDeleteFood();
+  closeDeleteFoodConfirm();
   showToast('Alimento eliminato', 'success');
 }
 
 export function cancelDeleteFood(): void {
-  closeConfirmDeleteFood();
+  closeDeleteFoodConfirm();
 }
 
 export function toggleFoodFavorite(id: string): void {

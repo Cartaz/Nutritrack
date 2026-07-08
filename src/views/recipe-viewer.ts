@@ -1,6 +1,6 @@
 // Modal: viewer ricetta (read-only) con ingredienti + totali per porzione + add-to-diary.
 
-import { getState, closeRecipeViewer, openRecipeMealPicker } from '../lib/store';
+import { getState, closeRecipeViewer, openAddRecipeToMeal } from '../lib/store';
 import { showModal } from '../components/modal';
 import { escapeHtml, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
@@ -33,10 +33,10 @@ export function renderRecipeViewerModal(recipeId: string): void {
       <div class="recipe-viewer-stats">
         <p class="recipe-viewer-label">Per porzione (${recipe.servings} totali)</p>
         <div class="stat-row">
-          ${statBox('kcal', String(Math.round(per.calories)), true)}
-          ${statBox('P', `${per.protein}g`, true)}
-          ${statBox('C', `${per.carbs}g`, true)}
-          ${statBox('G', `${per.fat}g`, true)}
+          ${renderStatBox('kcal', String(Math.round(per.calories)), true)}
+          ${renderStatBox('P', `${per.protein}g`, true)}
+          ${renderStatBox('C', `${per.carbs}g`, true)}
+          ${renderStatBox('G', `${per.fat}g`, true)}
         </div>
       </div>
       <h4 class="recipe-viewer-sub">Ingredienti</h4>
@@ -54,13 +54,13 @@ export function renderRecipeViewerModal(recipeId: string): void {
     ],
     onConfirm: () => {
       closeRecipeViewer();
-      openRecipeMealPicker(recipe.id);
+      openAddRecipeToMeal(recipe.id);
     },
     onClose: () => closeRecipeViewer(),
   });
 }
 
-function statBox(label: string, value: string, highlight = false): string {
+function renderStatBox(label: string, value: string, highlight = false): string {
   return `<div class="stat-box${highlight ? ' highlight' : ''}"><p class="stat-label">${escapeHtml(label)}</p><p class="stat-value">${escapeHtml(value)}</p></div>`;
 }
 

@@ -1,7 +1,7 @@
 // Renderer principale: render() con RAF + code-splitting viste via dynamic import + event delegation globale.
 // Pattern 2 + 3 dello standard.
 
-import { getState, emitChange, switchView, closeRecipeMealPicker, closeConfirmDeleteFood, closeConfirmDeleteRecipe, closeConfirmReset, getStoreState, resetAll } from '../lib/store';
+import { getState, emitChange, switchView, closeAddRecipeToMeal, closeDeleteFoodConfirm, closeDeleteRecipeConfirm, closeResetConfirm, getStoreState, resetAll } from '../lib/store';
 import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
 import { bindSearchEvents, renderSearchShell, updateSearchContent } from './search';
@@ -174,7 +174,7 @@ function renderConfirmDeleteFood(): void {
       confirmDeleteFood();
       closeModalCleanup();
     },
-    onClose: () => closeConfirmDeleteFood(),
+    onClose: () => closeDeleteFoodConfirm(),
   });
 }
 
@@ -197,7 +197,7 @@ function renderConfirmDeleteRecipe(): void {
       confirmDeleteRecipe();
       closeModalCleanup();
     },
-    onClose: () => closeConfirmDeleteRecipe(),
+    onClose: () => closeDeleteRecipeConfirm(),
   });
 }
 
@@ -216,11 +216,11 @@ function renderConfirmReset(): void {
     ],
     onConfirm: () => {
       resetAll();
-      closeConfirmReset();
+      closeResetConfirm();
       showToast('Dati resettati', 'success');
       closeModalCleanup();
     },
-    onClose: () => closeConfirmReset(),
+    onClose: () => closeResetConfirm(),
   });
 }
 
@@ -294,7 +294,7 @@ function renderRecipeMealPicker(): void {
   if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
   if (!id || existing) return;
   const recipe = getStoreState().recipes.find((r: Recipe) => r.id === id);
-  if (!recipe) { closeRecipeMealPicker(); return; }
+  if (!recipe) { closeAddRecipeToMeal(); return; }
   const buttons = (['breakfast', 'lunch', 'dinner', 'snack'] as const)
     .map((m) => `<button type="button" class="btn btn-outline btn-block" data-action="addRecipeMeal" data-recipe-id="${escapeAttr(recipe.id)}" data-meal="${m}">${escapeHtml(MEAL_LABELS[m])}</button>`)
     .join('');
@@ -303,7 +303,7 @@ function renderRecipeMealPicker(): void {
     title: 'Aggiungi a quale pasto?',
     bodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per oggi</p><div class="grid-2">${buttons}</div>`,
     actions: [{ label: 'Annulla', action: 'close', variant: 'outline' }],
-    onClose: () => closeRecipeMealPicker(),
+    onClose: () => closeAddRecipeToMeal(),
   });
 }
 
@@ -369,7 +369,7 @@ function handleAction(action: string, el: HTMLElement): void {
       const meal = el.dataset.meal as 'breakfast' | 'lunch' | 'dinner' | 'snack' | undefined;
       if (recipeId && meal) {
         addRecipeToDiary(meal, recipeId, 1);
-        closeRecipeMealPicker();
+        closeAddRecipeToMeal();
       }
       return;
     }

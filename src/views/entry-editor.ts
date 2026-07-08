@@ -19,58 +19,62 @@ interface EntryEditorState {
   newPortionGrams: string;
 }
 
-const _form: EntryEditorState = {
+const _entryEditorState: EntryEditorState = {
   grams: '',
   creatingPortion: false,
   newPortionLabel: '',
   newPortionGrams: '',
 };
 
-let _bound = false;
+let _entryEditorBound = false;
 
-function loadFromEntry(entry: DiaryEntry): void {
+function loadFromEntry(entryId: string): boolean {
+  const entry = findEntryById(entryId);
+  if (!entry) return false;
   const grams = entry.gramsOverride ?? entry.foodSnapshot.servingSize * entry.quantity;
-  _form.grams = String(grams);
-  _form.creatingPortion = false;
-  _form.newPortionLabel = '';
-  _form.newPortionGrams = '';
+  _entryEditorState.grams = String(grams);
+  _entryEditorState.creatingPortion = false;
+  _entryEditorState.newPortionLabel = '';
+  _entryEditorState.newPortionGrams = '';
+  return true;
+}
+
+/** Trova una entry nel diario per id (scansiona tutte le date). */
+function findEntryById(entryId: string): DiaryEntry | null {
+  for (const list of Object.values(getState().diary)) {
+    const found = list.find((e) => e.id === entryId);
+    if (found) return found;
+  }
+  return null;
 }
 
 export function renderEntryEditorModal(entryId: string): void {
-  // Trova la entry nel diario (potrebbe essere in qualsiasi data)
-  const state = getState();
-  let entry: DiaryEntry | undefined;
-  for (const list of Object.values(state.diary)) {
-    const found = list.find((e) => e.id === entryId);
-    if (found) { entry = found; break; }
-  }
-  if (!entry) {
+  if (!loadFromEntry(entryId)) {
     closeEntryEditor();
     return;
   }
-  loadFromEntry(entry);
+  const entry = findEntryById(entryId)!;
 
   showModal({
     modalId: 'entry-editor',
     title: 'Modifica quantità',
-    bodyHtml: formBody(entry),
+    bodyHtml: renderFormBody(entry),
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Salva', action: 'confirm', variant: 'primary' },
     ],
     onConfirm: () => {
-      const result = handleSave(entry!);
-      return result;
+      return handleSave(entryId);
     },
     onClose: () => closeEntryEditor(),
   });
 
-  bindEvents();
+  bindEntryEditorModalEvents();
 }
 
-function formBody(entry: DiaryEntry): string {
+function renderFormBody(entry: DiaryEntry): string {
   const f = entry.foodSnapshot;
-  const grams = Number(_form.grams) || 0;
+  const grams = Number(_entryEditorState.grams) || 0;
   const nutrition = {
     calories: Math.round((f.nutrition.calories * grams) / 100),
     protein: Math.round((f.nutrition.protein * grams) / 100),
@@ -84,7 +88,7 @@ function formBody(entry: DiaryEntry): string {
     ? `
       <div class="portion-chips">
         ${allPortions.map((p) => `
-          <button type="button" class="portion-chip${Number(_form.grams) === p.grams ? ' active' : ''}" data-ee-action="usePortion" data-grams="${p.grams}">
+          <button type="button" class="portion-chip${Number(_entryEditorState.grams) === p.grams ? ' active' : ''}" data-ee-action="usePortion" data-grams="${p.grams}">
             <span class="portion-chip-label">${escapeHtml(p.label)}</span>
             <span class="portion-chip-grams">${p.grams}g</span>
             <span class="portion-chip-del" data-ee-action="deleteCustomPortion" data-food-id="${escapeAttr(foodId)}" data-portion-id="${escapeAttr(p.id)}" role="button" aria-label="Elimina porzione">✕</span>
@@ -94,12 +98,12 @@ function formBody(entry: DiaryEntry): string {
     `
     : '';
 
-  const createPortionHtml = _form.creatingPortion
+  const createPortionHtml = _entryEditorState.creatingPortion
     ? `
       <div class="portion-create-form">
         <div class="portion-create-grid">
-          <input id="ee-new-portion-label" type="text" placeholder="Nome (es. 1 fetta, 1 tazza)" value="${escapeAttr(_form.newPortionLabel)}" />
-          <input id="ee-new-portion-grams" type="number" min="0" step="0.1" placeholder="Grammi" value="${escapeAttr(_form.newPortionGrams)}" />
+          <input id="ee-new-portion-label" type="text" placeholder="Nome (es. 1 fetta, 1 tazza)" value="${escapeAttr(_entryEditorState.newPortionLabel)}" />
+          <input id="ee-new-portion-grams" type="number" min="0" step="0.1" placeholder="Grammi" value="${escapeAttr(_entryEditorState.newPortionGrams)}" />
         </div>
         <div class="portion-create-actions">
           <button type="button" class="btn btn-outline btn-sm" data-ee-action="cancelCreatePortion">Annulla</button>
@@ -130,7 +134,7 @@ function formBody(entry: DiaryEntry): string {
       </div>
       <div class="qty-row-single">
         <label for="ee-grams-input" class="field-label">Grammi / ml</label>
-        <input id="ee-grams-input" type="number" min="0" step="0.1" placeholder="es. 150" value="${escapeAttr(_form.grams)}" />
+        <input id="ee-grams-input" type="number" min="0" step="0.1" placeholder="es. 150" value="${escapeAttr(_entryEditorState.grams)}" />
       </div>
       <div class="portion-section">
         <p class="portion-section-title">Porzioni personalizzate</p>
@@ -138,16 +142,16 @@ function formBody(entry: DiaryEntry): string {
         ${createPortionHtml}
       </div>
       <div class="stat-row">
-        ${statBox('kcal', String(nutrition.calories))}
-        ${statBox('Proteine', `${nutrition.protein}g`)}
-        ${statBox('Carbo', `${nutrition.carbs}g`)}
-        ${statBox('Grassi', `${nutrition.fat}g`)}
+        ${renderStatBox('kcal', String(nutrition.calories))}
+        ${renderStatBox('Proteine', `${nutrition.protein}g`)}
+        ${renderStatBox('Carbo', `${nutrition.carbs}g`)}
+        ${renderStatBox('Grassi', `${nutrition.fat}g`)}
       </div>
     </div>
   `;
 }
 
-function statBox(label: string, value: string): string {
+function renderStatBox(label: string, value: string): string {
   return `<div class="stat-box"><p class="stat-label">${escapeHtml(label)}</p><p class="stat-value">${escapeHtml(value)}</p></div>`;
 }
 
@@ -155,44 +159,40 @@ function statBox(label: string, value: string): string {
 function currentEntry(): DiaryEntry | null {
   const id = getState()._editingEntryId;
   if (!id) return null;
-  for (const list of Object.values(getState().diary)) {
-    const found = list.find((e) => e.id === id);
-    if (found) return found;
-  }
-  return null;
+  return findEntryById(id);
 }
 
-function reRenderBody(): void {
+function rerenderModalBody(): void {
   const overlay = document.querySelector('[data-modal-id="entry-editor"]');
   if (!overlay) return;
   const body = overlay.querySelector('.modal-body') as HTMLElement;
   const entry = currentEntry();
   if (!entry) return;
-  body.innerHTML = formBody(entry);
+  body.innerHTML = renderFormBody(entry);
   // Preserva il focus sull'input grams se era attivo
   const gramsInput = document.querySelector<HTMLInputElement>('#ee-grams-input');
   if (gramsInput) gramsInput.focus();
 }
 
-function bindEvents(): void {
-  if (_bound) return;
-  _bound = true;
+function bindEntryEditorModalEvents(): void {
+  if (_entryEditorBound) return;
+  _entryEditorBound = true;
 
   document.addEventListener('input', (e) => {
     const t = e.target as HTMLElement;
     if (!document.querySelector('[data-modal-id="entry-editor"]')) return;
     if (t.id === 'ee-grams-input') {
-      _form.grams = (t as HTMLInputElement).value;
+      _entryEditorState.grams = (t as HTMLInputElement).value;
       // Aggiorna solo la stat row (cheap) — re-render del body per semplicità
-      reRenderBodyKeepInput(t as HTMLInputElement);
+      rerenderModalBodyKeepInput(t as HTMLInputElement);
       return;
     }
     if (t.id === 'ee-new-portion-label') {
-      _form.newPortionLabel = (t as HTMLInputElement).value;
+      _entryEditorState.newPortionLabel = (t as HTMLInputElement).value;
       return;
     }
     if (t.id === 'ee-new-portion-grams') {
-      _form.newPortionGrams = (t as HTMLInputElement).value;
+      _entryEditorState.newPortionGrams = (t as HTMLInputElement).value;
       return;
     }
   });
@@ -206,17 +206,17 @@ function bindEvents(): void {
       case 'usePortion': {
         const grams = Number(target.dataset.grams || '0');
         if (grams > 0) {
-          _form.grams = String(grams);
-          _form.creatingPortion = false;
-          reRenderBody();
+          _entryEditorState.grams = String(grams);
+          _entryEditorState.creatingPortion = false;
+          rerenderModalBody();
         }
         return;
       }
       case 'startCreatePortion': {
-        _form.creatingPortion = true;
-        _form.newPortionLabel = '';
-        _form.newPortionGrams = _form.grams || '';
-        reRenderBody();
+        _entryEditorState.creatingPortion = true;
+        _entryEditorState.newPortionLabel = '';
+        _entryEditorState.newPortionGrams = _entryEditorState.grams || '';
+        rerenderModalBody();
         setTimeout(() => {
           const inp = document.querySelector<HTMLInputElement>('#ee-new-portion-label');
           if (inp) inp.focus();
@@ -224,10 +224,10 @@ function bindEvents(): void {
         return;
       }
       case 'cancelCreatePortion': {
-        _form.creatingPortion = false;
-        _form.newPortionLabel = '';
-        _form.newPortionGrams = '';
-        reRenderBody();
+        _entryEditorState.creatingPortion = false;
+        _entryEditorState.newPortionLabel = '';
+        _entryEditorState.newPortionGrams = '';
+        rerenderModalBody();
         return;
       }
       case 'confirmCreatePortion': {
@@ -256,14 +256,14 @@ function bindEvents(): void {
 }
 
 /** Re-render del body preservando il focus e cursore sull'input grams. */
-function reRenderBodyKeepInput(activeInput: HTMLInputElement): void {
+function rerenderModalBodyKeepInput(activeInput: HTMLInputElement): void {
   const overlay = document.querySelector('[data-modal-id="entry-editor"]');
   if (!overlay) return;
   const body = overlay.querySelector('.modal-body') as HTMLElement;
   const entry = currentEntry();
   if (!entry) return;
   // Aggiorna solo la stat row senza toccare l'input
-  const grams = Number(_form.grams) || 0;
+  const grams = Number(_entryEditorState.grams) || 0;
   const f = entry.foodSnapshot;
   const nutrition = {
     calories: Math.round((f.nutrition.calories * grams) / 100),
@@ -274,10 +274,10 @@ function reRenderBodyKeepInput(activeInput: HTMLInputElement): void {
   const statRow = body.querySelector('.stat-row');
   if (statRow) {
     statRow.innerHTML = `
-      ${statBox('kcal', String(nutrition.calories))}
-      ${statBox('Proteine', `${nutrition.protein}g`)}
-      ${statBox('Carbo', `${nutrition.carbs}g`)}
-      ${statBox('Grassi', `${nutrition.fat}g`)}
+      ${renderStatBox('kcal', String(nutrition.calories))}
+      ${renderStatBox('Proteine', `${nutrition.protein}g`)}
+      ${renderStatBox('Carbo', `${nutrition.carbs}g`)}
+      ${renderStatBox('Grassi', `${nutrition.fat}g`)}
     `;
   }
   // Aggiorna stato active dei portion chips
@@ -295,8 +295,8 @@ function createCustomPortion(): void {
   const entry = currentEntry();
   if (!entry) return;
   const f = entry.foodSnapshot;
-  const label = _form.newPortionLabel.trim();
-  const grams = Number(_form.newPortionGrams);
+  const label = _entryEditorState.newPortionLabel.trim();
+  const grams = Number(_entryEditorState.newPortionGrams);
   if (!label) {
     showToast('Inserisci un nome per la porzione', 'info');
     return;
@@ -326,10 +326,10 @@ function createCustomPortion(): void {
   updateDiaryEntry(entry.id, {
     foodSnapshot: { ...f, customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined },
   });
-  _form.creatingPortion = false;
-  _form.newPortionLabel = '';
-  _form.newPortionGrams = '';
-  reRenderBody();
+  _entryEditorState.creatingPortion = false;
+  _entryEditorState.newPortionLabel = '';
+  _entryEditorState.newPortionGrams = '';
+  rerenderModalBody();
 }
 
 function deleteCustomPortion(foodId: string, portionId: string): void {
@@ -346,11 +346,13 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
   if (isSaved) {
     removeCustomPortionFromFood(foodId, portionId);
   }
-  reRenderBody();
+  rerenderModalBody();
 }
 
-function handleSave(entry: DiaryEntry): boolean {
-  const grams = Number(_form.grams);
+function handleSave(entryId: string): boolean {
+  const entry = findEntryById(entryId);
+  if (!entry) return false;
+  const grams = Number(_entryEditorState.grams);
   if (!Number.isFinite(grams) || grams <= 0) {
     showToast('Inserisci i grammi', 'info');
     return false;

@@ -6,8 +6,8 @@ import {
   updateRecipe,
   deleteRecipe,
   getState,
-  openConfirmDeleteRecipe,
-  closeConfirmDeleteRecipe,
+  openDeleteRecipeConfirm,
+  closeDeleteRecipeConfirm,
 } from './store';
 import { showToast } from '../components/toast';
 
@@ -30,17 +30,17 @@ export function editRecipe(id: string, patch: Partial<Recipe>): void {
 }
 
 export function requestDeleteRecipe(id: string): void {
-  openConfirmDeleteRecipe(id);
+  openDeleteRecipeConfirm(id);
 }
 
 export function confirmDeleteRecipe(): void {
   const id = getState()._confirmDeleteRecipeId;
   if (!id) return;
   deleteRecipe(id);
-  closeConfirmDeleteRecipe();
+  closeDeleteRecipeConfirm();
   showToast('Ricetta eliminata', 'success');
 }
 
 export function cancelDeleteRecipe(): void {
-  closeConfirmDeleteRecipe();
+  closeDeleteRecipeConfirm();
 }

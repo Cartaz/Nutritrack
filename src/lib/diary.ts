@@ -5,6 +5,7 @@ import { addDiaryEntry, deleteDiaryEntry, updateDiaryEntry, getState, closeFoodS
 import { addFood } from './store';
 import { showToast } from '../components/toast';
 import { MEAL_LABELS } from '../types';
+import { toDateKey } from './utils';
 
 export interface AddDiaryInput {
   date: string;
@@ -55,7 +56,7 @@ export function addRecipeToDiary(meal: MealType, recipeId: string, servings: num
   const factor = servings / recipe.servings;
   for (const ing of recipe.ingredients) {
     addDiaryEntry({
-      date: getTodayKey(),
+      date: toDateKey(new Date()),
       meal,
       foodId: ing.foodId,
       foodSnapshot: ing.foodSnapshot,
@@ -64,12 +65,4 @@ export function addRecipeToDiary(meal: MealType, recipeId: string, servings: num
     });
   }
   showToast(`${recipe.name} aggiunto a ${MEAL_LABELS[meal]}`, 'success');
-}
-
-function getTodayKey(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }

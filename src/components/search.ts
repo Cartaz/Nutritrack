@@ -38,7 +38,7 @@ interface SearchDialogState {
   abortController: AbortController | null;
 }
 
-const _local: SearchDialogState = {
+const _searchState: SearchDialogState = {
   tab: 'favorites',
   query: '',
   loading: false,
@@ -52,37 +52,37 @@ const _local: SearchDialogState = {
   abortController: null,
 };
 
-function resetLocal(): void {
-  if (_local.abortController) {
-    try { _local.abortController.abort(); } catch { /* noop */ }
+function resetSearchState(): void {
+  if (_searchState.abortController) {
+    try { _searchState.abortController.abort(); } catch { /* noop */ }
   }
-  _local.tab = 'favorites';
-  _local.query = '';
-  _local.loading = false;
-  _local.results = [];
-  _local.selectedId = null;
-  _local.gramsOverride = '';
-  _local.pendingCustomPortions = [];
-  _local.creatingPortion = false;
-  _local.newPortionLabel = '';
-  _local.newPortionGrams = '';
-  _local.abortController = null;
+  _searchState.tab = 'favorites';
+  _searchState.query = '';
+  _searchState.loading = false;
+  _searchState.results = [];
+  _searchState.selectedId = null;
+  _searchState.gramsOverride = '';
+  _searchState.pendingCustomPortions = [];
+  _searchState.creatingPortion = false;
+  _searchState.newPortionLabel = '';
+  _searchState.newPortionGrams = '';
+  _searchState.abortController = null;
 }
 
 // ============ Debounced search ============
 
 const runSearch = debounce(async (query: string) => {
   if (query.trim().length < SEARCH_MIN_QUERY) {
-    _local.results = [];
-    _local.loading = false;
+    _searchState.results = [];
+    _searchState.loading = false;
     emitChange();
     return;
   }
-  if (_local.abortController) {
-    try { _local.abortController.abort(); } catch { /* noop */ }
+  if (_searchState.abortController) {
+    try { _searchState.abortController.abort(); } catch { /* noop */ }
   }
   const ctrl = new AbortController();
-  _local.abortController = ctrl;
+  _searchState.abortController = ctrl;
   try {
     const data = await searchOff(query.trim(), { signal: ctrl.signal });
     if (ctrl.signal.aborted) return;
@@ -91,7 +91,7 @@ const runSearch = debounce(async (query: string) => {
       const f = buildFoodFromOff(p);
       if (f) items.push(f);
     }
-    _local.results = items;
+    _searchState.results = items;
   } catch (e) {
     if (ctrl.signal.aborted) return;
     const msg = e instanceof Error ? e.message : String(e);
@@ -102,12 +102,12 @@ const runSearch = debounce(async (query: string) => {
     } else {
       showToast('Errore nella ricerca. Verifica la connessione e riprova.', 'error');
     }
-    _local.results = [];
+    _searchState.results = [];
   } finally {
-    if (_local.abortController === ctrl) {
-      _local.abortController = null;
+    if (_searchState.abortController === ctrl) {
+      _searchState.abortController = null;
     }
-    _local.loading = false;
+    _searchState.loading = false;
     emitChange();
   }
 }, SEARCH_DEBOUNCE_MS);
@@ -118,11 +118,11 @@ let _boundSearch = false;
 
 /** Fix B7: abortisce qualsiasi ricerca OFF in corso + reset loading */
 function abortInFlightSearch(): void {
-  if (_local.abortController) {
-    try { _local.abortController.abort(); } catch { /* noop */ }
-    _local.abortController = null;
+  if (_searchState.abortController) {
+    try { _searchState.abortController.abort(); } catch { /* noop */ }
+    _searchState.abortController = null;
   }
-  _local.loading = false;
+  _searchState.loading = false;
 }
 
 export function bindSearchEvents(): void {
@@ -141,7 +141,7 @@ export function bindSearchEvents(): void {
     e.stopPropagation();
     e.preventDefault();
     closeFoodSearch();
-    resetLocal();
+    resetSearchState();
   }, true); // capture phase per intercettare PRIMA di modal.ts
 
   document.addEventListener('click', (e) => {
@@ -150,7 +150,7 @@ export function bindSearchEvents(): void {
     const overlayEl = e.target as HTMLElement;
     if (overlayEl.classList.contains('modal-overlay') && overlayEl.dataset.modalId === 'search-dialog') {
       closeFoodSearch();
-      resetLocal();
+      resetSearchState();
       return;
     }
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-search-action]');
@@ -159,14 +159,14 @@ export function bindSearchEvents(): void {
     switch (action) {
       case 'switchTab': {
         const tab = target.dataset.tab as 'favorites' | 'saved' | 'search';
-        if (tab && tab !== _local.tab) {
+        if (tab && tab !== _searchState.tab) {
           // Fix B7: se lasciamo il tab search, abortisce la ricerca in corso
-          if (_local.tab === 'search' && tab !== 'search') {
+          if (_searchState.tab === 'search' && tab !== 'search') {
             abortInFlightSearch();
-            _local.results = [];
+            _searchState.results = [];
           }
-          _local.tab = tab;
-          _local.selectedId = null;
+          _searchState.tab = tab;
+          _searchState.selectedId = null;
           emitChange();
         }
         return;
@@ -176,13 +176,13 @@ export function bindSearchEvents(): void {
         const list = currentList();
         const f = list.find((x) => x.id === id);
         if (f) {
-          _local.selectedId = f.id;
+          _searchState.selectedId = f.id;
           // Default: preimposta i grammi alla servingSize del food
-          _local.gramsOverride = String(f.servingSize || 100);
-          _local.pendingCustomPortions = [];
-          _local.creatingPortion = false;
-          _local.newPortionLabel = '';
-          _local.newPortionGrams = '';
+          _searchState.gramsOverride = String(f.servingSize || 100);
+          _searchState.pendingCustomPortions = [];
+          _searchState.creatingPortion = false;
+          _searchState.newPortionLabel = '';
+          _searchState.newPortionGrams = '';
           emitChange();
         }
         return;
@@ -193,9 +193,9 @@ export function bindSearchEvents(): void {
         return;
       }
       case 'clearSelected': {
-        _local.selectedId = null;
-        _local.pendingCustomPortions = [];
-        _local.creatingPortion = false;
+        _searchState.selectedId = null;
+        _searchState.pendingCustomPortions = [];
+        _searchState.creatingPortion = false;
         emitChange();
         return;
       }
@@ -205,7 +205,7 @@ export function bindSearchEvents(): void {
       }
       case 'close': {
         closeFoodSearch();
-        resetLocal();
+        resetSearchState();
         return;
       }
       case 'openAddCustom': {
@@ -215,8 +215,8 @@ export function bindSearchEvents(): void {
       case 'clearQuery': {
         // Fix B7: abortisce ricerca in corso + reset loading
         abortInFlightSearch();
-        _local.query = '';
-        _local.results = [];
+        _searchState.query = '';
+        _searchState.results = [];
         const input = document.querySelector<HTMLInputElement>('#search-input');
         if (input) input.value = '';
         emitChange();
@@ -226,16 +226,16 @@ export function bindSearchEvents(): void {
         // Imposta i grammi al valore di una porzione personalizzata
         const grams = Number(target.dataset.grams || '0');
         if (grams > 0) {
-          _local.gramsOverride = String(grams);
-          _local.creatingPortion = false;
+          _searchState.gramsOverride = String(grams);
+          _searchState.creatingPortion = false;
           emitChange();
         }
         return;
       }
       case 'startCreatePortion': {
-        _local.creatingPortion = true;
-        _local.newPortionLabel = '';
-        _local.newPortionGrams = _local.gramsOverride || '';
+        _searchState.creatingPortion = true;
+        _searchState.newPortionLabel = '';
+        _searchState.newPortionGrams = _searchState.gramsOverride || '';
         emitChange();
         // Autofocus sul campo label dopo il re-render
         setTimeout(() => {
@@ -245,9 +245,9 @@ export function bindSearchEvents(): void {
         return;
       }
       case 'cancelCreatePortion': {
-        _local.creatingPortion = false;
-        _local.newPortionLabel = '';
-        _local.newPortionGrams = '';
+        _searchState.creatingPortion = false;
+        _searchState.newPortionLabel = '';
+        _searchState.newPortionGrams = '';
         emitChange();
         return;
       }
@@ -268,33 +268,33 @@ export function bindSearchEvents(): void {
     if (!getState()._searchOpen) return;
     const target = e.target as HTMLElement;
     if (target.id === 'search-input') {
-      _local.query = (target as HTMLInputElement).value;
-      if (_local.tab !== 'search') {
-        _local.tab = 'search';
+      _searchState.query = (target as HTMLInputElement).value;
+      if (_searchState.tab !== 'search') {
+        _searchState.tab = 'search';
       }
-      if (_local.query.trim().length < SEARCH_MIN_QUERY) {
+      if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
         // Fix B7: abortisce ricerca in corso + reset loading (niente spinner permanente)
         abortInFlightSearch();
-        _local.results = [];
+        _searchState.results = [];
         emitChange();
         return;
       }
-      _local.loading = true;
+      _searchState.loading = true;
       emitChange();
-      runSearch(_local.query);
+      runSearch(_searchState.query);
       return;
     }
     if (target.id === 'grams-input') {
-      _local.gramsOverride = (target as HTMLInputElement).value;
+      _searchState.gramsOverride = (target as HTMLInputElement).value;
       emitChange();
       return;
     }
     if (target.id === 'new-portion-label') {
-      _local.newPortionLabel = (target as HTMLInputElement).value;
+      _searchState.newPortionLabel = (target as HTMLInputElement).value;
       return;
     }
     if (target.id === 'new-portion-grams') {
-      _local.newPortionGrams = (target as HTMLInputElement).value;
+      _searchState.newPortionGrams = (target as HTMLInputElement).value;
       return;
     }
   });
@@ -314,22 +314,22 @@ export function bindSearchEvents(): void {
 
 function currentList(): FoodItem[] {
   const s = getState();
-  if (_local.tab === 'favorites') {
+  if (_searchState.tab === 'favorites') {
     return s.foods.filter((f) => s.favoriteFoodIds.includes(f.id));
   }
-  if (_local.tab === 'saved') return s.foods;
-  return _local.results;
+  if (_searchState.tab === 'saved') return s.foods;
+  return _searchState.results;
 }
 
 function confirmAdd(): void {
   const s = getState();
   const list = currentList();
-  const f = _local.selectedId ? list.find((x) => x.id === _local.selectedId) : null;
+  const f = _searchState.selectedId ? list.find((x) => x.id === _searchState.selectedId) : null;
   if (!f) {
     showToast('Seleziona un alimento', 'info');
     return;
   }
-  const grams = _local.gramsOverride ? Number(_local.gramsOverride) : 0;
+  const grams = _searchState.gramsOverride ? Number(_searchState.gramsOverride) : 0;
   if (!grams || grams <= 0) {
     showToast('Inserisci i grammi', 'info');
     return;
@@ -337,11 +337,11 @@ function confirmAdd(): void {
   // Se ci sono porzioni personalizzate pending (food non ancora salvato), allegale al food
   // così verranno persistite insieme al food quando addFoodToDiary lo salva.
   let foodToSave = f;
-  if (_local.pendingCustomPortions.length > 0) {
+  if (_searchState.pendingCustomPortions.length > 0) {
     const existing = f.customPortions || [];
     foodToSave = {
       ...f,
-      customPortions: [...existing, ..._local.pendingCustomPortions],
+      customPortions: [...existing, ..._searchState.pendingCustomPortions],
     };
   }
   addFoodToDiary({
@@ -351,20 +351,20 @@ function confirmAdd(): void {
     quantity: 1,
     gramsOverride: grams,
   });
-  resetLocal();
+  resetSearchState();
 }
 
 /** Crea una nuova porzione personalizzata per il food attualmente selezionato.
  *  Se il food è già salvato → persistenza immediata via store.
  *  Se il food non è salvato (OFF search result) → memorizza in pendingCustomPortions.
- *  NOTA: non aggiornare _local.results qui. Il merge di pendingCustomPortions
+ *  NOTA: non aggiornare _searchState.results qui. Il merge di pendingCustomPortions
  *  avviene in renderSelectedFooter() e confirmAdd(), evitando duplicati. */
 function createCustomPortion(): void {
   const list = currentList();
-  const f = _local.selectedId ? list.find((x) => x.id === _local.selectedId) : null;
+  const f = _searchState.selectedId ? list.find((x) => x.id === _searchState.selectedId) : null;
   if (!f) return;
-  const label = _local.newPortionLabel.trim();
-  const grams = Number(_local.newPortionGrams);
+  const label = _searchState.newPortionLabel.trim();
+  const grams = Number(_searchState.newPortionGrams);
   if (!label) {
     showToast('Inserisci un nome per la porzione', 'info');
     return;
@@ -384,11 +384,11 @@ function createCustomPortion(): void {
       label,
       grams: Math.max(0.1, Math.round(grams * 10) / 10),
     };
-    _local.pendingCustomPortions = [..._local.pendingCustomPortions, portion];
+    _searchState.pendingCustomPortions = [..._searchState.pendingCustomPortions, portion];
   }
-  _local.creatingPortion = false;
-  _local.newPortionLabel = '';
-  _local.newPortionGrams = '';
+  _searchState.creatingPortion = false;
+  _searchState.newPortionLabel = '';
+  _searchState.newPortionGrams = '';
   emitChange();
 }
 
@@ -399,8 +399,8 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
     removeCustomPortionFromFood(foodId, portionId);
     return;
   }
-  // Pending: rimuovi solo da _local.pendingCustomPortions
-  _local.pendingCustomPortions = _local.pendingCustomPortions.filter((p) => p.id !== portionId);
+  // Pending: rimuovi solo da _searchState.pendingCustomPortions
+  _searchState.pendingCustomPortions = _searchState.pendingCustomPortions.filter((p) => p.id !== portionId);
   emitChange();
 }
 
@@ -437,7 +437,7 @@ export function updateSearchContent(overlay: HTMLElement): void {
     const favoritesCount = s.foods.filter((f) => s.favoriteFoodIds.includes(f.id)).length;
     const savedCount = s.foods.length;
     const tabBtn = (id: 'favorites' | 'saved' | 'search', label: string, icon: string, disabled: boolean) => `
-      <button type="button" class="tab-btn${_local.tab === id ? ' active' : ''}" data-search-action="switchTab" data-tab="${id}"${disabled ? ' disabled' : ''}>
+      <button type="button" class="tab-btn${_searchState.tab === id ? ' active' : ''}" data-search-action="switchTab" data-tab="${id}"${disabled ? ' disabled' : ''}>
         <span aria-hidden="true">${icon}</span> ${escapeHtml(label)}
       </button>
     `;
@@ -454,21 +454,21 @@ export function updateSearchContent(overlay: HTMLElement): void {
   // --- Search box (solo per tab search) ---
   const searchBoxEl = overlay.querySelector<HTMLElement>('[data-search-zone="searchbox"]');
   if (searchBoxEl) {
-    const shouldShow = _local.tab === 'search';
+    const shouldShow = _searchState.tab === 'search';
     const wasShowing = searchBoxEl.children.length > 0;
     if (shouldShow && !wasShowing) {
-      // Crea il search box (con input vergine — non toccare _local.query per non duplicare)
+      // Crea il search box (con input vergine — non toccare _searchState.query per non duplicare)
       searchBoxEl.innerHTML = `
         <div class="search-box">
           <span class="search-icon" aria-hidden="true">🔍</span>
           <input id="search-input" type="search" placeholder="Cerca su Open Food Facts (es. pasta, yogurt…)" autocomplete="off" />
-          ${_local.query ? '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci">✕</button>' : '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci" style="display:none">✕</button>'}
+          ${_searchState.query ? '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci">✕</button>' : '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci" style="display:none">✕</button>'}
         </div>
         <p class="search-hint">Database gratuito collaborativo - milioni di prodotti. Powered by Open Food Facts.</p>
       `;
       // Inizializza il value dell'input solo alla creazione
       const input = searchBoxEl.querySelector<HTMLInputElement>('#search-input');
-      if (input) input.value = _local.query;
+      if (input) input.value = _searchState.query;
       // Autofocus
       setTimeout(() => {
         const inp = searchBoxEl.querySelector<HTMLInputElement>('#search-input');
@@ -479,10 +479,10 @@ export function updateSearchContent(overlay: HTMLElement): void {
       searchBoxEl.innerHTML = '';
     } else if (shouldShow && wasShowing) {
       // Search box già presente: NON toccare l'input (preserva focus e cursore).
-      // Aggiorna solo visibility del clear button in base a _local.query.
+      // Aggiorna solo visibility del clear button in base a _searchState.query.
       const clearBtn = searchBoxEl.querySelector<HTMLElement>('.search-clear');
       if (clearBtn) {
-        clearBtn.style.display = _local.query ? '' : 'none';
+        clearBtn.style.display = _searchState.query ? '' : 'none';
       }
     }
   }
@@ -490,11 +490,11 @@ export function updateSearchContent(overlay: HTMLElement): void {
   // --- List ---
   const listEl = overlay.querySelector<HTMLElement>('[data-search-zone="list"]');
   if (listEl) {
-    const listHtml = _local.loading
+    const listHtml = _searchState.loading
       ? `<div class="search-loading"><span class="spinner" aria-hidden="true"></span> Ricerca in corso…</div>`
       : list.length === 0
-        ? `<div class="search-empty">${escapeHtml(emptyHint())}</div>`
-        : list.map((f) => foodRow(f)).join('');
+        ? `<div class="search-empty">${escapeHtml(renderEmptyHint())}</div>`
+        : list.map((f) => renderFoodRow(f)).join('');
     if (listEl.innerHTML !== listHtml) {
       listEl.innerHTML = listHtml;
     }
@@ -503,7 +503,7 @@ export function updateSearchContent(overlay: HTMLElement): void {
   // --- Footer (selected food panel o azioni) ---
   const footerEl = overlay.querySelector<HTMLElement>('[data-search-zone="footer"]');
   if (footerEl) {
-    const selectedFood = _local.selectedId ? list.find((x) => x.id === _local.selectedId) : null;
+    const selectedFood = _searchState.selectedId ? list.find((x) => x.id === _searchState.selectedId) : null;
     const footerHtml = selectedFood ? renderSelectedFooter(selectedFood) : renderActionsFooter();
     if (footerEl.innerHTML !== footerHtml) {
       footerEl.innerHTML = footerHtml;
@@ -512,7 +512,7 @@ export function updateSearchContent(overlay: HTMLElement): void {
 }
 
 function renderSelectedFooter(selectedFood: FoodItem): string {
-  const selectedGrams = _local.gramsOverride ? Number(_local.gramsOverride) : selectedFood.servingSize;
+  const selectedGrams = _searchState.gramsOverride ? Number(_searchState.gramsOverride) : selectedFood.servingSize;
   const selectedNutrition = {
     calories: Math.round((selectedFood.nutrition.calories * selectedGrams) / 100),
     protein: Math.round((selectedFood.nutrition.protein * selectedGrams) / 100),
@@ -522,13 +522,13 @@ function renderSelectedFooter(selectedFood: FoodItem): string {
   // Combina le porzioni personalizzate salvate con quelle pending
   const allPortions: CustomPortion[] = [
     ...(selectedFood.customPortions || []),
-    ..._local.pendingCustomPortions,
+    ..._searchState.pendingCustomPortions,
   ];
   const portionsHtml = allPortions.length > 0
     ? `
       <div class="portion-chips">
         ${allPortions.map((p) => `
-          <button type="button" class="portion-chip${Number(_local.gramsOverride) === p.grams ? ' active' : ''}" data-search-action="usePortion" data-grams="${p.grams}">
+          <button type="button" class="portion-chip${Number(_searchState.gramsOverride) === p.grams ? ' active' : ''}" data-search-action="usePortion" data-grams="${p.grams}">
             <span class="portion-chip-label">${escapeHtml(p.label)}</span>
             <span class="portion-chip-grams">${p.grams}g</span>
             <span class="portion-chip-del" data-search-action="deleteCustomPortion" data-food-id="${escapeAttr(selectedFood.id)}" data-portion-id="${escapeAttr(p.id)}" role="button" aria-label="Elimina porzione">✕</span>
@@ -538,12 +538,12 @@ function renderSelectedFooter(selectedFood: FoodItem): string {
     `
     : '';
 
-  const createPortionHtml = _local.creatingPortion
+  const createPortionHtml = _searchState.creatingPortion
     ? `
       <div class="portion-create-form">
         <div class="portion-create-grid">
-          <input id="new-portion-label" type="text" placeholder="Nome (es. 1 fetta, 1 tazza)" value="${escapeAttr(_local.newPortionLabel)}" />
-          <input id="new-portion-grams" type="number" min="0" step="0.1" placeholder="Grammi" value="${escapeAttr(_local.newPortionGrams)}" />
+          <input id="new-portion-label" type="text" placeholder="Nome (es. 1 fetta, 1 tazza)" value="${escapeAttr(_searchState.newPortionLabel)}" />
+          <input id="new-portion-grams" type="number" min="0" step="0.1" placeholder="Grammi" value="${escapeAttr(_searchState.newPortionGrams)}" />
         </div>
         <div class="portion-create-actions">
           <button type="button" class="btn btn-outline btn-sm" data-search-action="cancelCreatePortion">Annulla</button>
@@ -574,7 +574,7 @@ function renderSelectedFooter(selectedFood: FoodItem): string {
       </div>
       <div class="qty-row-single">
         <label for="grams-input" class="field-label">Grammi / ml</label>
-        <input id="grams-input" type="number" min="0" step="0.1" placeholder="es. 150" value="${escapeAttr(_local.gramsOverride)}" />
+        <input id="grams-input" type="number" min="0" step="0.1" placeholder="es. 150" value="${escapeAttr(_searchState.gramsOverride)}" />
       </div>
       <div class="portion-section">
         <p class="portion-section-title">Porzioni personalizzate</p>
@@ -582,10 +582,10 @@ function renderSelectedFooter(selectedFood: FoodItem): string {
         ${createPortionHtml}
       </div>
       <div class="stat-row">
-        ${statBox('kcal', String(selectedNutrition.calories))}
-        ${statBox('Proteine', `${selectedNutrition.protein}g`)}
-        ${statBox('Carbo', `${selectedNutrition.carbs}g`)}
-        ${statBox('Grassi', `${selectedNutrition.fat}g`)}
+        ${renderStatBox('kcal', String(selectedNutrition.calories))}
+        ${renderStatBox('Proteine', `${selectedNutrition.protein}g`)}
+        ${renderStatBox('Carbo', `${selectedNutrition.carbs}g`)}
+        ${renderStatBox('Grassi', `${selectedNutrition.fat}g`)}
       </div>
     </div>
     <button type="button" class="btn btn-primary btn-block btn-lg" data-search-action="confirm">Aggiungi al diario</button>
@@ -605,21 +605,21 @@ function renderActionsFooter(): string {
   `;
 }
 
-function emptyHint(): string {
-  if (_local.tab === 'search') {
-    if (_local.query.trim().length < SEARCH_MIN_QUERY) {
+function renderEmptyHint(): string {
+  if (_searchState.tab === 'search') {
+    if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
       return 'Inizia a digitare per cercare prodotti reali nel database Open Food Facts.';
     }
     return 'Nessun risultato. Prova con un altro termine o crea un ingrediente custom.';
   }
-  if (_local.tab === 'favorites') return 'Aggiungi ai preferiti i cibi che consumi spesso cliccando la stellina.';
+  if (_searchState.tab === 'favorites') return 'Aggiungi ai preferiti i cibi che consumi spesso cliccando la stellina.';
   return 'Nessun alimento salvato. Cerca su Open Food Facts o crea un ingrediente custom.';
 }
 
-function foodRow(f: FoodItem): string {
+function renderFoodRow(f: FoodItem): string {
   const s = getState();
   const isFav = s.favoriteFoodIds.includes(f.id);
-  const isSelected = _local.selectedId === f.id;
+  const isSelected = _searchState.selectedId === f.id;
   return `
     <div class="food-row${isSelected ? ' selected' : ''}" data-search-action="selectFood" data-food-id="${escapeAttr(f.id)}" role="button" tabindex="0">
       ${imgTag(f.image, f.name, 'thumb', f.source === 'custom' ? '✏️' : '🥫')}
@@ -638,12 +638,12 @@ function foodRow(f: FoodItem): string {
   `;
 }
 
-function statBox(label: string, value: string): string {
+function renderStatBox(label: string, value: string): string {
   return `<div class="stat-box"><p class="stat-label">${escapeHtml(label)}</p><p class="stat-value">${escapeHtml(value)}</p></div>`;
 }
 
 // Funzione utility per consentire ad altri moduli di aggiornare la lista dopo addCustomFood
 export function refreshSearchAfterCustomFood(): void {
-  _local.tab = 'saved';
+  _searchState.tab = 'saved';
   emitChange();
 }

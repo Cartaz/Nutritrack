@@ -1,13 +1,13 @@
 // Vista Recipes: elenco ricette custom con search, view, edit, delete, add-to-diary.
 
-import { getState, openRecipeEditor, openRecipeViewer, openRecipeMealPicker, emitChange } from '../lib/store';
+import { getState, openRecipeEditor, openRecipeViewer, openAddRecipeToMeal, emitChange } from '../lib/store';
 import { requestDeleteRecipe } from '../lib/recipes';
 import { escapeHtml, escapeAttr, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
 import type { Recipe } from '../types';
 
 let _recipesBound = false;
-let _query = '';
+let _recipesQuery = '';
 // Signature cache: previene re-render inutili
 let _recipesRenderSig = '';
 
@@ -20,11 +20,11 @@ const _filterRecipes = debounce(() => { _recipesRenderSig = ''; emitChange(); },
 
 export function renderRecipes(main: HTMLElement): void {
   const state = getState();
-  const q = _query.trim().toLowerCase();
+  const q = _recipesQuery.trim().toLowerCase();
 
   // Signature cache
   const renderSig = JSON.stringify({
-    q: _query,
+    q: _recipesQuery,
     recipes: state.recipes.map((r) => `${r.id}:${r.name}:${r.description ?? ''}:${r.servings}:${r.ingredients.length}`).join('|'),
   });
   if (renderSig === _recipesRenderSig) return;
@@ -45,7 +45,7 @@ export function renderRecipes(main: HTMLElement): void {
       </section>
     `
     : filtered.length === 0
-      ? `<section class="card empty-state muted">Nessuna ricetta trovata per "${escapeHtml(_query)}"</section>`
+      ? `<section class="card empty-state muted">Nessuna ricetta trovata per "${escapeHtml(_recipesQuery)}"</section>`
       : `<div class="recipes-grid">${filtered.map((r) => recipeCard(r)).join('')}</div>`;
 
   main.innerHTML = `
@@ -59,7 +59,7 @@ export function renderRecipes(main: HTMLElement): void {
       </div>
       <div class="search-input-wrap">
         <span class="search-icon" aria-hidden="true">🔍</span>
-        <input id="recipes-search" type="search" placeholder="Cerca tra le ricette…" value="${escapeAttr(_query)}" autocomplete="off" />
+        <input id="recipes-search" type="search" placeholder="Cerca tra le ricette…" value="${escapeAttr(_recipesQuery)}" autocomplete="off" />
       </div>
       ${listHtml}
     </div>
@@ -81,10 +81,10 @@ function recipeCard(r: Recipe): string {
         </div>
         ${r.description ? `<p class="recipe-card-desc">${escapeHtml(r.description)}</p>` : ''}
         <div class="recipe-card-stats">
-          ${statBox('kcal', String(Math.round(per.calories)))}
-          ${statBox('P', `${per.protein}g`)}
-          ${statBox('C', `${per.carbs}g`)}
-          ${statBox('G', `${per.fat}g`)}
+          ${renderStatBox('kcal', String(Math.round(per.calories)))}
+          ${renderStatBox('P', `${per.protein}g`)}
+          ${renderStatBox('C', `${per.carbs}g`)}
+          ${renderStatBox('G', `${per.fat}g`)}
         </div>
       </button>
       <div class="recipe-card-actions">
@@ -96,7 +96,7 @@ function recipeCard(r: Recipe): string {
   `;
 }
 
-function statBox(label: string, value: string): string {
+function renderStatBox(label: string, value: string): string {
   return `<div class="stat-box"><p class="stat-label">${escapeHtml(label)}</p><p class="stat-value">${escapeHtml(value)}</p></div>`;
 }
 
@@ -141,14 +141,14 @@ function bindRecipesEvents(main: HTMLElement): void {
     }
     if (action === 'addRecipeToMeal') {
       const id = target.dataset.recipeId || '';
-      if (id) openRecipeMealPicker(id);
+      if (id) openAddRecipeToMeal(id);
       return;
     }
   });
 
   main.addEventListener('input', (e) => {
     if ((e.target as HTMLElement).id === 'recipes-search') {
-      _query = (e.target as HTMLInputElement).value;
+      _recipesQuery = (e.target as HTMLInputElement).value;
       _filterRecipes();
     }
   });

@@ -144,9 +144,6 @@ export function toggleFavorite(id: string): void {
   emitChange();
 }
 
-/** Alias per chiarezza semantica nelle azioni dominio */
-export const toggleFoodFavorite = toggleFavorite;
-
 // ============ Diary ============
 
 export function addDiaryEntry(input: Omit<DiaryEntry, 'id' | 'createdAt'>): DiaryEntry | null {
@@ -269,42 +266,42 @@ export function closeRecipeViewer(): void {
   emitChange();
 }
 
-export function openRecipeMealPicker(recipeId: string): void {
+export function openAddRecipeToMeal(recipeId: string): void {
   state._addRecipeToMealPickerId = recipeId;
   emitChange();
 }
 
-export function closeRecipeMealPicker(): void {
+export function closeAddRecipeToMeal(): void {
   state._addRecipeToMealPickerId = null;
   emitChange();
 }
 
-export function openConfirmDeleteFood(foodId: string): void {
+export function openDeleteFoodConfirm(foodId: string): void {
   state._confirmDeleteFoodId = foodId;
   emitChange();
 }
 
-export function closeConfirmDeleteFood(): void {
+export function closeDeleteFoodConfirm(): void {
   state._confirmDeleteFoodId = null;
   emitChange();
 }
 
-export function openConfirmDeleteRecipe(recipeId: string): void {
+export function openDeleteRecipeConfirm(recipeId: string): void {
   state._confirmDeleteRecipeId = recipeId;
   emitChange();
 }
 
-export function closeConfirmDeleteRecipe(): void {
+export function closeDeleteRecipeConfirm(): void {
   state._confirmDeleteRecipeId = null;
   emitChange();
 }
 
-export function openConfirmReset(): void {
+export function openResetConfirm(): void {
   state._confirmReset = true;
   emitChange();
 }
 
-export function closeConfirmReset(): void {
+export function closeResetConfirm(): void {
   state._confirmReset = false;
   emitChange();
 }

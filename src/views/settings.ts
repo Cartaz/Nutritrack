@@ -1,6 +1,6 @@
 // Vista Settings: calorie goal, macro split, TDEE calculator, export/import, reset, about.
 
-import { getState, setCalorieGoal, setMacroSplit, updateSettings, openConfirmReset } from '../lib/store';
+import { getState, setCalorieGoal, setMacroSplit, updateSettings, openResetConfirm } from '../lib/store';
 import { calcMacroGrams, calcBMR, calcTDEE, normalizeMacroSplit, kcalFromMacros } from '../lib/nutrition';
 import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
 import { handleExport, handleImport } from '../components/exportImport';
@@ -10,7 +10,7 @@ import { MACRO_PRESETS, ACTIVITY_LABELS } from '../types';
 import type { MacroSplit, Theme, Sex, ActivityLevel } from '../types';
 
 let _settingsBound = false;
-let _localSplit: MacroSplit | null = null;
+let _pendingMacroSplit: MacroSplit | null = null;
 // Signature cache: previene re-render inutili mentre l'utente digita nei campi del form
 let _settingsRenderSig = '';
 
@@ -24,7 +24,7 @@ export function resetSettingsSignature(): void {
  *  invece di triggerare un full re-render che distruggerebbe il focus. */
 function updateMacroDisplayLive(): void {
   const s = getState().settings;
-  const split = _localSplit ?? s.macroSplit;
+  const split = _pendingMacroSplit ?? s.macroSplit;
   const macroGrams = calcMacroGrams(s.calorieGoal, split);
   const splitSum = split.proteinPct + split.carbsPct + split.fatPct;
   const kcalCheck = kcalFromMacros(macroGrams);
@@ -77,7 +77,7 @@ function updateMacroDisplayLive(): void {
 
 export function renderSettings(main: HTMLElement): void {
   const s = getState().settings;
-  const split = _localSplit ?? s.macroSplit;
+  const split = _pendingMacroSplit ?? s.macroSplit;
 
   // Signature cache: skip se niente è cambiato.
   // Importante: NON includere cal qui — altrimenti ogni keystroke nel calorie input
@@ -224,19 +224,19 @@ function bindSettingsEvents(main: HTMLElement): void {
       const id = target.dataset.presetId;
       const preset = MACRO_PRESETS.find((p) => p.id === id);
       if (preset) {
-        _localSplit = { ...preset.split };
-        setMacroSplit(_localSplit);
+        _pendingMacroSplit = { ...preset.split };
+        setMacroSplit(_pendingMacroSplit);
         showToast(`Preset "${preset.name}" applicato`, 'success');
       }
       return;
     }
     if (action === 'applySplit') {
-      if (!_localSplit) {
+      if (!_pendingMacroSplit) {
         showToast('Nessuna modifica da salvare', 'info');
         return;
       }
-      const normalized = normalizeMacroSplit(_localSplit);
-      _localSplit = normalized;
+      const normalized = normalizeMacroSplit(_pendingMacroSplit);
+      _pendingMacroSplit = normalized;
       setMacroSplit(normalized);
       showToast('Split macro aggiornato', 'success');
       return;
@@ -279,7 +279,7 @@ function bindSettingsEvents(main: HTMLElement): void {
       return;
     }
     if (action === 'resetData') {
-      openConfirmReset();
+      openResetConfirm();
       return;
     }
   });
@@ -307,8 +307,8 @@ function bindSettingsEvents(main: HTMLElement): void {
     if (target.dataset.action === 'slideMacro') {
       const key = target.dataset.macroKey as 'proteinPct' | 'carbsPct' | 'fatPct';
       const v = Number((target as HTMLInputElement).value);
-      const base = _localSplit ?? { ...getState().settings.macroSplit };
-      _localSplit = { ...base, [key]: v };
+      const base = _pendingMacroSplit ?? { ...getState().settings.macroSplit };
+      _pendingMacroSplit = { ...base, [key]: v };
       // Update mirato: aggiorna % e grammi senza re-render (preserva il drag)
       updateMacroDisplayLive();
       return;
