@@ -149,22 +149,38 @@ function bindFoodEditorModalEvents(): void {
     const t = e.target as HTMLElement;
     if (t.id === 'fe-lock') {
       _foodEditorState.lockFromMacros = (t as HTMLInputElement).checked;
-      // re-render
-      const overlay = document.querySelector('[data-modal-id="food-editor"]');
-      if (overlay) {
-        const body = overlay.querySelector('.modal-body') as HTMLElement;
-        body.innerHTML = renderFormBody(!!getState()._editingFoodId);
+      // Fix BUG #9 (T3): aggiorna solo gli attributi necessari invece di re-renderare tutto il body
+      // (prima: il checkbox appena toggled veniva distrutto/ricreato e perdeva il focus)
+      const calInput = document.querySelector<HTMLInputElement>('#fe-calories');
+      if (calInput) {
+        calInput.disabled = _foodEditorState.lockFromMacros;
+      }
+      const hint = document.querySelector<HTMLElement>('.hint-text');
+      if (_foodEditorState.lockFromMacros && !hint) {
+        const form = document.querySelector<HTMLElement>('.form');
+        if (form) {
+          const hintEl = document.createElement('p');
+          hintEl.className = 'hint-text';
+          hintEl.textContent = 'Le calorie sono calcolate automaticamente: P×4 + C×4 + G×9.';
+          form.appendChild(hintEl);
+        }
+      } else if (!_foodEditorState.lockFromMacros && hint) {
+        hint.remove();
       }
       recalcKcal();
+      // Mantieni focus sul checkbox
+      const lockCheckbox = document.querySelector<HTMLInputElement>('#fe-lock');
+      if (lockCheckbox) lockCheckbox.focus();
     }
   });
 }
 
 function recalcKcal(): void {
   if (!_foodEditorState.lockFromMacros) return;
-  const p = Number(_foodEditorState.protein) || 0;
-  const c = Number(_foodEditorState.carbs) || 0;
-  const f = Number(_foodEditorState.fat) || 0;
+  // Fix BUG #5 (T3): clampa i negativi a 0 prima del calcolo (prima: protein=-10 → calories=9 fuorviante)
+  const p = Math.max(0, Number(_foodEditorState.protein) || 0);
+  const c = Math.max(0, Number(_foodEditorState.carbs) || 0);
+  const f = Math.max(0, Number(_foodEditorState.fat) || 0);
   _foodEditorState.calories = String(Math.round(p * KCAL_PER_GRAM.protein + c * KCAL_PER_GRAM.carbs + f * KCAL_PER_GRAM.fat));
   const calInput = document.querySelector<HTMLInputElement>('#fe-calories');
   if (calInput) calInput.value = _foodEditorState.calories;
@@ -222,6 +238,11 @@ function handleSave(foodId: string | null): boolean {
   const salt = parseNum(_foodEditorState.salt, 'Sale', false);
   if (salt !== undefined && Number.isNaN(salt)) return false;
 
+  // Fix BUG #6 (T3): clamp lunghezza name/brand/servingLabel su save (coerente con normalize.ts)
+  const trimmedName = _foodEditorState.name.trim().slice(0, 300);
+  const trimmedBrand = _foodEditorState.brand.trim().slice(0, 200) || undefined;
+  const trimmedServingLabel = _foodEditorState.servingLabel.trim().slice(0, 100) || undefined;
+
   const nutrition: NutritionPer100 = {
     calories,
     protein,
@@ -232,13 +253,25 @@ function handleSave(foodId: string | null): boolean {
     salt,
   };
   const payload = {
-    name: _foodEditorState.name.trim(),
-    brand: _foodEditorState.brand.trim() || undefined,
+    name: trimmedName,
+    brand: trimmedBrand,
     source: 'custom' as const,
     servingSize,
-    servingLabel: _foodEditorState.servingLabel.trim() || undefined,
+    servingLabel: trimmedServingLabel,
     nutrition,
   };
+
+  // Fix BUG #4 (T3): validazione logica macro (P+C+F non può superare 100g per valori per-100g)
+  const macroSum = protein + carbs + fat;
+  if (macroSum > 100) {
+    showToast(`Attenzione: la somma dei macro (${macroSum.toFixed(1)}g) supera 100g (valori per 100g). Verifica i valori.`, 'warning', 5000);
+  }
+  // Fix BUG #4 (T3): verifica coerenza kcal vs kcal da macro (tolleranza 5% per arrotondamenti/altri nutrienti)
+  const macroKcal = protein * KCAL_PER_GRAM.protein + carbs * KCAL_PER_GRAM.carbs + fat * KCAL_PER_GRAM.fat;
+  if (calories < macroKcal * 0.95 && macroKcal > 0) {
+    showToast(`Le calorie inserite (${calories}) sono inferiori a quelle derivanti dai macro (${Math.round(macroKcal)}). Verifica.`, 'warning', 5000);
+  }
+
   if (foodId && foodId !== 'new') {
     updateFood(foodId, payload);
     showToast('Alimento aggiornato', 'success');
@@ -248,6 +281,12 @@ function handleSave(foodId: string | null): boolean {
     // Se il search dialog era aperto per aggiungere custom, refresha
     if (getState()._searchOpen) {
       refreshSearchAfterCustomFood();
+    }
+    // Fix R3 (T4): se il recipe editor era aperto (sub-search ingrediente), refresha anche quello
+    if (getState()._editingRecipeId !== null) {
+      import('../views/recipe-editor').then(({ refreshRecipeEditor }) => {
+        refreshRecipeEditor();
+      }).catch(() => { /* noop */ });
     }
   }
   // NOTA: non chiamiamo closeFoodEditor() qui — ci pensa onClose callback del modal.
