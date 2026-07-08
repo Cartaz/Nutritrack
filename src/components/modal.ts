@@ -16,7 +16,8 @@ export interface ModalAction {
 }
 
 interface ModalCallbacks {
-  onConfirm?: () => boolean | void;  // ritorna false per bloccare chiusura
+  // Fix R10 (T4): onConfirm riceve l'elemento cliccato (per distinguere azioni multiple con action='confirm' e id diversi)
+  onConfirm?: (clickedEl?: HTMLElement) => boolean | void;  // ritorna false per bloccare chiusura
   onClose?: () => void;              // chiamato quando il modal viene chiuso (qualsiasi path)
   sticky?: boolean;
 }
@@ -25,6 +26,15 @@ let _modalInit = false;
 const _callbacks = new Map<string, ModalCallbacks>();
 // Track overlay già in chiusura per evitare double-close (e double onClose)
 const _closing = new WeakSet<HTMLElement>();
+// Fix 2.7 (T2): salva elemento focalizzato prima dell'apertura del modal per ripristinarlo alla chiusura
+let _previouslyFocused: HTMLElement | null = null;
+
+// Fix 2.7 (T2): focus trap — Tab/Shift+Tab al primo/ultimo elemento focusable del modal rimane nel modal
+const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function getFocusableElements(overlay: HTMLElement): HTMLElement[] {
+  return Array.from(overlay.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((el) => el.offsetParent !== null || el === document.activeElement);
+}
 
 function initModal(): void {
   if (_modalInit) return;
@@ -43,7 +53,8 @@ function initModal(): void {
       const modalId = overlay.dataset.modalId || '';
       const cb = _callbacks.get(modalId);
       if (cb?.onConfirm) {
-        const result = cb.onConfirm();
+        // Fix R10 (T4): passa il bottone cliccato per distinguere azioni multiple
+        const result = cb.onConfirm(target);
         // Fix B5: se onConfirm ritorna false esplicitamente, NON chiudere (validation bypass)
         if (result === false) return;
       }
@@ -61,6 +72,32 @@ function initModal(): void {
     if (overlays.length === 0) return;
     const top = overlays[overlays.length - 1] as HTMLElement;
     closeModal(top);
+    return;
+  });
+  // Fix 2.7 (T2): focus trap — Tab/Shift+Tab al primo/ultimo elemento focusable del modal rimane nel modal
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const overlays = document.querySelectorAll('.modal-overlay');
+    if (overlays.length === 0) return;
+    const top = overlays[overlays.length - 1] as HTMLElement;
+    const focusable = getFocusableElements(top);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement as HTMLElement;
+    if (e.shiftKey) {
+      // Shift+Tab dal primo → wrap all'ultimo
+      if (active === first || !top.contains(active)) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      // Tab dall'ultimo → wrap al primo
+      if (active === last || !top.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
   });
 }
 
@@ -88,6 +125,11 @@ function closeModal(el: HTMLElement): void {
       _callbacks.delete(modalId);
     }
     _closing.delete(el);
+    // Fix 2.7 (T2): ripristina focus all'elemento focalizzato prima dell'apertura del modal
+    if (_previouslyFocused && typeof _previouslyFocused.focus === 'function') {
+      try { _previouslyFocused.focus(); } catch { /* noop */ }
+      _previouslyFocused = null;
+    }
   }, 200);
 }
 
@@ -96,8 +138,9 @@ export interface ShowModalOptions {
   title: string;
   bodyHtml: string;
   actions: ModalAction[];
-  /** Chiamato su click "confirm". Ritorna false per bloccare la chiusura (validazione fallita). */
-  onConfirm?: () => boolean | void;
+  /** Chiamato su click "confirm". Ritorna false per bloccare la chiusura (validazione fallita).
+   *  Fix R10 (T4): riceve l'elemento cliccato per distinguere azioni multiple con stesso action='confirm'. */
+  onConfirm?: (clickedEl?: HTMLElement) => boolean | void;
   /** Chiamato quando il modal viene chiuso (✕, ESC, overlay click, o confirm successful). Per cleanup state. */
   onClose?: () => void;
   /** true per bloccare chiusura su overlay click (default false) */
@@ -153,6 +196,9 @@ export function showModal(opts: ShowModalOptions): HTMLElement {
 
   document.body.appendChild(overlay);
   document.body.classList.add('modal-open');
+
+  // Fix 2.7 (T2): salva elemento focalizzato prima dell'apertura per ripristinarlo alla chiusura
+  _previouslyFocused = document.activeElement as HTMLElement;
 
   // animazione
   requestAnimationFrame(() => overlay.classList.add('modal-show'));
