@@ -1,6 +1,6 @@
 // Vista Settings: calorie goal, macro split, TDEE calculator, export/import, reset, about.
 
-import { getState, setCalorieGoal, setMacroSplit, updateSettings, openResetConfirm } from '../lib/store';
+import { getState, setCalorieGoal, setMacroSplit, updateSettings, openResetConfirm, emitChange } from '../lib/store';
 import { calcMacroGrams, calcBMR, calcTDEE, normalizeMacroSplit, kcalFromMacros } from '../lib/nutrition';
 import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
 import { handleExport, handleImport } from '../components/exportImport';
@@ -14,9 +14,12 @@ let _pendingMacroSplit: MacroSplit | null = null;
 // Signature cache: previene re-render inutili mentre l'utente digita nei campi del form
 let _settingsRenderSig = '';
 
-/** Reset signature cache (chiamato dal renderer al cambio vista) */
+/** Reset signature cache (chiamato dal renderer al cambio vista).
+ *  Fix B6.4 (T6): resetta anche _pendingMacroSplit per evitare valori stale dopo resetAll. */
 export function resetSettingsSignature(): void {
   _settingsRenderSig = '';
+  // Fix B6.4: resetta _pendingMacroSplit per coerenza con state.settings.macroSplit
+  _pendingMacroSplit = null;
 }
 
 /** Update mirato del DOM per i display macro — preserva focus su input/slider.
@@ -114,8 +117,8 @@ export function renderSettings(main: HTMLElement): void {
           <input id="calorie-input" type="number" min="500" max="10000" value="${s.calorieGoal}" inputmode="numeric" />
           <span class="calorie-unit">kcal/giorno</span>
         </div>
-        <input id="calorie-slider" type="range" min="1000" max="4000" step="50" value="${clamp(s.calorieGoal, 1000, 4000)}" />
-        <div class="slider-range"><span>1000</span><span>4000</span></div>
+        <input id="calorie-slider" type="range" min="500" max="10000" step="50" value="${clamp(s.calorieGoal, 500, 10000)}" />
+        <div class="slider-range"><span>500</span><span>10000</span></div>
       </section>
 
       <section class="card setting-card">
@@ -224,9 +227,11 @@ function bindSettingsEvents(main: HTMLElement): void {
       const id = target.dataset.presetId;
       const preset = MACRO_PRESETS.find((p) => p.id === id);
       if (preset) {
+        // Fix B6.3 (T6): applica il preset solo a _pendingMacroSplit, NON persistere immediatamente
+        // (prima: setMacroSplit persisteva in localStorage senza undo)
         _pendingMacroSplit = { ...preset.split };
-        setMacroSplit(_pendingMacroSplit);
-        showToast(`Preset "${preset.name}" applicato`, 'success');
+        showToast(`Preset "${preset.name}" applicato. Clicca "Salva split macro" per confermare.`, 'info', 3500);
+        emitChange();
       }
       return;
     }
@@ -252,8 +257,8 @@ function bindSettingsEvents(main: HTMLElement): void {
         showToast('Inserisci peso, altezza ed età validi (positivi)', 'error');
         return;
       }
-      // Range sanity check
-      if (w > 500 || h > 300 || a > 150) {
+      // Range sanity check (Fix B6.2: usa >= invece di > per coerenza)
+      if (w >= 500 || h >= 300 || a >= 150) {
         showToast('Valori fuori range realistico', 'error');
         return;
       }
@@ -263,9 +268,14 @@ function bindSettingsEvents(main: HTMLElement): void {
         showToast('Calcolo TDEE fallito', 'error');
         return;
       }
-      setCalorieGoal(tdee);
+      // Fix B6.2 (T6): clampa TDEE al range [500..10000] coerente con normalizeUserSettings
+      const clampedTdee = clamp(tdee, 500, 10000);
+      if (clampedTdee !== tdee) {
+        showToast(`TDEE ${tdee} fuori range, impostato a ${clampedTdee}`, 'warning', 4000);
+      }
+      setCalorieGoal(clampedTdee);
       updateSettings({ weightKg: w, heightCm: h, ageYears: a, sex, activityLevel: activity });
-      showToast(`Obiettivo calorie aggiornato a ${tdee} kcal/giorno`, 'success');
+      showToast(`Obiettivo calorie aggiornato a ${clampedTdee} kcal/giorno`, 'success');
       return;
     }
     if (action === 'setTheme') {
@@ -299,8 +309,9 @@ function bindSettingsEvents(main: HTMLElement): void {
       const v = Math.max(500, Math.min(10000, parsed));
       setCalorieGoal(v);
       // Update mirato: aggiorna il calorie slider e i grammi macro senza re-render
+      // Fix B6.7 (T6): slider range allineato a 500-10000 (prima era 1000-4000)
       const slider = main.querySelector<HTMLInputElement>('#calorie-slider');
-      if (slider) slider.value = String(clamp(v, 1000, 4000));
+      if (slider) slider.value = String(clamp(v, 500, 10000));
       updateMacroDisplayLive();
       return;
     }
@@ -324,8 +335,7 @@ function bindSettingsEvents(main: HTMLElement): void {
     }
   });
 
-  // Validazione finale al blur (change event) del calorie input: se il valore
-  // non è un numero valido, mostra errore e ripristina il goal corrente
+  // Fix B6.16 (T6): validazione TDEE inputs al blur (change event) per feedback immediato
   main.addEventListener('change', (e) => {
     const t = e.target as HTMLElement;
     if (t.id === 'calorie-input') {
@@ -346,6 +356,17 @@ function bindSettingsEvents(main: HTMLElement): void {
         showToast('Le calorie devono essere tra 500 e 10000', 'error');
         input.value = String(getState().settings.calorieGoal);
         return;
+      }
+      return;
+    }
+    // Fix B6.16: validazione TDEE inputs al blur
+    if (t.id === 'tdee-weight' || t.id === 'tdee-height' || t.id === 'tdee-age') {
+      const input = t as HTMLInputElement;
+      const raw = input.value.trim();
+      if (raw === '') return; // permesso (campo opzionale fino al calc)
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        showToast(`Valore non valido per ${t.id === 'tdee-weight' ? 'peso' : t.id === 'tdee-height' ? 'altezza' : 'età'}`, 'error');
       }
       return;
     }
