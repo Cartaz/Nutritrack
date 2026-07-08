@@ -31,6 +31,7 @@ Questa è la **prima release stabile**. Prima del tag v1.0.0 l'app è stata sott
 - **Editor**: campo barcode nei food custom, kcal calcolate da macro (Atwater) se kcal=0, dirty check su close, toast informativo su updateFood (stale diary snapshots)
 
 ### Test
+
 199 test unitari (+6 nuovi per le fix) — typecheck, lint, build tutti verdi. Copertura: storage, normalize, nutrition, utils. La CI GitHub Actions esegue l'intera pipeline su ogni PR/push.
 
 ---

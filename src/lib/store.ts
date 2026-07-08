@@ -213,7 +213,7 @@ export function updateDiaryEntry(id: string, patch: Partial<DiaryEntry>): void {
   // Fix MEDIUM bug: se la destinazione ha già MAX_DIARY_ENTRIES_PER_DAY entries, non spostare
   // (silently skip il move, mantieni l'entry nella data originale con gli altri campi aggiornati).
   if (patch.date && patch.date !== getCurrentEntryDate(id)) {
-    const destCount = (state.diary[patch.date]?.length ?? 0);
+    const destCount = state.diary[patch.date]?.length ?? 0;
     if (destCount >= MAX_DIARY_ENTRIES_PER_DAY) {
       console.warn('[store] diario destinazione pieno per la data', patch.date, '— move skipped');
       // Rimuovi patch.date per applicare solo gli altri campi nella data originale

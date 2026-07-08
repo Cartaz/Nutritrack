@@ -12,12 +12,7 @@ import { searchOff, getOffByBarcode } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
 import { getState, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
-import {
-  toggleFoodFavorite,
-  addCustomPortionToFood,
-  removeCustomPortionFromFood,
-  saveOffFood,
-} from '../lib/foods';
+import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood, saveOffFood } from '../lib/foods';
 import { showToast } from './toast';
 import { imgTag } from './img';
 import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';

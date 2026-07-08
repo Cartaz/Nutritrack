@@ -55,7 +55,6 @@ export function saveOffFood(offFood: FoodItem): FoodItem {
   return saved;
 }
 
-
 export interface CreateFoodInput {
   name: string;
   brand?: string;

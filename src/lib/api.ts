@@ -82,7 +82,7 @@ export async function apiGetJson<T>(
       try {
         const res = await fetch(url, {
           headers: {
-            'Accept': 'application/json',
+            Accept: 'application/json',
             // Fix MEDIUM bug: rimosso 'User-Agent' header — è forbidden dai browser (silently stripped).
             // Era dead code. Vedere nota nel commento in cima al file.
           },

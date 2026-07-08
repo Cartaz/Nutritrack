@@ -1,13 +1,6 @@
 // Modal: editor ricetta. Form nome/desc/servings + lista ingredienti con ricerca OFF.
 
-import {
-  getState,
-  closeRecipeEditor,
-  addRecipe,
-  updateRecipe,
-  openFoodEditor,
-  emitChange,
-} from '../lib/store';
+import { getState, closeRecipeEditor, addRecipe, updateRecipe, openFoodEditor, emitChange } from '../lib/store';
 import { showToast } from '../components/toast';
 import { showModal, closeModalById } from '../components/modal';
 import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';

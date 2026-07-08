@@ -140,8 +140,7 @@ export function normalizeNutrition(v: unknown): NutritionPer100 | null {
   // fiber/sugar/salt (es. psyllium husk 0kcal/5g fiber, sale da cucina 0kcal/0P/0C/0F/97g salt).
   // Ora accettiamo anche alimenti con almeno un campo opzionale significativo.
   const hasMain = calories > 0 || protein > 0 || carbs > 0 || fat > 0;
-  const hasOptional =
-    (fiber != null && fiber > 0) || (sugar != null && sugar > 0) || (salt != null && salt > 0);
+  const hasOptional = (fiber != null && fiber > 0) || (sugar != null && sugar > 0) || (salt != null && salt > 0);
   if (!hasMain && !hasOptional) return null;
   return { calories, protein, carbs, fat, fiber, sugar, salt };
 }
