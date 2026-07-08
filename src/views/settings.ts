@@ -1,13 +1,13 @@
 // Vista Settings: calorie goal, macro split, TDEE calculator, export/import, reset, about.
 
 import { getState, setCalorieGoal, setMacroSplit, updateSettings, openResetConfirm, emitChange } from '../lib/store';
-import { calcMacroGrams, calcBMR, calcTDEE, normalizeMacroSplit, kcalFromMacros } from '../lib/nutrition';
+import { calcMacroGrams, calcBMR, calcTDEE, normalizeMacroSplit, kcalFromMacros, calcGoalAdjustedCalories } from '../lib/nutrition';
 import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
 import { handleExport, handleImport } from '../components/exportImport';
 import { showToast } from '../components/toast';
 import { applyTheme } from '../components/renderer';
-import { MACRO_PRESETS, ACTIVITY_LABELS } from '../types';
-import type { MacroSplit, Theme, Sex, ActivityLevel } from '../types';
+import { MACRO_PRESETS, ACTIVITY_LABELS, WEIGHT_GOAL_LABELS, MAX_WEEKLY_KG_RATE } from '../types';
+import type { MacroSplit, Theme, Sex, ActivityLevel, WeightGoalType } from '../types';
 // Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
 import { getSettingsRenderSig, setSettingsRenderSig, resetSettingsSignature as resetSettingsSig, registerViewReset } from './signatures';
 
@@ -81,6 +81,64 @@ function updateMacroDisplayLive(): void {
   }
 }
 
+/** Update mirato del DOM per il calorie goal dopo calcTdee.
+ *  Fix auto-refresh: il renderSig in renderSettings NON include calorieGoal (per non
+ *  distruggere il focus sul calorie-input durante la digitazione), quindi quando calcTdee
+ *  chiama setCalorieGoal() + updateSettings() l'emitChange triggera render() ma renderSettings
+ *  ritorna subito (signature cache hit) e l'input calorie / slider / macro preview NON si
+ *  aggiornano. L'utente era costretto a cambiare pagina e tornare per vedere il nuovo valore.
+ *  Questa funzione aggiorna direttamente i nodi DOM senza re-render. */
+function updateCalorieGoalLive(
+  newKcal: number,
+  goalType: WeightGoalType,
+  weeklyDeltaKg: number,
+  dailyAdjustment: number,
+  tdee: number,
+): void {
+  const scope = document.querySelector('.settings-view');
+  if (!scope) return;
+
+  // Aggiorna input calorie + slider
+  const calInput = scope.querySelector<HTMLInputElement>('#calorie-input');
+  if (calInput) calInput.value = String(newKcal);
+  const calSlider = scope.querySelector<HTMLInputElement>('#calorie-slider');
+  if (calSlider) calSlider.value = String(clamp(newKcal, 500, 10000));
+
+  // Aggiorna macro preview (grammi target) coerenti con il nuovo obiettivo
+  const s = getState().settings;
+  const split = s.macroSplit;
+  const macroGrams = calcMacroGrams(newKcal, split);
+  const previewValues = scope.querySelector<HTMLElement>('.macro-preview .preview-values');
+  if (previewValues) {
+    previewValues.innerHTML = `P <strong>${macroGrams.protein}g</strong> · C <strong>${macroGrams.carbs}g</strong> · G <strong>${macroGrams.fat}g</strong>`;
+  }
+  const previewCheck = scope.querySelector<HTMLElement>('.macro-preview .preview-check');
+  if (previewCheck) {
+    const kcalCheck = macroGrams.protein * 4 + macroGrams.carbs * 4 + macroGrams.fat * 9;
+    previewCheck.textContent = `Verifica kcal da macro: ${Math.round(kcalCheck)} kcal`;
+  }
+
+  // Aggiorna anche la goal-preview (se presente) con i nuovi valori
+  const goalPreview = scope.querySelector<HTMLElement>('.goal-preview');
+  if (goalPreview) {
+    if (goalType === 'maintain') {
+      goalPreview.innerHTML = `
+        <p class="preview-label">Anteprima obiettivo</p>
+        <p class="preview-values">TDEE: <strong>${tdee} kcal/giorno</strong> (mantenimento)</p>
+      `;
+    } else {
+      const sign = weeklyDeltaKg > 0 ? '+' : '';
+      const adjSign = dailyAdjustment > 0 ? '+' : '';
+      const direction = weeklyDeltaKg < 0 ? 'deficit' : 'surplus';
+      goalPreview.innerHTML = `
+        <p class="preview-label">Anteprima obiettivo</p>
+        <p class="preview-values">TDEE base: <strong>${tdee} kcal</strong> · Obiettivo: <strong>${newKcal} kcal/giorno</strong></p>
+        <p class="preview-check">Variazione: <strong>${sign}${weeklyDeltaKg} kg/settimana</strong> (${sign}${(weeklyDeltaKg * 4).toFixed(1)} kg/mese) · ${direction} ${adjSign}${dailyAdjustment} kcal/giorno</p>
+      `;
+    }
+  }
+}
+
 export function renderSettings(main: HTMLElement): void {
   const s = getState().settings;
   const split = _pendingMacroSplit ?? s.macroSplit;
@@ -99,6 +157,9 @@ export function renderSettings(main: HTMLElement): void {
     weight: s.weightKg ?? '',
     height: s.heightCm ?? '',
     age: s.ageYears ?? '',
+    weightGoalType: s.weightGoalType ?? 'maintain',
+    targetWeightKg: s.targetWeightKg ?? '',
+    goalWeeks: s.goalWeeks ?? '',
   });
   if (renderSig === getSettingsRenderSig()) return;
   setSettingsRenderSig(renderSig);
@@ -106,6 +167,28 @@ export function renderSettings(main: HTMLElement): void {
   const macroGrams = calcMacroGrams(s.calorieGoal, split);
   const splitSum = split.proteinPct + split.carbsPct + split.fatPct;
   const kcalCheck = kcalFromMacros(macroGrams);
+
+  // Preview dell'obiettivo calorico con adjustment per peso (lose/gain).
+  // Ricalcolato qui per mostrare un riepilogo coerente con i dati attuali.
+  const goalType: WeightGoalType = s.weightGoalType ?? 'maintain';
+  const tdeePreview = (() => {
+    const w = s.weightKg;
+    const h = s.heightCm;
+    const a = s.ageYears;
+    if (w == null || h == null || a == null) return 0;
+    if (!Number.isFinite(w) || !Number.isFinite(h) || !Number.isFinite(a)) return 0;
+    if (w <= 0 || h <= 0 || a <= 0) return 0;
+    if (!s.sex) return 0;
+    if (!s.activityLevel) return 0;
+    return calcTDEE(calcBMR(w, h, a, s.sex), s.activityLevel);
+  })();
+  const goalPreview = calcGoalAdjustedCalories(
+    tdeePreview,
+    s.weightKg,
+    s.targetWeightKg,
+    s.goalWeeks,
+    goalType,
+  );
 
   main.innerHTML = `
     <div class="settings-view">
@@ -167,6 +250,52 @@ export function renderSettings(main: HTMLElement): void {
             </select>
           </label>
         </div>
+
+        <div class="separator"></div>
+        <div class="goal-section">
+          <p class="setting-label">Obiettivo di peso</p>
+          <div class="goal-type-row" role="tablist" aria-label="Obiettivo di peso">
+            ${(Object.keys(WEIGHT_GOAL_LABELS) as WeightGoalType[]).map((g) => `
+              <button type="button"
+                class="btn ${goalType === g ? 'btn-primary' : 'btn-outline'} btn-sm goal-type-btn"
+                data-action="setGoalType" data-goal-type="${g}"
+                role="tab" aria-selected="${goalType === g}">${escapeHtml(WEIGHT_GOAL_LABELS[g])}</button>
+            `).join('')}
+          </div>
+
+          ${goalType !== 'maintain' ? `
+            <div class="tdee-grid goal-inputs">
+              <label class="field"><span>Peso target (kg)</span><input id="tdee-target-weight" type="number" inputmode="decimal" min="30" max="500" step="0.1" value="${s.targetWeightKg ?? ''}" placeholder="es. 65" /></label>
+              <label class="field"><span>Settimane</span><input id="tdee-weeks" type="number" inputmode="numeric" min="1" max="156" step="1" value="${s.goalWeeks ?? ''}" placeholder="es. 12" /></label>
+            </div>
+            <p class="hint-text">Rateo massimo sicuro: ${MAX_WEEKLY_KG_RATE} kg/settimana (linea guida WHO/ACSM). Se la variazione richiesta supera questo limite, verrà clampata automaticamente.</p>
+          ` : ''}
+        </div>
+
+        ${goalType !== 'maintain' && tdeePreview > 0 ? `
+          <div class="goal-preview">
+            <p class="preview-label">Anteprima obiettivo</p>
+            ${(() => {
+              const delta = goalPreview.weeklyDeltaKg;
+              const adj = goalPreview.dailyAdjustment;
+              const sign = delta > 0 ? '+' : '';
+              const adjSign = adj > 0 ? '+' : '';
+              const direction = delta < 0 ? 'deficit' : delta > 0 ? 'surplus' : '';
+              return `
+                <p class="preview-values">TDEE base: <strong>${tdeePreview} kcal</strong> · Obiettivo: <strong>${goalPreview.kcal} kcal/giorno</strong></p>
+                <p class="preview-check">Variazione: <strong>${sign}${delta} kg/settimana</strong> (${sign}${(delta * 4).toFixed(1)} kg/mese) · ${direction} ${adjSign}${adj} kcal/giorno</p>
+                ${goalPreview.clamped ? `<p class="warning-text">⚠ Rateo clampato a ${MAX_WEEKLY_KG_RATE} kg/settimana per sicurezza. Aumenta le settimane per un ritmo più sostenibile.</p>` : ''}
+                ${Math.abs(delta) < MAX_WEEKLY_KG_RATE - 0.001 && delta !== 0 ? `<p class="hint-text">Hai margine: potresti raggiungere il target in ${Math.ceil(Math.abs((s.targetWeightKg ?? 0) - (s.weightKg ?? 0)) / MAX_WEEKLY_KG_RATE)} settimane al ritmo massimo.</p>` : ''}
+              `;
+            })()}
+          </div>
+        ` : goalType === 'maintain' && tdeePreview > 0 ? `
+          <div class="goal-preview">
+            <p class="preview-label">Anteprima obiettivo</p>
+            <p class="preview-values">TDEE: <strong>${tdeePreview} kcal/giorno</strong> (mantenimento)</p>
+          </div>
+        ` : ''}
+
         <button type="button" class="btn btn-primary btn-block" data-action="calcTdee">Calcola e imposta come obiettivo</button>
       </section>
 
@@ -271,14 +400,94 @@ function bindSettingsEvents(main: HTMLElement): void {
         showToast('Calcolo TDEE fallito', 'error');
         return;
       }
-      // Fix B6.2 (T6): clampa TDEE al range [500..10000] coerente con normalizeUserSettings
-      const clampedTdee = clamp(tdee, 500, 10000);
-      if (clampedTdee !== tdee) {
-        showToast(`TDEE ${tdee} fuori range, impostato a ${clampedTdee}`, 'warning', 4000);
+
+      // Leggi obiettivo peso dai campi UI (se presenti) o dallo state.
+      const currentGoalType = (getState().settings.weightGoalType ?? 'maintain') as WeightGoalType;
+      let targetWeight: number | undefined;
+      let goalWeeks: number | undefined;
+      if (currentGoalType !== 'maintain') {
+        const twEl = main.querySelector<HTMLInputElement>('#tdee-target-weight');
+        const gwEl = main.querySelector<HTMLInputElement>('#tdee-weeks');
+        const tw = twEl ? Number(twEl.value) : NaN;
+        const gw = gwEl ? Number(gwEl.value) : NaN;
+        if (!Number.isFinite(tw) || tw <= 0) {
+          showToast('Inserisci un peso target valido (>0)', 'error');
+          return;
+        }
+        if (!Number.isFinite(gw) || gw <= 0 || !Number.isInteger(gw)) {
+          showToast('Inserisci un numero di settimane valido (intero >0)', 'error');
+          return;
+        }
+        if (tw < 30 || tw > 500) {
+          showToast('Peso target fuori range realistico (30-500 kg)', 'error');
+          return;
+        }
+        if (gw > 156) {
+          showToast('Le settimane devono essere <= 156 (3 anni)', 'error');
+          return;
+        }
+        // Coerenza direzione: se l'utente dice "perdere" ma target >= current, avvisa.
+        if (currentGoalType === 'lose' && tw >= w) {
+          showToast('Per "perdere peso" il target deve essere inferiore al peso attuale', 'error');
+          return;
+        }
+        if (currentGoalType === 'gain' && tw <= w) {
+          showToast('Per "aumentare peso" il target deve essere superiore al peso attuale', 'error');
+          return;
+        }
+        targetWeight = tw;
+        goalWeeks = gw;
       }
-      setCalorieGoal(clampedTdee);
-      updateSettings({ weightKg: w, heightCm: h, ageYears: a, sex, activityLevel: activity });
-      showToast(`Obiettivo calorie aggiornato a ${clampedTdee} kcal/giorno`, 'success');
+
+      // Calcola obiettivo calorico aggiustato per l'obiettivo di peso.
+      const goal = calcGoalAdjustedCalories(tdee, w, targetWeight, goalWeeks, currentGoalType);
+      if (goal.kcal <= 0) {
+        showToast('Calcolo obiettivo fallito', 'error');
+        return;
+      }
+
+      // Persisti tutto: nuovo obiettivo calorico + dati fisici + dati obiettivo.
+      setCalorieGoal(goal.kcal);
+      updateSettings({
+        weightKg: w,
+        heightCm: h,
+        ageYears: a,
+        sex,
+        activityLevel: activity,
+        weightGoalType: currentGoalType,
+        targetWeightKg: currentGoalType === 'maintain' ? undefined : targetWeight,
+        goalWeeks: currentGoalType === 'maintain' ? undefined : goalWeeks,
+      });
+
+      // Fix auto-refresh: il renderSig NON include calorieGoal (per non rompere il focus
+      // sul calorie-input durante la digitazione), quindi emitChange da solo non aggiorna
+      // visivamente l'input calorie / slider / macro preview. Facciamo un update mirato del DOM.
+      updateCalorieGoalLive(goal.kcal, currentGoalType, goal.weeklyDeltaKg, goal.dailyAdjustment, tdee);
+
+      // Messaggio contestuale
+      if (currentGoalType === 'maintain') {
+        showToast(`Obiettivo calorie aggiornato a ${goal.kcal} kcal/giorno (mantenimento)`, 'success');
+      } else {
+        const sign = goal.dailyAdjustment > 0 ? '+' : '';
+        const verb = currentGoalType === 'lose' ? 'deficit' : 'surplus';
+        const deltaSign = goal.weeklyDeltaKg > 0 ? '+' : '';
+        let msg = `Obiettivo: ${goal.kcal} kcal/giorno · ${verb} ${sign}${goal.dailyAdjustment} kcal · ${deltaSign}${goal.weeklyDeltaKg} kg/settimana`;
+        if (goal.clamped) {
+          msg += ` (rateo clampato a ${MAX_WEEKLY_KG_RATE} kg/sett.)`;
+        }
+        showToast(msg, 'success', 4500);
+      }
+      return;
+    }
+    if (action === 'setGoalType') {
+      const g = target.dataset.goalType as WeightGoalType;
+      // Persisti subito il tipo di obiettivo; se 'maintain', pulisci targetWeight/goalWeeks.
+      updateSettings({
+        weightGoalType: g,
+        targetWeightKg: g === 'maintain' ? undefined : getState().settings.targetWeightKg,
+        goalWeeks: g === 'maintain' ? undefined : getState().settings.goalWeeks,
+      });
+      // emitChange triggera re-render (il renderSig include i nuovi campi).
       return;
     }
     if (action === 'setTheme') {

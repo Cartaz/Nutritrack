@@ -1,7 +1,7 @@
 // Calcoli nutrizionali puri (no DOM, no side-effect).
 
-import { KCAL_PER_GRAM, type MacroSplit, type NutritionPer100, type Sex, type ActivityLevel, type UserSettings } from '../types';
-import { ACTIVITY_FACTORS } from '../types';
+import { KCAL_PER_GRAM, type MacroSplit, type NutritionPer100, type Sex, type ActivityLevel, type UserSettings, type WeightGoalType } from '../types';
+import { ACTIVITY_FACTORS, MAX_WEEKLY_KG_RATE, KCAL_PER_KG_BODYWEIGHT } from '../types';
 import { round } from './utils';
 
 /** Macro target in grammi dato il totale calorico e lo split % */
@@ -62,6 +62,63 @@ export function calcTDEE(bmr: number, activity: ActivityLevel): number {
   const factor = ACTIVITY_FACTORS[activity] ?? ACTIVITY_FACTORS.sedentary;
   if (!Number.isFinite(bmr) || bmr <= 0) return 0;
   return Math.max(0, Math.round(bmr * factor));
+}
+
+/** Calcola la variazione di peso settimanale necessaria per andare dal peso attuale
+ *  al peso target nel numero di settimane indicato. Clampa il rateo a +/-0.5 kg/settimana
+ *  (linea guida WHO/ACSM: perdere/aumentare più di 0.5 kg/settimana è rischioso).
+ *  Ritorna un numero con segno: negativo = deficit (perdere), positivo = surplus (aumentare),
+ *  zero = mantieni o maintain.
+ *  Fix: ritorna 0 se maintain, se mancano dati (pesi/setting non validi), o se il rateo calcolato
+ *  supererebbe il limite e l'utente avrebbe bisogno di più tempo. */
+export function calcWeeklyDeltaKg(
+  currentWeightKg: number | undefined,
+  targetWeightKg: number | undefined,
+  goalWeeks: number | undefined,
+  goalType: WeightGoalType | undefined,
+): number {
+  if (goalType === 'maintain' || goalType == null) return 0;
+  if (currentWeightKg == null || !Number.isFinite(currentWeightKg) || currentWeightKg <= 0) return 0;
+  if (targetWeightKg == null || !Number.isFinite(targetWeightKg) || targetWeightKg <= 0) return 0;
+  if (goalWeeks == null || !Number.isFinite(goalWeeks) || goalWeeks <= 0) return 0;
+  const delta = targetWeightKg - currentWeightKg;
+  // Coerenza direzione: se l'utente dice "perdere" ma targetWeight > current, forziamo la direzione a -|delta|
+  const directionSign = goalType === 'gain' ? +1 : -1;
+  const weeklyRaw = (Math.abs(delta) / goalWeeks) * directionSign;
+  // Clamp al rateo massimo (es. +0.5 o -0.5 kg/settimana)
+  const clamped = Math.max(-MAX_WEEKLY_KG_RATE, Math.min(MAX_WEEKLY_KG_RATE, weeklyRaw));
+  return round(clamped, 3);
+}
+
+/** Converte un rateo di variazione peso (kg/settimana, con segno) in adjustment calorico
+ *  giornaliero (kcal/giorno, con segno). Negativo = deficit, positivo = surplus.
+ *  Formula: kcal/giorno = (kg/settimana * 7700 kcal/kg) / 7 giorni. */
+export function weeklyDeltaToDailyKcal(weeklyDeltaKg: number): number {
+  if (!Number.isFinite(weeklyDeltaKg) || weeklyDeltaKg === 0) return 0;
+  return Math.round((weeklyDeltaKg * KCAL_PER_KG_BODYWEIGHT) / 7);
+}
+
+/** Calcola l'obiettivo calorico giornaliero aggiustato per l'obiettivo di peso.
+ *  TDEE + adjustment (deficit se perdere, surplus se aumentare, zero se mantenere).
+ *  Clamp a range sano [500..10000] coerente con normalizeUserSettings. */
+export function calcGoalAdjustedCalories(
+  tdee: number,
+  currentWeightKg: number | undefined,
+  targetWeightKg: number | undefined,
+  goalWeeks: number | undefined,
+  goalType: WeightGoalType | undefined,
+): { kcal: number; weeklyDeltaKg: number; dailyAdjustment: number; clamped: boolean } {
+  if (!Number.isFinite(tdee) || tdee <= 0) {
+    return { kcal: 0, weeklyDeltaKg: 0, dailyAdjustment: 0, clamped: false };
+  }
+  const weeklyDeltaKg = calcWeeklyDeltaKg(currentWeightKg, targetWeightKg, goalWeeks, goalType);
+  const dailyAdjustment = weeklyDeltaToDailyKcal(weeklyDeltaKg);
+  const raw = tdee + dailyAdjustment;
+  const min = 500;
+  const max = 10000;
+  const clamped = raw < min || raw > max;
+  const kcal = Math.max(min, Math.min(max, Math.round(raw)));
+  return { kcal, weeklyDeltaKg, dailyAdjustment, clamped };
 }
 
 /** Default settings iniziali (dark theme, 2000 kcal, 30/40/30) */

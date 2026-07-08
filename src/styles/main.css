@@ -671,6 +671,28 @@ input[type="range"]::-moz-range-thumb {
 }
 .field input:focus, .field select:focus { outline: none; border-color: var(--color-primary); }
 
+/* ============ Goal section (TDEE card) ============ */
+.goal-section { margin-top: var(--space-3); }
+.goal-type-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  /* iOS: flex senza wrap causava overflow. Ora i bottoni si dividono lo spazio. */
+}
+.goal-type-row .goal-type-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+.goal-inputs { margin-top: var(--space-3); }
+.goal-preview {
+  background-color: var(--bg-muted);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  text-align: center;
+  margin-top: var(--space-3);
+}
+
 .theme-row { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 /* iOS: i bottoni del tema devono poter restringersi per stare nel viewport.
    Senza min-width: 0 e flex: 1, il 3° bottone esce dallo schermo. */

@@ -17,12 +17,14 @@ import type {
   Sex,
   Theme,
   UserSettings,
+  WeightGoalType,
 } from '../types';
 import {
   ALLOWED_ACTIVITY,
   ALLOWED_FOOD_SOURCES,
   ALLOWED_SEX,
   ALLOWED_THEMES,
+  ALLOWED_WEIGHT_GOALS,
   MEAL_ORDER,
 } from '../types';
 import { safeId, safeImageUrl, safeNum, isValidDateKey } from './utils';
@@ -99,6 +101,14 @@ export function normalizeActivity(v: unknown): ActivityLevel | undefined {
     return v as ActivityLevel;
   }
   return undefined;
+}
+
+/** Normalizza il tipo di obiettivo peso. Default 'maintain' per backward compat. */
+export function normalizeWeightGoal(v: unknown): WeightGoalType {
+  if (isString(v) && (ALLOWED_WEIGHT_GOALS as readonly string[]).includes(v)) {
+    return v as WeightGoalType;
+  }
+  return 'maintain';
 }
 
 /** Normalizza macro split DA INPUT ESTERNO (localStorage, import JSON).
@@ -261,6 +271,7 @@ export function normalizeUserSettings(v: unknown): UserSettings {
   const calorieGoal = safeNum(v.calorieGoal, DEFAULT_SETTINGS.calorieGoal, 500, 10_000);
   const macroSplit = normalizeMacroSplit(v.macroSplit);
   const theme = normalizeTheme(v.theme);
+  const weightGoalType = normalizeWeightGoal(v.weightGoalType);
   return {
     calorieGoal,
     macroSplit,
@@ -271,6 +282,16 @@ export function normalizeUserSettings(v: unknown): UserSettings {
     ageYears: v.ageYears == null ? undefined : safeNum(v.ageYears, 0, 0, 150),
     sex: normalizeSex(v.sex),
     activityLevel: normalizeActivity(v.activityLevel),
+    weightGoalType,
+    // targetWeightKg: clamp [30..500] — valori realistici per adulto.
+    // undefined se maintain o se mancante.
+    targetWeightKg: weightGoalType === 'maintain' || v.targetWeightKg == null
+      ? undefined
+      : safeNum(v.targetWeightKg, 0, 30, 500),
+    // goalWeeks: clamp [1..156] (3 anni max) — oltre non ha senso pratico.
+    goalWeeks: weightGoalType === 'maintain' || v.goalWeeks == null
+      ? undefined
+      : safeNum(v.goalWeeks, 0, 1, 156),
   };
 }
 

@@ -120,6 +120,24 @@ export const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
   very_active: 'Molto attivo (lavoro fisico + allenamento)',
 };
 
+/** Obiettivo di peso: perdere / mantenere / aumentare */
+export const ALLOWED_WEIGHT_GOALS = ['lose', 'maintain', 'gain'] as const;
+export type WeightGoalType = (typeof ALLOWED_WEIGHT_GOALS)[number];
+
+export const WEIGHT_GOAL_LABELS: Record<WeightGoalType, string> = {
+  lose: 'Perdere peso',
+  maintain: 'Mantenere',
+  gain: 'Aumentare peso',
+};
+
+/** Rateo massimo di variazione peso: 0.5 kg/settimana (linea guida WHO/ACSM).
+ *  Oltre questo valore il rischio è perdere massa magra / accumulare grasso troppo in fretta. */
+export const MAX_WEEKLY_KG_RATE = 0.5;
+
+/** Equivalente energetico approssimato del tessuto adiposo: ~7700 kcal/kg.
+ *  Usato per convertire kg/settimana in deficit/surplus calorico giornaliero. */
+export const KCAL_PER_KG_BODYWEIGHT = 7700;
+
 export interface UserSettings {
   calorieGoal: number;     // kcal/giorno
   macroSplit: MacroSplit;
@@ -130,6 +148,12 @@ export interface UserSettings {
   ageYears?: number;
   sex?: Sex;
   activityLevel?: ActivityLevel;
+  /** Obiettivo di peso (lose/maintain/gain). Default: 'maintain'. */
+  weightGoalType?: WeightGoalType;
+  /** Peso target in kg che l'utente vuole raggiungere (undefined se maintain). */
+  targetWeightKg?: number;
+  /** Numero di settimane entro cui raggiungere il target (undefined se maintain). */
+  goalWeeks?: number;
 }
 
 /** Mappa date -> entries */
