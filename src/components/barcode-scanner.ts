@@ -3,6 +3,12 @@
 //
 // P0 #2 della roadmap hobbistica.
 //
+// FIX (post-P0):
+//  - Passa lo stream esistente a detectBarcodeFromVideo (evita double getUserMedia in ZXing)
+//  - Aggiunge fallback "Inserisci codice manualmente" per UX quando la detection
+//    non riesce (barcode danneggiato, camera non rileva, ecc.)
+//  - Non chiude automaticamente il modal su errore camera: lascia l'opzione manuale
+//
 // Usage:
 //   openBarcodeScanner({
 //     onDetected: (barcode) => { ... },
@@ -10,10 +16,9 @@
 //   });
 //
 // Il modal si chiude da solo su:
-//   - detection riuscita (dopo 400ms per feedback visivo)
+//   - detection riuscita (dopo 500ms per feedback visivo)
 //   - click su Annulla / ✕ / overlay
 //   - ESC
-//   - errore camera non recuperabile (dopo 3s per feedback)
 
 import { detectBarcodeFromVideo, startCameraStream, isBarcodeScanSupported } from '../lib/barcode';
 import { escapeHtml } from '../lib/utils';
@@ -58,6 +63,13 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
         </div>
         <p class="scanner-status" data-scanner-status>Avvio fotocamera…</p>
         <p class="scanner-hint">Inquadra il codice a barre del prodotto (EAN-13, EAN-8, UPC).</p>
+        <div class="scanner-manual">
+          <button type="button" class="btn btn-ghost btn-sm" data-scanner-action="toggleManual">⌨️ Inserisci codice manualmente</button>
+          <div class="scanner-manual-form" data-manual-form style="display:none">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Es. 8076809510053" data-manual-input maxlength="14" />
+            <button type="button" class="btn btn-primary btn-sm" data-scanner-action="submitManual">Cerca</button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline btn-block" data-scanner-action="cancel">Annulla</button>
@@ -100,6 +112,14 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
 
   _activeScanner = { cleanup };
 
+  // Helper: chiude lo scanner e propaga il barcode rilevato (manuale o da camera)
+  const finishWithBarcode = (barcode: string): void => {
+    if (stopped) return;
+    const b = barcode;
+    cleanup();
+    opts.onDetected(b);
+  };
+
   // ESC handler (capture per intercettare PRIMA di modal.ts)
   const escHandler = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape') return;
@@ -115,16 +135,52 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   };
   document.addEventListener('keydown', escHandler, true);
 
-  // Click handler: Annulla / ✕ / overlay background
+  // Click handler: Annulla / ✕ / overlay background / toggleManual / submitManual
   overlay.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
     if (target.closest('[data-scanner-action="cancel"]')) {
       cleanup();
       return;
     }
+    if (target.closest('[data-scanner-action="toggleManual"]')) {
+      const form = overlay.querySelector<HTMLElement>('[data-manual-form]');
+      if (form) {
+        const willShow = form.style.display === 'none';
+        form.style.display = willShow ? 'flex' : 'none';
+        if (willShow) {
+          const input = form.querySelector<HTMLInputElement>('[data-manual-input]');
+          input?.focus();
+        }
+      }
+      return;
+    }
+    if (target.closest('[data-scanner-action="submitManual"]')) {
+      const input = overlay.querySelector<HTMLInputElement>('[data-manual-input]');
+      if (input) {
+        const code = input.value.trim();
+        if (code) {
+          finishWithBarcode(code);
+        }
+      }
+      return;
+    }
     // Click diretto sull'overlay (sfondo) → chiudi
     if (e.target === overlay) {
       cleanup();
+    }
+  });
+
+  // Enter key nel manual input → submit
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const target = e.target as HTMLElement;
+    if (target.matches('[data-manual-input]')) {
+      e.preventDefault();
+      const input = target as HTMLInputElement;
+      const code = input.value.trim();
+      if (code) {
+        finishWithBarcode(code);
+      }
     }
   });
 
@@ -135,11 +191,15 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       if (stopped) return; // cleanup avvenuto durante await getUserMedia
       video.srcObject = stream;
       // Attendi metadata + play
-      await video.play().catch(() => { /* play può fallire se interrotto, ignora */ });
+      await video.play().catch((e) => {
+        // play() può fallire su iOS senza user gesture o se interrotto — logghiamo per debug
+        console.warn('[scanner] video.play() failed:', e);
+      });
       if (stopped) return;
       statusEl.textContent = 'Inquadra il codice a barre…';
 
-      const barcode = await detectBarcodeFromVideo(video, abortCtrl.signal);
+      // FIX: passa lo stream esistente a detectBarcodeFromVideo (evita double getUserMedia in ZXing)
+      const barcode = await detectBarcodeFromVideo(stream, video, abortCtrl.signal);
       if (stopped) return; // cleanup durante detection
       if (barcode) {
         statusEl.textContent = `Codice rilevato: ${escapeHtml(barcode)}`;
@@ -151,16 +211,12 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
         // Delay per dare feedback visivo prima di chiudere
         setTimeout(() => {
           if (stopped) return;
-          const b = barcode;
-          cleanup();
-          opts.onDetected(b);
+          finishWithBarcode(barcode);
         }, 500);
       } else if (!abortCtrl.signal.aborted) {
         // Detection terminata senza risultato e senza abort — caso anomalo
-        statusEl.textContent = 'Nessun codice rilevato. Riprova.';
-        setTimeout(() => {
-          if (!stopped) cleanup();
-        }, 1800);
+        // Non chiudere: lascia l'opzione manuale disponibile
+        statusEl.textContent = 'Nessun codice rilevato. Prova ad avvicinare il codice o inseriscilo manualmente.';
       }
     } catch (e) {
       if (stopped) return;
@@ -168,17 +224,16 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       const isDenied = err.name === 'NotAllowedError' || err.name === 'SecurityError';
       const isNotFound = err.name === 'NotFoundError' || err.name === 'OverconstrainedError';
       if (isDenied) {
-        statusEl.textContent = 'Permesso fotocamera negato. Abilita l\'accesso nelle impostazioni del browser.';
+        statusEl.textContent = 'Permesso fotocamera negato. Inserisci il codice manualmente.';
       } else if (isNotFound) {
-        statusEl.textContent = 'Nessuna fotocamera trovata su questo dispositivo.';
+        statusEl.textContent = 'Nessuna fotocamera trovata. Inserisci il codice manualmente.';
       } else {
-        statusEl.textContent = `Errore: ${err.message}`;
+        statusEl.textContent = `Errore fotocamera: ${err.message}. Puoi inserire il codice manualmente.`;
       }
       statusEl.classList.add('scanner-status-error');
       opts.onError?.(err);
-      setTimeout(() => {
-        if (!stopped) cleanup();
-      }, 2500);
+      // FIX: NON chiudere automaticamente — lascia l'opzione manuale disponibile.
+      // L'utente chiude con Annulla / ✕ / ESC quando vuole.
     }
   })();
 }

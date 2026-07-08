@@ -4,13 +4,22 @@
 // P0 #2 della roadmap hobbistica.
 //
 // Pattern:
-// - detectBarcodeFromVideo(video, signal) → Promise<string | null>
+// - detectBarcodeFromVideo(stream, video, signal) → Promise<string | null>
 // - Tenta native BarcodeDetector prima (più veloce, niente bundle weight su Chrome)
 // - Fallback a ZXing via dynamic import (caricato solo se necessario)
 // - Cleanup garantito via AbortSignal: caller può cancellare in qualsiasi momento
 //
 // Formati target: EAN-13, EAN-8, UPC-A, UPC-E (codici a barre prodotto alimentari)
 // Code-128 / Code-39 inclusi come fallback per prodotti non alimentari.
+//
+// FIX (post-P0): due bug causavano "scanner bloccato in modalità scansione":
+//  1. ZXing: decodeFromVideoDevice(null, ...) chiamava getUserMedia una seconda
+//     volta, creando un conflitto con lo stream già attaccato al <video>. Su iOS
+//     questo faceva sì che la callback di decode non venisse mai invocata.
+//     FIX: usare decodeFromStream(stream, video, ...) che riusa lo stream esistente.
+//  2. Native: requestVideoFrameCallback non fire affidabilmente su tutti i setup
+//     (es. Chrome desktop con webcam USB). Il loop di detection si bloccava.
+//     FIX: usare setInterval(200ms) — meno elegante ma sempre affidabile.
 
 /** Formati preferiti per scanner prodotto (alimentari). */
 const PREFERRED_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'] as const;
@@ -41,16 +50,22 @@ async function createNativeDetector(): Promise<BarcodeDetector | null> {
     // Alcuni browser supportano BarcodeDetector ma non l'argomento `formats`.
     // Proviamo prima con formats, fallback a constructor senza options.
     try {
-      return new window.BarcodeDetector({ formats: [...PREFERRED_FORMATS] });
-    } catch {
+      const detector = new window.BarcodeDetector({ formats: [...PREFERRED_FORMATS] });
+      console.debug('[barcode] native BarcodeDetector created with formats');
+      return detector;
+    } catch (e) {
+      console.debug('[barcode] native BarcodeDetector formats rejected, fallback to default', e);
       return new window.BarcodeDetector();
     }
-  } catch {
+  } catch (e) {
+    console.warn('[barcode] native BarcodeDetector constructor failed', e);
     return null;
   }
 }
 
-/** Loop di detection nativa via requestVideoFrameCallback (fallback rAF). */
+/** Loop di detection nativa via setInterval.
+ *  Più affidabile di requestVideoFrameCallback che su alcuni setup (Chrome desktop
+ *  con webcam USB) non fire mai, lasciando il loop bloccato. */
 async function detectWithNative(
   video: HTMLVideoElement,
   signal: AbortSignal
@@ -64,62 +79,55 @@ async function detectWithNative(
       return;
     }
     let stopped = false;
+    let frameCount = 0;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
-    const stop = () => {
+    const stop = (): void => {
       if (stopped) return;
       stopped = true;
       signal.removeEventListener('abort', onAbort);
-      resolve(null);
+      if (intervalId !== null) clearInterval(intervalId);
     };
-    const onAbort = () => stop();
+    const onAbort = (): void => stop();
     signal.addEventListener('abort', onAbort, { once: true });
 
-    const tick = async (): Promise<void> => {
+    intervalId = setInterval(async () => {
       if (stopped || signal.aborted) return;
-      // video.readyState >= 2 = HAVE_CURRENT_DATA, evita errori detect su frame vuoto
-      if (video.readyState < 2) {
-        scheduleNext();
-        return;
+      // Aspetta che il video abbia frame reali (readyState >= 2 + dimensioni > 0)
+      if (video.readyState < 2 || video.videoWidth === 0) return;
+      frameCount++;
+      if (frameCount % 15 === 0) {
+        console.debug(`[barcode] native: frame #${frameCount}, video ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}`);
       }
       try {
         const results = await detector.detect(video);
         if (stopped || signal.aborted) return;
         if (results && results.length > 0 && results[0].rawValue) {
-          stopped = true;
-          signal.removeEventListener('abort', onAbort);
-          resolve(results[0].rawValue);
+          const value = results[0].rawValue;
+          const format = results[0].format;
+          console.debug(`[barcode] native DETECTED: "${value}" (format: ${format})`);
+          stop();
+          resolve(value);
           return;
         }
-      } catch {
-        // Frame errori transitori (video pausa, frame vuoto): ignora e continua.
+      } catch (e) {
+        // Non-fatal: log periodico per debug
+        if (frameCount % 15 === 0) {
+          console.debug('[barcode] native detect error (non-fatal):', e);
+        }
       }
-      scheduleNext();
-    };
-
-    const scheduleNext = (): void => {
-      if (stopped || signal.aborted) return;
-      if (typeof video.requestVideoFrameCallback === 'function') {
-        video.requestVideoFrameCallback(() => { void tick(); });
-      } else {
-        requestAnimationFrame(() => { void tick(); });
-      }
-    };
-
-    // Avvia il loop
-    void tick();
+    }, 200); // 5 detections/sec — bilanciamento reattività / CPU
   });
 }
 
 // ============ ZXing fallback (Safari iOS + qualsiasi browser senza BarcodeDetector) ============
 
 /** Carica @zxing/library dinamicamente solo quando serve.
- *  ZXing API note:
- *   - decodeFromVideoDevice(deviceId, video, callback) → Promise<void>
- *   - Per stoppare: reader.stopContinuousDecode() + reader.reset()
- *   - callback signature: (result: Result, error?: Exception) => any
- *     error viene emesso per ogni frame senza codice rilevato (normale, ignora)
- */
+ *  FIX: usa decodeFromStream(stream, video, callback) invece di decodeFromVideoDevice.
+ *  decodeFromVideoDevice chiamava getUserMedia una seconda volta, creando un conflitto
+ *  con lo stream già attaccato. decodeFromStream riusa lo stream esistente. */
 async function detectWithZxing(
+  stream: MediaStream,
   video: HTMLVideoElement,
   signal: AbortSignal
 ): Promise<string | null> {
@@ -132,8 +140,9 @@ async function detectWithZxing(
   hints.set(DecodeHintType.POSSIBLE_FORMATS, [
     'EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39',
   ]);
-  // tryHarder disattivato per ridurre latenza per-frame su mobile.
+  // 200ms = timeBetweenScansMillis (ritardo tra decode SUCCESSIVE, non tra tentativi)
   const reader = new BrowserMultiFormatReader(hints, 200);
+  console.debug('[barcode] using ZXing (decodeFromStream)');
 
   return new Promise<string | null>((resolve, reject) => {
     if (signal.aborted) {
@@ -142,6 +151,7 @@ async function detectWithZxing(
     }
     let stopped = false;
     let stoppedCallback = false;
+    let frameCount = 0;
 
     const stopReader = (): void => {
       if (stoppedCallback) return;
@@ -157,15 +167,20 @@ async function detectWithZxing(
     };
     signal.addEventListener('abort', onAbort, { once: true });
 
-    // decodeFromVideoDevice restituisce Promise<void>; il callback viene invocato
-    // per ogni frame decodificato (result) o con errore (err, normale frame senza codice).
+    // decodeFromStream(stream, video, callback) — riusa lo stream esistente,
+    // NON chiama getUserMedia. La callback fire per ogni tentativo di decode
+    // (con result se trovato, con err se non trovato — err è normale).
     reader
-      .decodeFromVideoDevice(null, video, (result, err) => {
+      .decodeFromStream(stream, video, (result, err) => {
         if (stopped) return;
-        // err è normale: ZXing emette errore per ogni frame senza codice rilevato.
+        frameCount++;
+        if (frameCount % 15 === 0) {
+          console.debug(`[barcode] zxing: frame #${frameCount}`);
+        }
         if (result) {
           const text = result.getText();
           if (text) {
+            console.debug(`[barcode] zxing DETECTED: "${text}"`);
             stopped = true;
             signal.removeEventListener('abort', onAbort);
             stopReader();
@@ -175,8 +190,7 @@ async function detectWithZxing(
         void err; // err non usato: errori per-frame sono normali in ZXing continuous mode
       })
       .then(() => {
-        // decodeFromVideoDevice resolved: stream avviato correttamente.
-        // Se nel frattempo è stato abortito, fermiamo subito.
+        console.debug('[barcode] zxing decodeFromStream started OK');
         if (signal.aborted) {
           stopReader();
         }
@@ -184,6 +198,7 @@ async function detectWithZxing(
       .catch((e: unknown) => {
         if (stopped) return;
         signal.removeEventListener('abort', onAbort);
+        console.error('[barcode] zxing error:', e);
         reject(e instanceof Error ? e : new Error(String(e)));
       });
   });
@@ -192,29 +207,36 @@ async function detectWithZxing(
 // ============ Public API ============
 
 /** Avvia la detection del barcode dal video element.
- *  - Risolve con il testo del barcode al primo rilevamento.
- *  - Risolve con null se abortito via signal.
- *  - Reject su errore irrecuperabile (es. backend non disponibile).
+ *  - stream: MediaStream già ottenuto dal caller (evita double getUserMedia in ZXing)
+ *  - video: <video> con srcObject già impostato sullo stream
+ *  - signal: AbortSignal per cancellare
+ *
+ *  Risolve con il testo del barcode al primo rilevamento.
+ *  Risolve con null se abortito via signal.
+ *  Reject su errore irrecuperabile (es. backend non disponibile).
  *
  *  Strategia: prova native BarcodeDetector; se non disponibile o se ritorna null
  *  senza abort, fallback a ZXing. */
 export async function detectBarcodeFromVideo(
+  stream: MediaStream,
   video: HTMLVideoElement,
   signal: AbortSignal
 ): Promise<string | null> {
   // Path nativo
   if (hasNativeBarcodeDetector()) {
+    console.debug('[barcode] trying native BarcodeDetector');
     try {
       const result = await detectWithNative(video, signal);
       if (result) return result;
       // Se abortito durante native, non tentare ZXing (evita camera re-init).
       if (signal.aborted) return null;
+      console.debug('[barcode] native returned null without abort, falling back to ZXing');
     } catch (e) {
       console.warn('[barcode] native BarcodeDetector failed, falling back to ZXing', e);
     }
   }
   // Fallback ZXing
-  return detectWithZxing(video, signal);
+  return detectWithZxing(stream, video, signal);
 }
 
 /** Richiede la camera posteriore (facingMode environment). */
