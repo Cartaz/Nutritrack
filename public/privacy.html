@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#10b981" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+  <meta name="description" content="Informativa privacy di NutriTrack — PWA per il tracciamento di calorie e macro. Dati sul dispositivo, nessun tracking, nessun cookie." />
+  <meta name="robots" content="index, follow" />
+  <title>Privacy · NutriTrack</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    * { margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      background-color: #fafafa;
+      color: #0a0a0a;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #0a0a0a;
+        color: #f5f5f5;
+      }
+      .card { background-color: #1a1a1a; border-color: #2e2e2e; }
+      .tag { background-color: #2a2a2a; border-color: #2e2e2e; color: #f5f5f5; }
+      .tag-danger { background-color: rgba(239, 68, 68, 0.15); border-color: transparent; color: #f87171; }
+      .tag-success { background-color: rgba(16, 185, 129, 0.15); border-color: transparent; color: #34d399; }
+      a { color: #34d399; }
+      a:hover { color: #6ee7b7; }
+      .header { background-color: rgba(26, 26, 26, 0.85); border-bottom-color: #2e2e2e; }
+      .meta { color: #a3a3a3; }
+    }
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background-color: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #e5e5e5;
+      padding: 14px 20px;
+    }
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; }
+    .brand-icon { font-size: 22px; }
+    .back-link {
+      font-size: 14px;
+      color: #10b981;
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: 8px;
+      transition: background-color 200ms ease;
+    }
+    .back-link:hover { background-color: rgba(16, 185, 129, 0.1); }
+    @media (prefers-color-scheme: dark) {
+      .back-link:hover { background-color: rgba(16, 185, 129, 0.15); }
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin-top: 36px;
+      margin-bottom: 12px;
+    }
+    h3 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
+    p { margin-bottom: 12px; }
+    ul, ol { margin-bottom: 12px; padding-left: 24px; }
+    li { margin-bottom: 6px; }
+    li::marker { color: #10b981; }
+    a { color: #059669; text-decoration: underline; }
+    a:hover { color: #047857; }
+    code {
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 14px;
+      background-color: rgba(0, 0, 0, 0.06);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    @media (prefers-color-scheme: dark) {
+      code { background-color: rgba(255, 255, 255, 0.08); }
+    }
+    .lead {
+      font-size: 17px;
+      color: #525252;
+      margin-bottom: 24px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .lead { color: #a3a3a3; }
+    }
+    .meta {
+      font-size: 13px;
+      color: #525252;
+      margin-bottom: 24px;
+    }
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      background-color: #f0f0f0;
+      border: 1px solid #e5e5e5;
+      color: #0a0a0a;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .tag-success { background-color: rgba(16, 185, 129, 0.12); border-color: transparent; color: #047857; }
+    .tag-danger { background-color: rgba(239, 68, 68, 0.12); border-color: transparent; color: #b91c1c; }
+    .card {
+      background-color: #ffffff;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 16px 0;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      .card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin: 16px 0 8px;
+    }
+    .summary-item {
+      padding: 16px;
+      background-color: rgba(16, 185, 129, 0.08);
+      border-radius: 10px;
+    }
+    .summary-item-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #047857;
+      margin-bottom: 4px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .summary-item { background-color: rgba(16, 185, 129, 0.12); }
+      .summary-item-label { color: #34d399; }
+    }
+    .summary-item-value { font-size: 14px; font-weight: 500; }
+    .footer-note {
+      margin-top: 36px;
+      padding-top: 20px;
+      border-top: 1px solid #e5e5e5;
+      font-size: 13px;
+      color: #6b6b6b;
+    }
+    @media (prefers-color-scheme: dark) {
+      .footer-note { border-top-color: #2e2e2e; color: #6b6b6b; }
+    }
+    strong { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">🍎</span>
+        <span>NutriTrack</span>
+      </div>
+      <a class="back-link" href="./" rel="noreferrer">← Torna all'app</a>
+    </div>
+  </header>
+
+  <main>
+    <h1>Informativa Privacy</h1>
+    <p class="lead">NutriTrack è un'applicazione web (PWA) per il tracciamento personale di calorie, macro e ricette. Questa informativa spiega in modo trasparente quali dati vengono trattati, dove sono conservati e quali terze parti (se presenti) sono coinvolte.</p>
+    <p class="meta">Ultimo aggiornamento: 8 luglio 2026 · Versione informativa: 1.0</p>
+
+    <div class="tags">
+      <span class="tag tag-success">✓ Dati sul dispositivo</span>
+      <span class="tag tag-success">✓ Nessun tracking</span>
+      <span class="tag tag-success">✓ Nessun cookie</span>
+      <span class="tag tag-success">✓ Nessun account</span>
+      <span class="tag tag-danger">⊘ Ricerche inviate a Open Food Facts</span>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="summary-item-label">Dove sono i dati</div>
+        <div class="summary-item-value">Solo sul tuo dispositivo (localStorage del browser)</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-item-label">Account</div>
+        <div class="summary-item-value">Non richiesti — l'app è usabile anonimamente</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-item-label">Terze parti</div>
+        <div class="summary-item-value">Solo Open Food Facts (per la ricerca prodotti)</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-item-label">Cookie</div>
+        <div class="summary-item-value">Zero — nessun cookie proprietario</div>
+      </div>
+    </div>
+
+    <h2>1. Titolare del trattamento</h2>
+    <p>NutriTrack è un progetto hobbistico open source distribuito sotto licenza MIT. Non essendoci un backend, un server di autenticazione o un'infrastruttura di raccolta dati, non esiste un "titolare del trattamento" tradizionale che custodisca i tuoi dati personali: <strong>i dati restano esclusivamente sul tuo dispositivo</strong>, sotto il tuo controllo diretto. Il codice sorgente è pubblico e ispezionabile su <a href="https://github.com/Cartaz/Nutritrack" target="_blank" rel="noreferrer">GitHub</a>.</p>
+
+    <h2>2. Dati trattati e dove risiedono</h2>
+    <p>L'app memorizza localmente, nella chiave <code>nutritrack_data_v1</code> del <code>localStorage</code> del browser, i seguenti dati:</p>
+    <ul>
+      <li><strong>Impostazioni utente</strong>: obiettivo calorico giornaliero, split macro, tema, eventuali dati per il calcolo del TDEE (peso, altezza, età, sesso, livello di attività, obiettivo di peso). Questi dati servono solo a personalizzare i calcoli lato client.</li>
+      <li><strong>Alimenti personalizzati</strong>: alimenti creati manualmente o salvati dal database Open Food Facts, includendo nome, brand, valori nutrizionali per 100 g, porzioni personalizzate e (opzionalmente) barcode.</li>
+      <li><strong>Ricette</strong>: ricette create dall'utente con ingredienti, grammi e porzioni.</li>
+      <li><strong>Diario alimentare</strong>: voci giornaliere (alimento + quantità + pasto) inserite dall'utente.</li>
+      <li><strong>Preferiti</strong>: id degli alimenti marcati come preferiti.</li>
+    </ul>
+    <p>Tutti questi dati sono <strong>inseriti volontariamente dall'utente</strong> e <strong>non lasciano mai il dispositivo</strong> a eccezione delle ricerche su Open Food Facts (vedi sezione 3) e delle esportazioni JSON esplicite effettuate dall'utente stesso (funzione Backup). Una copia di sicurezza (backup) viene mantenuta su una seconda chiave <code>nutritrack_data_backup</code> sempre nel <code>localStorage</code> dello stesso browser, per il recupero in caso di dati corrotti.</p>
+    <p>L'app NON raccoglie: posizione geografica, indirizzi IP, identificativi dispositivo, dati biometrici, contatti, foto (le immagini dei prodotti vengono scaricate da Open Food Facts e mostrate via URL, non salvate nel database locale).</p>
+
+    <h2>3. Comunicazioni verso l'esterno (Open Food Facts)</h2>
+    <p>L'unica comunicazione verso l'esterno avviene quando l'utente effettua una ricerca testuale o scansiona un barcode per cercare un prodotto. In quei casi, NutriTrack invia una richiesta HTTPS ai server di <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a>, un database collaborativo gratuito e open source. Vengono inviati:</p>
+    <ul>
+      <li>Il termine di ricerca digitato (es. "pasta") <strong>oppure</strong> il codice a barre scansionato (es. <code>8076809510053</code>).</li>
+      <li>Lo <a href="https://en.wikipedia.org/wiki/User_agent" target="_blank" rel="noreferrer">User-Agent</a> HTTP standard del browser, integrato con la stringa identificativa <code>NutriTrack/1.0 (PWA)</code> per consentire a Open Food Facts di identificare l'origine delle richieste (come da loro <a href="https://wiki.openfoodfacts.org/API" target="_blank" rel="noreferrer">best practice</a>).</li>
+    </ul>
+    <p>Le richieste sono indirizzate con fallback multi-istanza ai domini <code>it.openfoodfacts.org</code>, <code>world.openfoodfacts.org</code>, <code>fr.openfoodfacts.org</code>, <code>es.openfoodfacts.org</code>, <code>de.openfoodfacts.org</code>. Open Food Facts tratta questi dati secondo la propria <a href="https://world.openfoodfacts.org/privacy" target="_blank" rel="noreferrer">informativa privacy</a>. NutriTrack non ha alcun controllo sui log o sui dati eventualmente trattenuti da Open Food Facts.</p>
+    <p>È possibile usare l'app senza effettuare mai ricerche online: creando alimenti custom manualmente (bottone "Crea ingrediente custom"). In quel caso, nessuna comunicazione verso l'esterno avviene.</p>
+
+    <h2>4. Cookie e tecnologie di tracciamento</h2>
+    <p>NutriTrack <strong>non utilizza cookie</strong> di alcun tipo, né di prima né di terza parte. Non utilizza Web Beacon, fingerprinting, pixel tag o altre tecnologie di tracciamento. Il <code>localStorage</code> è usato esclusivamente per memorizzare i dati dell'utente (vedi sezione 2), non per profilazione o tracciamento.</p>
+    <p>Il Service Worker (funzionalità PWA per il funzionamento offline) cache-only su asset statici (HTML, CSS, JS, icone). Non registra push notification, non effettua background sync verso server, non raccoglie dati di utilizzo.</p>
+
+    <h2>5. Barcode scanner e accesso fotocamera</h2>
+    <p>La funzione "Scansiona codice a barre" (pulsante 📷 nel dialog di ricerca) richiede l'accesso alla fotocamera del dispositivo. <strong>Il flusso video viene elaborato localmente nel browser</strong> da due possibili backend (in ordine di preferenza):</p>
+    <ol>
+      <li><strong>BarcodeDetector API nativa</strong> (Chrome, Android WebView, Edge desktop): il riconoscimento è delegato al sistema operativo.</li>
+      <li><strong>@zxing/library</strong> (Safari iOS, Firefox, altri browser): libreria JavaScript open source caricata on-demand. Il frame video viene decodificato nel browser.</li>
+    </ol>
+    <p>In entrambi i casi: <strong>nessun frame video viene trasmesso o salvato</strong>. Non viene scattata alcuna foto. L'accesso alla camera è limitato alla durata del modal scanner e viene revocato immediatamente alla chiusura (il flusso MediaStream viene fermato). Il permesso può essere revocato in qualsiasi momento dalle impostazioni del browser.</p>
+
+    <h2>6. Condivisione e diffusione dei dati</h2>
+    <p>I dati salvati nel <code>localStorage</code> non vengono mai trasmessi a terzi da NutriTrack. L'unica eccezione è la funzione <strong>Esporta backup</strong> (in Impostazioni → Backup), che genera un file JSON scaricabile sul dispositivo: è responsabilità dell'utente decidere cosa farne. La funzione <strong>Importa</strong> legge un file JSON locale scelto esplicitamente dall'utente; il file non viene trasmesso ad alcun server.</p>
+
+    <h2>7. Conservazione e cancellazione</h2>
+    <p>I dati restano nel <code>localStorage</code> finché l'utente non decide di rimuoverli. Le modalità disponibili sono:</p>
+    <ul>
+      <li><strong>Reset tutti i dati</strong> (Impostazioni → Reset): cancella immediatamente alimenti, ricette, diario, preferiti e impostazioni. L'azione è irreversibile.</li>
+      <li><strong>Cancellazione manuale del browser</strong>: svuotando la cache/cookie del sito, o disinstallando la PWA, tutti i dati locali vengono rimossi.</li>
+      <li><strong>Modalità privata / Incognito</strong>: l'app rileva automaticamente quando il <code>localStorage</code> non è disponibile (modalità privata di Safari, browser con storage disabilitato) e opera in modalità in-memory: i dati esistono solo per la durata della sessione e vengono persi alla chiusura del tab.</li>
+    </ul>
+
+    <h2>8. Sicurezza dei dati</h2>
+    <p>Poiché i dati risiedono sul dispositivo dell'utente, la loro sicurezza dipende dalle protezioni del sistema operativo, del browser e del dispositivo (PIN, biometria, cifratura disco). NutriTrack non implementa cifratura aggiuntiva dei dati locali: chiunque abbia accesso fisico al dispositivo sbloccato e apra il browser con il profilo corretto può leggere il <code>localStorage</code>. Per dati sensibili (es. diario alimentare con note cliniche), si raccomanda di proteggere il dispositivo con PIN/biometria.</p>
+
+    <h2>9. Diritti dell'interessato (GDPR, artt. 15–22)</h2>
+    <p>Trattandosi di dati esclusivamente locali, i diritti previsti dal Regolamento UE 2016/679 (GDPR) si esercitano direttamente sul dispositivo:</p>
+    <ul>
+      <li><strong>Diritto di accesso (art. 15)</strong>: i dati sono visibili aprendo l'app. Inoltre, la funzione Esporta backup genera un JSON completo e leggibile con tutti i dati salvati.</li>
+      <li><strong>Diritto di rettifica (art. 16)</strong>: ogni dato è modificabile o eliminabile dall'interfaccia dell'app (editor alimenti, ricette, voci del diario).</li>
+      <li><strong>Diritto alla cancellazione (art. 17)</strong>: la funzione "Reset tutti i dati" cancella immediatamente ogni dato. La cancellazione del sito dal browser produce lo stesso effetto.</li>
+      <li><strong>Diritto alla portabilità (art. 20)</strong>: il backup JSON è un formato aperto e strutturato, importabile in altre istanze dell'app o elaborabile da strumenti esterni.</li>
+      <li><strong>Diritto di opposizione (art. 21)</strong>: dato che non esiste profilazione né trattamento automatizzato, questo diritto è soddisfatto per costruzione.</li>
+    </ul>
+    <p>Per le richieste eventualmente inviate a Open Food Facts (ricerche testuali o barcode), si applica l'informativa di Open Food Facts e i diritti vanno esercitati presso di loro.</p>
+
+    <h2>10. Trasparenza del codice</h2>
+    <p>L'intera base di codice di NutriTrack è pubblica e ispezionabile: <a href="https://github.com/Cartaz/Nutritrack" target="_blank" rel="noreferrer">https://github.com/Cartaz/Nutritrack</a>. Chiunque può verificare le comunicazioni di rete aprendo la console del browser (tab Network). L'app è distribuita sotto licenza MIT.</p>
+
+    <h2>11. Modifiche a questa informativa</h2>
+    <p>Questa informativa potrà essere aggiornata in caso di nuove funzionalità che modifichino il trattamento dei dati (es. futura sincronizzazione tra dispositivi). La data di "Ultimo aggiornamento" in cima alla pagina indica la revisione più recente. Le modifiche sostanziali saranno evidenziate nel <a href="https://github.com/Cartaz/Nutritrack/blob/main/CHANGELOG.md" target="_blank" rel="noreferrer">CHANGELOG del repository</a>.</p>
+
+    <h2>12. Contatti</h2>
+    <p>Per domande su questa informativa o sul trattamento dei dati, apri una issue su GitHub: <a href="https://github.com/Cartaz/Nutritrack/issues" target="_blank" rel="noreferrer">https://github.com/Cartaz/Nutritrack/issues</a>.</p>
+
+    <p class="footer-note">Informativa generata per NutriTrack — progetto open source, niente backend, niente monetizzazione. Codice sotto licenza <a href="https://github.com/Cartaz/Nutritrack/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT</a>. Dati nutrizionali forniti da <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a> (database collaborativo, licenza ODbL).</p>
+  </main>
+</body>
+</html>

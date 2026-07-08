@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Tracker di calorie e macro - PWA vanilla TypeScript installabile iOS-first",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -11,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@zxing/library": "^0.21.3",
     "vite-plugin-pwa": "^0.20.5",
     "workbox-build": "^7.1.1",
     "workbox-core": "^7.1.0",

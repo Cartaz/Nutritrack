@@ -8,13 +8,14 @@
 // MAI toccato dopo la creazione per non perdere focus e cursore (causa del bug flickering).
 
 import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
-import { searchOff } from '../lib/api';
+import { searchOff, getOffByBarcode } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
 import { getState, closeFoodSearch, openFoodEditor, emitChange, addFood } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
 import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
 import { showToast } from './toast';
 import { imgTag } from './img';
+import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
 import type { FoodItem, CustomPortion } from '../types';
 import { MEAL_ICONS, MEAL_LABELS } from '../types';
@@ -269,6 +270,15 @@ export function bindSearchEvents(): void {
         emitChange();
         return;
       }
+      case 'scanBarcode': {
+        // P0 #2: apri il modal scanner camera. La callback onDetected recupera il prodotto OFF.
+        if (isBarcodeScannerOpen()) return;
+        openBarcodeScanner({
+          onDetected: (barcode) => { void handleBarcodeDetected(barcode); },
+          onError: () => { /* toast/messaggio già gestito nel modal */ },
+        });
+        return;
+      }
       case 'usePortion': {
         // Imposta i grammi al valore di una porzione personalizzata
         const grams = Number(target.dataset.grams || '0');
@@ -386,6 +396,65 @@ function currentList(): FoodItem[] {
   }
   if (_searchState.tab === 'saved') return s.foods;
   return _searchState.results;
+}
+
+// ============ Barcode scan handler (P0 #2) ============
+
+/** Callback invocata dal barcode-scanner modal quando un codice viene rilevato.
+ *  - Forza il tab "search" (la scansione ha senso solo lì)
+ *  - Abortisce eventuali ricerche OFF in corso
+ *  - Recupera il prodotto via getOffByBarcode (stub già esistente in api.ts)
+ *  - Se trovato: lo mostra come unico risultato e lo pre-seleziona (grammi = servingSize)
+ *  - Se non trovato: toast di errore e nessuna modifica alla UI */
+async function handleBarcodeDetected(barcode: string): Promise<void> {
+  if (!getState()._searchOpen) return;
+  // Forza tab search + abort fetch in corso
+  if (_searchState.tab !== 'search') {
+    _searchState.tab = 'search';
+  }
+  abortInFlightSearch();
+  _searchState.loading = true;
+  _searchState.query = barcode;
+  _searchState.selectedId = null;
+  _searchState.gramsOverride = '';
+  _searchState.pendingCustomPortions = [];
+  // Aggiorna il value dell'input per dare feedback visivo (l'input è già stato creato)
+  const inputEl = document.querySelector<HTMLInputElement>('#search-input');
+  if (inputEl) inputEl.value = barcode;
+  emitChange();
+
+  try {
+    const product = await getOffByBarcode(barcode);
+    if (!getState()._searchOpen) return; // modal chiuso durante fetch
+    if (!product) {
+      _searchState.loading = false;
+      _searchState.results = [];
+      emitChange();
+      showToast(`Nessun prodotto trovato per il codice ${barcode}. Puoi cercare per nome o creare un ingrediente custom.`, 'info', 4500);
+      return;
+    }
+    const food = buildFoodFromOff(product);
+    if (!food) {
+      _searchState.loading = false;
+      _searchState.results = [];
+      emitChange();
+      showToast(`Prodotto trovato ma con dati nutrizionali incompleti (codice ${barcode}).`, 'info', 4500);
+      return;
+    }
+    _searchState.results = [food];
+    _searchState.selectedId = food.id;
+    _searchState.gramsOverride = String(food.servingSize || 100);
+    _searchState.loading = false;
+    emitChange();
+    showToast(`${food.name} trovato`, 'success', 2200);
+  } catch (e) {
+    if (!getState()._searchOpen) return;
+    _searchState.loading = false;
+    _searchState.results = [];
+    emitChange();
+    const msg = e instanceof Error ? e.message : String(e);
+    showToast(`Errore nella ricerca del prodotto: ${msg}`, 'error');
+  }
 }
 
 function confirmAdd(): void {
@@ -549,12 +618,17 @@ export function updateSearchContent(overlay: HTMLElement): void {
     if (shouldShow && !wasShowing) {
       // Crea il search box (con input vergine — non toccare _searchState.query per non duplicare)
       searchBoxEl.innerHTML = `
-        <div class="search-box">
-          <span class="search-icon" aria-hidden="true">🔍</span>
-          <input id="search-input" type="search" placeholder="Cerca su Open Food Facts (es. pasta, yogurt…)" autocomplete="off" />
-          ${_searchState.query ? '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci">✕</button>' : '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci" style="display:none">✕</button>'}
+        <div class="search-row">
+          <div class="search-box">
+            <span class="search-icon" aria-hidden="true">🔍</span>
+            <input id="search-input" type="search" placeholder="Cerca su Open Food Facts (es. pasta, yogurt…)" autocomplete="off" />
+            ${_searchState.query ? '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci">✕</button>' : '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci" style="display:none">✕</button>'}
+          </div>
+          <button type="button" class="scan-btn" data-search-action="scanBarcode" aria-label="Scansiona codice a barre" title="Scansiona codice a barre">
+            <span aria-hidden="true">📷</span>
+          </button>
         </div>
-        <p class="search-hint">Database gratuito collaborativo - milioni di prodotti. Powered by Open Food Facts.</p>
+        <p class="search-hint">Database gratuito collaborativo - milioni di prodotti. Powered by Open Food Facts. Usa 📷 per scansionare il codice a barre.</p>
       `;
       // Inizializza il value dell'input solo alla creazione
       const input = searchBoxEl.querySelector<HTMLInputElement>('#search-input');

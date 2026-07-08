@@ -832,16 +832,23 @@ body.modal-open { overflow: hidden; }
 
 .search-box {
   position: relative;
+  flex: 1;
+}
+.search-row {
+  display: flex;
+  gap: var(--space-2);
   padding: var(--space-3);
   border-bottom: 1px solid var(--border-color);
+  align-items: center;
 }
 .search-box .search-icon {
   position: absolute;
-  left: calc(var(--space-3) + var(--space-3));
+  left: var(--space-3);
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-muted);
   font-size: 14px;
+  pointer-events: none;
 }
 .search-box input {
   width: 100%;
@@ -854,7 +861,7 @@ body.modal-open { overflow: hidden; }
 }
 .search-clear {
   position: absolute;
-  right: calc(var(--space-3) + var(--space-2));
+  right: var(--space-2);
   top: 50%;
   transform: translateY(-50%);
   width: 24px; height: 24px;
@@ -862,6 +869,26 @@ body.modal-open { overflow: hidden; }
   background-color: var(--bg-muted);
   color: var(--text-muted);
   display: inline-flex; align-items: center; justify-content: center;
+}
+.scan-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--transition), transform var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.scan-btn:hover, .scan-btn:active {
+  background-color: var(--bg-muted);
+  transform: scale(0.96);
 }
 .search-hint { font-size: 11px; color: var(--text-muted); padding: var(--space-2) var(--space-3); }
 
@@ -1238,6 +1265,95 @@ textarea {
   color: var(--text-muted);
 }
 .view-error .btn { margin-top: var(--space-3); }
+
+/* ============ Barcode scanner ============ */
+.barcode-modal {
+  max-width: 480px;
+  width: 100%;
+}
+.scanner-body {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.scanner-video-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background-color: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.scanner-video-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.scanner-overlay-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 75%;
+  height: 40%;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 10000px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  animation: scanner-pulse 2s ease-in-out infinite;
+}
+.scanner-overlay-frame::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--color-primary);
+  box-shadow: 0 0 8px var(--color-primary);
+  animation: scanner-scanline 2.4s linear infinite;
+}
+@keyframes scanner-pulse {
+  0%, 100% { border-color: rgba(255, 255, 255, 0.85); }
+  50% { border-color: rgba(16, 185, 129, 0.9); }
+}
+@keyframes scanner-scanline {
+  0% { transform: translateY(-50%); top: 0%; }
+  50% { transform: translateY(-50%); top: 100%; }
+  100% { transform: translateY(-50%); top: 0%; }
+}
+.scanner-status {
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--text-secondary);
+  min-height: 1.4em;
+}
+.scanner-status-success {
+  color: var(--color-primary);
+}
+.scanner-status-error {
+  color: var(--color-danger);
+}
+.scanner-hint {
+  font-size: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .scanner-overlay-frame,
+  .scanner-overlay-frame::after {
+    animation: none;
+  }
+  .scanner-overlay-frame::after {
+    top: 50%;
+  }
+}
 
 /* ============ Reduced motion ============ */
 @media (prefers-reduced-motion: reduce) {

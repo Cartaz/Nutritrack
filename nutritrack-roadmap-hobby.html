@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nutritrack · Roadmap Hobbistica</title>
+<meta name="description" content="Roadmap di sviluppo hobbistica per Nutritrack — feature personali, niente backend né monetizzazione.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --c-bg: #f8fafc;
+  --c-bg-elevated: #ffffff;
+  --c-surface: #f1f5f9;
+  --c-surface-2: #e2e8f0;
+  --c-border: #cbd5e1;
+  --c-border-soft: #e2e8f0;
+  --c-text: #0f172a;
+  --c-text-muted: #475569;
+  --c-text-soft: #64748b;
+  --c-primary: #4f46e5;
+  --c-primary-hover: #4338ca;
+  --c-primary-soft: #eef2ff;
+  --c-accent: #0ea5e9;
+  --c-accent-soft: #e0f2fe;
+  --c-success: #10b981;
+  --c-warning: #f59e0b;
+  --c-danger: #ef4444;
+  --c-info: #3b82f6;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-8: 48px; --space-10: 64px; --space-12: 96px;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-xl: 24px; --r-full: 999px;
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(15 23 42 / 0.07), 0 2px 4px -2px rgb(15 23 42 / 0.07);
+  --shadow-lg: 0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.08);
+  --shadow-xl: 0 20px 25px -5px rgb(15 23 42 / 0.10), 0 8px 10px -6px rgb(15 23 42 / 0.08);
+  --max-w: 1200px;
+  --header-h: 64px;
+}
+[data-theme="dark"] {
+  --c-bg: #0b1120;
+  --c-bg-elevated: #111827;
+  --c-surface: #1e293b;
+  --c-surface-2: #334155;
+  --c-border: #334155;
+  --c-border-soft: #1e293b;
+  --c-text: #f1f5f9;
+  --c-text-muted: #cbd5e1;
+  --c-text-soft: #94a3b8;
+  --c-primary: #818cf8;
+  --c-primary-hover: #6366f1;
+  --c-primary-soft: rgba(129, 140, 248, 0.12);
+  --c-accent: #38bdf8;
+  --c-accent-soft: rgba(56, 189, 248, 0.12);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 20px); }
+body {
+  font-family: var(--font-sans);
+  background: var(--c-bg);
+  color: var(--c-text);
+  line-height: 1.6;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+img, svg { display: block; max-width: 100%; }
+button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+a { color: var(--c-primary); text-decoration: none; transition: color 0.15s; }
+a:hover { color: var(--c-primary-hover); text-decoration: underline; }
+.container { width: 100%; max-width: var(--max-w); margin: 0 auto; padding: 0 var(--space-5); }
+
+#progress-bar {
+  position: fixed; top: 0; left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--c-primary), var(--c-accent));
+  width: 0%; z-index: 1000;
+  transition: width 0.1s ease-out;
+  box-shadow: 0 0 8px rgba(79, 70, 229, 0.4);
+}
+
+header.nav {
+  position: sticky; top: 0; z-index: 100;
+  background: color-mix(in srgb, var(--c-bg-elevated) 85%, transparent);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  border-bottom: 1px solid var(--c-border-soft);
+  height: var(--header-h);
+  display: flex; align-items: center;
+}
+header.nav .container { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-3); font-weight: 700; font-size: 15px; }
+.brand-mark {
+  width: 28px; height: 28px; border-radius: var(--r-sm);
+  background: linear-gradient(135deg, var(--c-primary), var(--c-accent));
+  display: grid; place-items: center; color: white; font-weight: 800; font-size: 14px;
+}
+.nav-links { display: flex; gap: var(--space-1); list-style: none; overflow-x: auto; scrollbar-width: none; }
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-links a {
+  display: block; padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm); font-size: 13px; font-weight: 500;
+  color: var(--c-text-muted); white-space: nowrap; transition: all 0.15s;
+}
+.nav-links a:hover { background: var(--c-surface); color: var(--c-text); text-decoration: none; }
+.nav-links a.active { background: var(--c-primary-soft); color: var(--c-primary); }
+.icon-btn {
+  width: 36px; height: 36px; border-radius: var(--r-sm);
+  display: grid; place-items: center; color: var(--c-text-muted); transition: all 0.15s;
+}
+.icon-btn:hover { background: var(--c-surface); color: var(--c-text); }
+.icon-btn svg { width: 18px; height: 18px; }
+@media (max-width: 768px) { .nav-links { display: none; } }
+
+.hero {
+  padding: var(--space-12) 0 var(--space-10);
+  position: relative; overflow: hidden;
+}
+.hero-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.hero-bg::before {
+  content: ''; position: absolute; top: -100px; right: -100px;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, var(--c-primary) 0%, transparent 60%);
+  opacity: 0.15; filter: blur(40px);
+}
+.hero-bg::after {
+  content: ''; position: absolute; bottom: -100px; left: -100px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, var(--c-accent) 0%, transparent 60%);
+  opacity: 0.15; filter: blur(40px);
+}
+.hero .container { position: relative; z-index: 1; }
+.hero-kicker {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--c-primary-soft); color: var(--c-primary);
+  border-radius: var(--r-full); font-size: 13px; font-weight: 600;
+  letter-spacing: 0.02em; margin-bottom: var(--space-5);
+}
+.hero-kicker .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--c-success); animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+.hero h1 {
+  font-size: clamp(36px, 6vw, 64px);
+  font-weight: 900; letter-spacing: -0.03em; line-height: 1.05;
+  margin-bottom: var(--space-5);
+  background: linear-gradient(135deg, var(--c-text) 0%, var(--c-text-muted) 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.hero h1 .accent {
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.hero-sub {
+  font-size: clamp(16px, 2vw, 20px);
+  color: var(--c-text-muted);
+  max-width: 720px; margin-bottom: var(--space-8); line-height: 1.6;
+}
+.hero-principles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4); margin-top: var(--space-8);
+}
+.principle-card {
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-lg);
+  padding: var(--space-5);
+  border-left: 3px solid var(--c-success);
+  transition: all 0.2s;
+}
+.principle-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.principle-card .p-icon { font-size: 20px; margin-bottom: var(--space-2); }
+.principle-card h4 { font-size: 14px; font-weight: 700; margin-bottom: var(--space-2); }
+.principle-card p { font-size: 13px; color: var(--c-text-muted); line-height: 1.55; }
+
+section { padding: var(--space-10) 0; scroll-margin-top: calc(var(--header-h) + 20px); }
+.section-head { margin-bottom: var(--space-8); }
+.section-kicker {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--c-primary); margin-bottom: var(--space-2);
+}
+.section-title {
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 800; letter-spacing: -0.02em; line-height: 1.15;
+  margin-bottom: var(--space-3);
+}
+.section-desc { font-size: 17px; color: var(--c-text-muted); max-width: 720px; line-height: 1.6; }
+
+/* Filters */
+.filters-bar {
+  display: flex; gap: var(--space-3); flex-wrap: wrap;
+  align-items: center; margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-lg);
+}
+.filter-group { display: flex; align-items: center; gap: var(--space-2); }
+.filter-label {
+  font-size: 12px; font-weight: 600; color: var(--c-text-soft);
+  text-transform: uppercase; letter-spacing: 0.05em; margin-right: var(--space-2);
+}
+.chip {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-full);
+  font-size: 12px; font-weight: 600;
+  border: 1px solid var(--c-border-soft);
+  background: var(--c-bg-elevated);
+  color: var(--c-text-muted);
+  transition: all 0.15s;
+  font-family: var(--font-mono);
+}
+.chip:hover { border-color: var(--c-primary); color: var(--c-text); }
+.chip.active { background: var(--c-primary); color: white; border-color: var(--c-primary); }
+.chip.active.p0 { background: var(--c-danger); border-color: var(--c-danger); }
+.chip.active.p1 { background: var(--c-warning); border-color: var(--c-warning); }
+.chip.active.p2 { background: var(--c-info); border-color: var(--c-info); }
+.chip.active.p3 { background: var(--c-success); border-color: var(--c-success); }
+.chip.active.s-todo { background: var(--c-text-soft); border-color: var(--c-text-soft); }
+.chip.active.s-doing { background: var(--c-warning); border-color: var(--c-warning); }
+.chip.active.s-done { background: var(--c-success); border-color: var(--c-success); }
+.filter-divider { width: 1px; height: 24px; background: var(--c-border); }
+
+/* Roadmap timeline */
+.roadmap { position: relative; margin-top: var(--space-8); }
+.roadmap::before {
+  content: ''; position: absolute; left: 24px; top: 0; bottom: 0;
+  width: 2px; background: linear-gradient(to bottom, var(--c-primary), var(--c-accent), var(--c-success));
+}
+.roadmap-phase {
+  display: grid; grid-template-columns: 60px 1fr;
+  gap: var(--space-5); margin-bottom: var(--space-6); position: relative;
+}
+.roadmap-marker {
+  width: 50px; height: 50px; border-radius: 50%;
+  background: var(--c-bg-elevated);
+  border: 3px solid var(--c-primary);
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-weight: 800; font-size: 14px;
+  color: var(--c-primary); position: relative; z-index: 1;
+}
+.roadmap-phase:nth-child(2) .roadmap-marker { border-color: var(--c-accent); color: var(--c-accent); }
+.roadmap-phase:nth-child(3) .roadmap-marker { border-color: #8b5cf6; color: #8b5cf6; }
+.roadmap-phase:nth-child(4) .roadmap-marker { border-color: var(--c-success); color: var(--c-success); }
+
+.roadmap-content {
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-lg);
+  padding: var(--space-5);
+  transition: all 0.2s;
+}
+.roadmap-content:hover { transform: translateX(4px); box-shadow: var(--shadow-md); }
+.roadmap-content .rc-head {
+  display: flex; align-items: center; gap: var(--space-3);
+  margin-bottom: var(--space-3); flex-wrap: wrap;
+}
+.roadmap-content h4 { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.timeline {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--c-text-soft); padding: 4px 10px;
+  background: var(--c-surface); border-radius: var(--r-full);
+}
+.focus {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 4px 10px; border-radius: var(--r-full); margin-left: auto;
+}
+.focus.p0 { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+.focus.p1 { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+.focus.p2 { background: rgba(14, 165, 233, 0.12); color: #0284c7; }
+.focus.p3 { background: rgba(16, 185, 129, 0.12); color: #059669; }
+
+.roadmap-items {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3); margin-top: var(--space-3);
+}
+.roadmap-item {
+  padding: var(--space-4);
+  background: var(--c-surface);
+  border-radius: var(--r-md);
+  border-left: 3px solid var(--c-primary);
+  font-size: 13px;
+  transition: all 0.2s;
+  position: relative;
+}
+.roadmap-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.roadmap-item.p0 { border-left-color: var(--c-danger); }
+.roadmap-item.p1 { border-left-color: var(--c-warning); }
+.roadmap-item.p2 { border-left-color: var(--c-info); }
+.roadmap-item.p3 { border-left-color: var(--c-success); }
+.roadmap-item.done { opacity: 0.65; background: var(--c-surface-2); }
+.roadmap-item.done .ri-title { text-decoration: line-through; text-decoration-color: var(--c-text-soft); }
+.roadmap-item.doing { box-shadow: 0 0 0 2px var(--c-warning); }
+
+.ri-head { display: flex; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-2); }
+.ri-title { font-weight: 600; color: var(--c-text); flex: 1; line-height: 1.4; }
+.ri-status {
+  font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: var(--r-full);
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.ri-status.todo { background: var(--c-surface-2); color: var(--c-text-soft); }
+.ri-status.doing { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.ri-status.done { background: rgba(16, 185, 129, 0.15); color: #059669; }
+
+.ri-desc {
+  font-size: 12px; color: var(--c-text-muted); line-height: 1.55;
+  margin-bottom: var(--space-2);
+}
+.ri-meta {
+  display: flex; gap: var(--space-3); flex-wrap: wrap;
+  font-size: 11px; color: var(--c-text-soft);
+  font-family: var(--font-mono);
+}
+.ri-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.ri-meta .pri-tag { font-weight: 700; }
+.ri-meta .pri-tag.p0 { color: #dc2626; }
+.ri-meta .pri-tag.p1 { color: #d97706; }
+.ri-meta .pri-tag.p2 { color: #0284c7; }
+.ri-meta .pri-tag.p3 { color: #059669; }
+
+/* Summary stats */
+.summary-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4); margin-bottom: var(--space-8);
+}
+.stat-card {
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-lg);
+  padding: var(--space-5);
+  transition: all 0.2s;
+}
+.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.stat-value {
+  font-family: var(--font-mono); font-size: 28px; font-weight: 700;
+  letter-spacing: -0.02em; color: var(--c-text); line-height: 1.2;
+}
+.stat-label {
+  font-size: 13px; color: var(--c-text-soft);
+  margin-top: var(--space-1); font-weight: 500;
+}
+
+/* Callout */
+.callout {
+  background: var(--c-primary-soft);
+  border-left: 3px solid var(--c-primary);
+  border-radius: var(--r-md);
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+  font-size: 14px; color: var(--c-text); line-height: 1.6;
+}
+.callout strong { color: var(--c-primary); }
+.callout.success { background: rgba(16, 185, 129, 0.08); border-left-color: var(--c-success); }
+.callout.success strong { color: #059669; }
+.callout.warning { background: rgba(245, 158, 11, 0.08); border-left-color: var(--c-warning); }
+.callout.warning strong { color: #d97706; }
+
+/* Reveal — disabilitato per evitare pagine vuote. Tutto visibile di default. */
+.reveal { opacity: 1; transform: none; }
+.reveal.visible { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+footer {
+  padding: var(--space-8) 0;
+  border-top: 1px solid var(--c-border-soft);
+  background: var(--c-bg-elevated);
+  margin-top: var(--space-10);
+}
+footer .container { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-4); }
+footer p { font-size: 13px; color: var(--c-text-soft); }
+footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('js-enabled');</script>
+
+<div id="progress-bar"></div>
+
+<header class="nav">
+  <div class="container">
+    <div class="brand">
+      <div class="brand-mark">N</div>
+      <span>Nutritrack · Roadmap Hobby</span>
+    </div>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="#principi" class="active">Principi</a></li>
+        <li><a href="#fase-1">Fase 1</a></li>
+        <li><a href="#fase-2">Fase 2</a></li>
+        <li><a href="#fase-3">Fase 3</a></li>
+        <li><a href="#fase-4">Fase 4</a></li>
+      </ul>
+    </nav>
+    <div style="display: flex; gap: var(--space-2); align-items: center;">
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Cambia tema">
+        <svg id="icon-sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg id="icon-moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="container">
+    <span class="hero-kicker"><span class="dot"></span> Scenario confermato · Hobby project</span>
+    <h1>Roadmap <span class="accent">hobbistica</span><br>per Nutritrack</h1>
+    <p class="hero-sub">Piano di sviluppo revisionato per uso personale e condivisione con conoscenti. <strong>Niente backend, niente account, niente monetizzazione, niente store review</strong>. Solo feature che migliorano l'esperienza quotidiana per te e chi ti sta vicino. Tutte le implementazioni restano nel perimetro PWA + localStorage.</p>
+
+    <div class="hero-principles">
+      <div class="principle-card">
+        <div class="p-icon">🏠</div>
+        <h4>Local-first forever</h4>
+        <p>Nessun backend. I dati restano su localStorage. Sync solo via export/import JSON manuale o QR code tra dispositivi propri.</p>
+      </div>
+      <div class="principle-card">
+        <div class="p-icon">🆓</div>
+        <h4>Zero costi ricorrenti</h4>
+        <p>Nessun server da pagare, nessuna API key a consumo. Solo GitHub Pages gratuito e API Open Food Facts (gratis, no key).</p>
+      </div>
+      <div class="principle-card">
+        <div class="p-icon">👤</div>
+        <h4>Single contributor</h4>
+        <p>Effort realistico per uno sviluppatore nel tempo libero. Nessuna dipendenza da terzi per manutenzione.</p>
+      </div>
+      <div class="principle-card">
+        <div class="p-icon">🎯</div>
+        <h4>Feature user-driven</h4>
+        <p>Priorità alle funzionalità che usi davvero o che i tuoi conoscenti ti chiedono. Niente feature per "il mercato".</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="principi" style="background: var(--c-bg-elevated);">
+  <div class="container">
+    <div class="section-head reveal">
+      <div class="section-kicker">01 · In sintesi</div>
+      <h2 class="section-title">Numeri della roadmap</h2>
+      <p class="section-desc">24 task totali distribuiti su 4 fasi temporali. Effort complessivo stimato: ~75–100 giorni di sviluppo spalmato su 12 mesi, in modalità tempo-rubato. <strong>3 task P0 critici completati nel primo pass.</strong></p>
+    </div>
+
+    <div class="summary-stats">
+      <div class="stat-card reveal">
+        <div class="stat-value" data-count="24">0</div>
+        <div class="stat-label">Task totali</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="stat-value" data-count="4">0</div>
+        <div class="stat-label">Fasi temporali</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="stat-value">~85</div>
+        <div class="stat-label">Giorni-uomo stimati</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="stat-value">€0</div>
+        <div class="stat-label">Costo hosting annuo</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="stat-value" data-count="1">0</div>
+        <div class="stat-label">Dipendenze esterne nuove</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="stat-value">3 / 24</div>
+        <div class="stat-label">Task completati (P0)</div>
+      </div>
+    </div>
+
+    <div class="callout success reveal">
+      <strong>Regola d'oro:</strong> ogni feature deve poter essere implementata, testata e deployata in autonomia su GitHub Pages entro il weekend. Se richiede più di 5 giorni di lavoro concentrato, va spezzata in sotto-task più piccoli.
+    </div>
+  </div>
+</section>
+
+<section id="roadmap-section">
+  <div class="container">
+    <div class="section-head reveal">
+      <div class="section-kicker">02 · Roadmap actionabile</div>
+      <h2 class="section-title">4 fasi, 12 mesi, zero stress</h2>
+      <p class="section-desc">Filtra per priorità (P0 critico / P1 alto / P2 medio / P3 nice-to-have) e stato (todo / doing / done). Clicca un chip per attivare il filtro.</p>
+    </div>
+
+    <div class="filters-bar reveal">
+      <div class="filter-group">
+        <span class="filter-label">Priorità</span>
+        <button class="chip active" data-filter-priority="all">Tutte</button>
+        <button class="chip p0" data-filter-priority="p0">P0 · Critico</button>
+        <button class="chip p1" data-filter-priority="p1">P1 · Alto</button>
+        <button class="chip p2" data-filter-priority="p2">P2 · Medio</button>
+        <button class="chip p3" data-filter-priority="p3">P3 · Nice</button>
+      </div>
+      <div class="filter-divider"></div>
+      <div class="filter-group">
+        <span class="filter-label">Stato</span>
+        <button class="chip active" data-filter-status="all">Tutti</button>
+        <button class="chip s-todo" data-filter-status="todo">Da fare</button>
+        <button class="chip s-doing" data-filter-status="doing">In corso</button>
+        <button class="chip s-done" data-filter-status="done">Fatto</button>
+      </div>
+    </div>
+
+    <div class="callout success reveal" style="margin-top: var(--space-5);">
+      <strong>✓ P0 completati (3/3):</strong> file <code>LICENSE</code> MIT aggiunto, scanner barcode con <code>BarcodeDetector</code> nativo + fallback <code>@zxing/library</code>, informativa privacy statica GDPR-compliant in <code>/privacy.html</code>. Prossimo focus: P1 (Vitest + ESLint/Prettier).
+    </div>
+
+    <div class="roadmap">
+
+      <!-- FASE 1 — Quick Wins -->
+      <div class="roadmap-phase reveal" id="fase-1">
+        <div class="roadmap-marker">01</div>
+        <div class="roadmap-content">
+          <div class="rc-head">
+            <h4>Quick Wins</h4>
+            <span class="timeline">0–1 mese</span>
+            <span class="focus p0">P0 · Critico</span>
+          </div>
+          <p style="font-size: 14px; color: var(--c-text-muted); margin-bottom: var(--space-3);">Fix dei gap più evidenti che minano credibilità e usabilità dell'app. Tutto colmabile in 1–2 weekend di lavoro concentrato. Sono task che hanno senso anche se l'app restasse solo per te.</p>
+          <div class="roadmap-items">
+
+            <div class="roadmap-item p0 done" data-priority="p0" data-status="done">
+              <div class="ri-head">
+                <div class="ri-title">Aggiungere file LICENSE MIT</div>
+                <span class="ri-status done">Done</span>
+              </div>
+              <div class="ri-desc">README dichiara MIT ma il file LICENSE manca. Tecnicamente il codice è "All rights reserved". Bastano 2 minuti: copia testo SPDX MIT + aggiungi <code>"license": "MIT"</code> in package.json.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p0">P0</span>
+                <span>⏱ 0.5 gg</span>
+                <span>✓ nessuna dipendenza</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p0 done" data-priority="p0" data-status="done">
+              <div class="ri-head">
+                <div class="ri-title">Barcode scanner reale</div>
+                <span class="ri-status done">Done</span>
+              </div>
+              <div class="ri-desc">Implementa <code>BarcodeDetector API</code> nativa (Chrome/Android) con fallback <code>ZXing</code> per Safari iOS. Riutilizza lo stub <code>getOffByBarcode()</code> già presente. UI: bottone "Scan" nel search dialog.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p0">P0</span>
+                <span>⏱ 3–5 gg</span>
+                <span>✓ dipende da esistente api.ts</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p0 done" data-priority="p0" data-status="done">
+              <div class="ri-head">
+                <div class="ri-title">Privacy policy formale</div>
+                <span class="ri-status done">Done</span>
+              </div>
+              <div class="ri-desc">Pagina HTML statica <code>/privacy.html</code> con: dati sul dispositivo, niente tracking, query OFF disclosed, no cookies, GDPR-compliant by design. Link dal footer dell'app e dal README.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p0">P0</span>
+                <span>⏱ 0.5 gg</span>
+                <span>✓ nessuna dipendenza</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Setup Vitest + primi test</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Aggiungi Vitest al progetto. Scrivi test unitari per i moduli più critici: <code>lib/nutrition.ts</code> (TDEE, macro grams, scaling), <code>lib/normalize.ts</code> (validazione input), <code>lib/storage.ts</code> (backup, recovery). Aggiungi <code>npm test</code> alla CI.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p1">P1</span>
+                <span>⏱ 3–5 gg</span>
+                <span>→ dipende da niente</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Setup ESLint + Prettier</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Configura ESLint con <code>@typescript-eslint</code> + Prettier. Integra in CI come gate (già che CI c'è). Mantiene stile coerente se in futuro arrivano contributor occasionali tra i tuoi amici.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p1">P1</span>
+                <span>⏱ 1 gg</span>
+                <span>→ aggiungi a CI</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Fix gen-icons.py path hardcoded</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Bug minore: <code>gen-icons.py</code> ha path assoluto <code>/home/z/my-project/download/...</code>. Sostituisci con <code>os.path.dirname(__file__)</code>. 30 minuti di lavoro, togliti la spina subito.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 0.5 gg</span>
+                <span>✓ nessuna dipendenza</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- FASE 2 — Qualità della vita quotidiana -->
+      <div class="roadmap-phase reveal" id="fase-2">
+        <div class="roadmap-marker">02</div>
+        <div class="roadmap-content">
+          <div class="rc-head">
+            <h4>Qualità della vita quotidiana</h4>
+            <span class="timeline">1–3 mesi</span>
+            <span class="focus p1">P1 · Alto</span>
+          </div>
+          <p style="font-size: 14px; color: var(--c-text-muted); margin-bottom: var(--space-3);">Feature che migliorano l'uso quotidiano dell'app: statistiche più utili, database italiano più ricco, UX più veloce. Sono tutte implementazioni local-only, nessun impatto architetturale.</p>
+          <div class="roadmap-items">
+
+            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Statistiche mensili e annue</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Estendi <code>stats.worker.ts</code> con vista mese (30 giorni) e anno (heatmap 365 giorni tipo GitHub contrib graph). Aggiungi tab "Mese" e "Anno" nella vista statistiche. Trend peso con line chart SVG.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p1">P1</span>
+                <span>⏱ 4–5 gg</span>
+                <span>→ estende stats.worker</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Database IT curato</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Layer di override locale: JSON con alimenti italiani comuni (Coop, Conad, Carrefour IT, Esselunga) con barcode e valori corretti. Se l'utente scansiona quel barcode, usa l'override invece di OFF. File versionato in repo, contributi via PR dai tuoi amici.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p1">P1</span>
+                <span>⏱ 5–7 gg</span>
+                <span>→ niente backend</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Tracking acqua, sonno, peso giornaliero</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Aggiungi tab "Biometrica" nel diario: acqua (bicchieri/L), sonno (ore), peso (kg). Calcolo trend peso con media mobile 7gg. Grafici inline SVG. Tutto su localStorage nello stesso payload.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p1">P1</span>
+                <span>⏱ 4–5 gg</span>
+                <span>→ estende AppState</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Copy-to-clipboard per ricette e diario</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Bottone "Copia come testo" in vista ricetta e diario giornaliero. Formato markdown human-readable. Utile per condividere il piano alimentare con il tuo medico o i tuoi amici su WhatsApp.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 1–2 gg</span>
+                <span>✓ niente dipendenze</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Quick add: alimenti recenti e preferiti</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Sulla dashboard, lista "Aggiunti di recente" con 1-click add (ultimi 10 alimenti usati, con porzione di default). Riduce il tempo di logging quotidiano da 30s a 3s per gli alimenti abituali.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 2–3 gg</span>
+                <span>→ estende dashboard</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Keyboard shortcuts su desktop</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Shortcut: <kbd>/</kbd> focus search, <kbd>d</kbd> dashboard, <kbd>f</kbd> foods, <kbd>r</kbd> recipes, <kbd>s</kbd> settings, <kbd>?</kbd> help overlay. Migliora UX per uso desktop (utile se la usi tu su PC).</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 1–2 gg</span>
+                <span>✓ niente dipendenze</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p3 todo" data-priority="p3" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Gamification locale (streak + badge)</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Streak giornaliero (giorni consecutivi con almeno 1 entry). Badge sbloccabili locali: "Prima settimana", "100 giorni", "Prima ricetta", "10 ricette". Niente social, niente condivisione. Solo motivazione personale.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p3">P3</span>
+                <span>⏱ 2–3 gg</span>
+                <span>✓ niente backend</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- FASE 3 — Condivisione con conoscenti -->
+      <div class="roadmap-phase reveal" id="fase-3">
+        <div class="roadmap-marker">03</div>
+        <div class="roadmap-content">
+          <div class="rc-head">
+            <h4>Condivisione con conoscenti</h4>
+            <span class="timeline">3–6 mesi</span>
+            <span class="focus p2">P2 · Medio</span>
+          </div>
+          <p style="font-size: 14px; color: var(--c-text-muted); margin-bottom: var(--space-3);">Feature che rendono l'app più utile quando la condividi con amici/famiglia: scambio ricette, sync tra tuoi dispositivi, export intelligente. Tutto senza backend — usiamo tecniche P2P o file-based.</p>
+          <div class="roadmap-items">
+
+            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Sync tra dispositivi via QR code</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Export del payload corrente come QR code compresso (gzip + base64) sullo schermo. Scan da altro dispositivo → import. Per sync tra tuo phone e tuo desktop senza server. Limitato a ~10KB dati (senza immagini).</div>
+              <div class="ri-meta">
+                <span class="pri-tag p1">P1</span>
+                <span>⏱ 3–4 gg</span>
+                <span>→ niente backend</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Condivisione ricette via link shareable</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Export ricetta singola come JSON compresso in URL fragment (<code>#recipe=...</code>). Apre l'app su un altro dispositivo con modal "Importa questa ricetta?". Per condividere ricette con amici su WhatsApp/Telegram senza backend.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p1">P1</span>
+                <span>⏱ 2–3 gg</span>
+                <span>→ URL fragment = no server</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Backup automatico su Google Drive / iCloud</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">OAuth con Google Drive Picker API o iCloud Drive. Backup automatico settimanale del payload come file <code>nutritrack-backup-YYYY-MM-DD.json</code>. Zero costo hosting (gratis entro 15GB utente). Utile per recover in caso di perdita telefono.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 5–7 gg</span>
+                <span>→ OAuth Google</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Multi-profilo per famiglia</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Switch tra profili locali (tu, partner, genitore). Ogni profilo ha il proprio payload separato in localStorage (<code>nutritrack_data_v1_user_alice</code>, <code>..._bob</code>). Per usare l'app con partner/figli sullo stesso tablet. Niente account.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 3–4 gg</span>
+                <span>→ estende storage</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p3 todo" data-priority="p3" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Web Share API per export</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Usa <code>navigator.share()</code> per export: condividi il backup JSON via WhatsApp/Telegram/email nativamente dal telefono. Più veloce del download + attach manuale.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p3">P3</span>
+                <span>⏱ 0.5 gg</span>
+                <span>✓ niente dipendenze</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p3 todo" data-priority="p3" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">QR code stampabile per installazione PWA</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Pagina <code>/installa.html</code> con QR code che punta all'URL dell'app. Stampa su biglietto da visita o manda ai tuoi amici via chat. Scan → apre Safari/Chrome → Add to Home Screen. Zero frizione per condividere l'app.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p3">P3</span>
+                <span>⏱ 0.5 gg</span>
+                <span>✓ niente dipendenze</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- FASE 4 — Polish e longevità -->
+      <div class="roadmap-phase reveal" id="fase-4">
+        <div class="roadmap-marker">04</div>
+        <div class="roadmap-content">
+          <div class="rc-head">
+            <h4>Polish e longevità</h4>
+            <span class="timeline">6–12 mesi</span>
+            <span class="focus p3">P3 · Nice-to-have</span>
+          </div>
+          <p style="font-size: 14px; color: var(--c-text-muted); margin-bottom: var(--space-3);">Miglioramenti che rendono l'app più robusta, accessibile e mantenibile nel tempo. Niente urgenza, ma rendono il progetto più solido per uso a lungo termine.</p>
+          <div class="roadmap-items">
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Schema migration path</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Implementa migration system per <code>SCHEMA_VERSION</code> (già presente come costante ma non usato). Quando cambi il formato del payload, scrivi migration function <code>migrateV1ToV2()</code> eseguita automaticamente al load. Evita data loss su future evoluzioni.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 2–3 gg</span>
+                <span>→ estende storage.ts</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">i18n minimo (IT + EN)</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Estrai stringhe UI in file <code>locales/it.json</code> e <code>locales/en.json</code>. Libreria leggera tipo <code>i18next</code> o custom. IT default, EN per eventuali amici stranieri o contributor. Niente ES/FR per ora (YAGNI).</div>
+              <div class="ri-meta">
+                <span class="pri-tag p2">P2</span>
+                <span>⏱ 4–5 gg</span>
+                <span>→ refactoring UI</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p3 todo" data-priority="p3" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Integrazione widget iOS (manifest + standby)</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Esponi widget "Calorie di oggi" via Web App Manifest (iOS 17+ supporta widget PWA). Richiede <code>display: standalone</code> + <code>shortcuts</code> + eventualmente lock screen widget. Sperimentale su iOS, stabile su Android.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p3">P3</span>
+                <span>⏱ 3–4 gg</span>
+                <span>→ iOS 17+ only</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p3 todo" data-priority="p3" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">PWA update notification non-blocking</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Quando il SW rileva un update, mostra toast non invadente "Nuova versione disponibile — ricarica" invece del refresh automatico. Implementa con <code>navigator.serviceWorker.addEventListener('updatefound')</code>. Evita UX jarring durante l'uso.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p3">P3</span>
+                <span>⏱ 1–2 gg</span>
+                <span>→ estende main.ts</span>
+              </div>
+            </div>
+
+            <div class="roadmap-item p3 todo" data-priority="p3" data-status="todo">
+              <div class="ri-head">
+                <div class="ri-title">Micro analytics anonimo opt-in</div>
+                <span class="ri-status todo">Todo</span>
+              </div>
+              <div class="ri-desc">Opzione in settings: "Aiutami a migliorare l'app". Se attivo, invia a Plausible/Umami self-hosted solo eventi aggregati (app_open, feature_used). Niente PII, niente cookie, GDPR-friendly. Ti dice quali feature usi di più per decidere cosa sviluppare dopo.</div>
+              <div class="ri-meta">
+                <span class="pri-tag p3">P3</span>
+                <span>⏱ 2–3 gg</span>
+                <span>→ self-host Plausible</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section style="background: var(--c-bg-elevated);">
+  <div class="container">
+    <div class="section-head reveal">
+      <div class="section-kicker">03 · Cosa NON fare</div>
+      <h2 class="section-title">Cosa resta fuori dal perimetro</h2>
+      <p class="section-desc">Per mantenere il progetto hobbistico sostenibile, queste feature — pur valide in altri contesti — NON rientrano nella roadmap. Se in futuro cambi idea, lo scenario B o C dell'analisi originale resta disponibile.</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-4); margin-top: var(--space-6);">
+      <div class="principle-card reveal" style="border-left-color: var(--c-danger);">
+        <div class="p-icon">🚫</div>
+        <h4>Backend e account</h4>
+        <p>Niente Supabase/Firebase. Sync solo via QR/JSON/file. Se serve multi-device, usa il backup Google Drive della Fase 3.</p>
+      </div>
+      <div class="principle-card reveal" style="border-left-color: var(--c-danger);">
+        <div class="p-icon">🚫</div>
+        <h4>App Store / Play Store</h4>
+        <p>Niente Capacitor wrapper, niente review process, niente fee 30%. L'app resta PWA installabile via browser. I tuoi amici la installano da link.</p>
+      </div>
+      <div class="principle-card reveal" style="border-left-color: var(--c-danger);">
+        <div class="p-icon">🚫</div>
+        <h4>Monetizzazione</h4>
+        <p>Niente premium tier, niente IAP, niente ads. Se un domani volessi monetizzare, sei libero di forkare — ma per ora resta free OSS puro.</p>
+      </div>
+      <div class="principle-card reveal" style="border-left-color: var(--c-danger);">
+        <div class="p-icon">🚫</div>
+        <h4>Wearable nativi (Apple Health/Google Fit)</h4>
+        <p>Richiederebbe Capacitor wrapper → vedi sopra. Per il tracking passivo, usa il diario manuale o integrazione futura via file export da app nativa.</p>
+      </div>
+      <div class="principle-card reveal" style="border-left-color: var(--c-danger);">
+        <div class="p-icon">🚫</div>
+        <h4>AI foto cibo</h4>
+        <p>Richiede API a consumo (costo ricorrente) o self-host di modello ML (complesso). Per hobby è overkill. Manual entry resta sufficiente.</p>
+      </div>
+      <div class="principle-card reveal" style="border-left-color: var(--c-danger);">
+        <div class="p-icon">🚫</div>
+        <h4>API pubblica per terzi</h4>
+        <p>Richiede auth server, rate limiting, documentazione. Per hobbistica non ha senso — l'API esposta è solo l'app stessa via browser.</p>
+      </div>
+    </div>
+
+    <div class="callout reveal">
+      <strong>Se in futuro cambi idea:</strong> l'analisi originale mostra come migrare allo scenario B (Indie premium) o C (OSS community). La base di codice che costruirai nei prossimi 12 mesi resta riusabile — barcode, statistiche, i18n, schema migration sono tutti building block validi per qualsiasi scenario futuro.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div>
+      <p>Roadmap hobbistica · Nutritrack · Scenario A confermato</p>
+      <p class="footer-meta">24 task · 4 fasi · 12 mesi · €0 costi ricorrenti</p>
+    </div>
+    <div style="display: flex; gap: var(--space-3); align-items: center;">
+      <a href="https://github.com/Cartaz/Nutritrack" target="_blank" rel="noopener" style="font-size: 13px; font-weight: 600;">↗ Repo</a>
+      <span style="color: var(--c-border);">·</span>
+      <button onclick="window.scrollTo({top:0,behavior:'smooth'})" style="font-size: 13px; font-weight: 600; color: var(--c-primary);">↑ Torna su</button>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Theme toggle
+(function() {
+  const root = document.documentElement;
+  const toggle = document.getElementById('theme-toggle');
+  const iconSun = document.getElementById('icon-sun');
+  const iconMoon = document.getElementById('icon-moon');
+  const saved = localStorage.getItem('theme') || 'light';
+  if (saved === 'dark') {
+    root.setAttribute('data-theme', 'dark');
+    iconSun.style.display = 'none';
+    iconMoon.style.display = 'block';
+  }
+  toggle.addEventListener('click', () => {
+    const isDark = root.getAttribute('data-theme') === 'dark';
+    if (isDark) {
+      root.removeAttribute('data-theme');
+      localStorage.setItem('theme', 'light');
+      iconSun.style.display = 'block';
+      iconMoon.style.display = 'none';
+    } else {
+      root.setAttribute('data-theme', 'dark');
+      localStorage.setItem('theme', 'dark');
+      iconSun.style.display = 'none';
+      iconMoon.style.display = 'block';
+    }
+  });
+})();
+
+// Progress bar
+(function() {
+  const bar = document.getElementById('progress-bar');
+  function update() {
+    const scroll = window.scrollY;
+    const height = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (scroll / height) * 100 + '%';
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
+
+// Active nav on scroll
+(function() {
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.nav-links a');
+  function update() {
+    const scrollPos = window.scrollY + 100;
+    let current = '';
+    sections.forEach(sec => { if (scrollPos >= sec.offsetTop) current = sec.id; });
+    navLinks.forEach(link => link.classList.toggle('active', link.getAttribute('href') === '#' + current));
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
+
+// Reveal on scroll — robust version with immediate check + fallback
+(function() {
+  const reveals = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window) || reveals.length === 0) {
+    // Fallback: show everything immediately
+    reveals.forEach(el => el.classList.add('visible'));
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.05, rootMargin: '0px 0px -10px 0px' });
+
+  // Observe all reveal elements
+  reveals.forEach(el => observer.observe(el));
+
+  // Safety net: dopo 1.5s, rivela TUTTO ciò che è già nel viewport (per evitare pagine vuote)
+  // Questo previene il bug dove l'observer non si attiva al load in alcune condizioni
+  setTimeout(() => {
+    reveals.forEach(el => {
+      if (!el.classList.contains('visible')) {
+        const rect = el.getBoundingClientRect();
+        const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+        if (inViewport) el.classList.add('visible');
+      }
+    });
+  }, 1500);
+
+  // Safety net finale: dopo 4s, rivela TUTTO incondizionatamente (mai pagina vuota)
+  setTimeout(() => {
+    reveals.forEach(el => el.classList.add('visible'));
+  }, 4000);
+})();
+
+// Animated counters
+(function() {
+  const animate = (el) => {
+    const target = parseInt(el.dataset.count, 10);
+    const duration = 1500;
+    const start = performance.now();
+    function tick(now) {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.floor(target * eased).toString();
+      if (progress < 1) requestAnimationFrame(tick);
+      else el.textContent = target.toString();
+    }
+    requestAnimationFrame(tick);
+  };
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        animate(entry.target);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.5 });
+  document.querySelectorAll('[data-count]').forEach(c => observer.observe(c));
+})();
+
+// Filters
+(function() {
+  const priorityChips = document.querySelectorAll('[data-filter-priority]');
+  const statusChips = document.querySelectorAll('[data-filter-status]');
+  const items = document.querySelectorAll('.roadmap-item');
+  let activePriority = 'all';
+  let activeStatus = 'all';
+
+  function applyFilters() {
+    items.forEach(item => {
+      const p = item.dataset.priority;
+      const s = item.dataset.status;
+      const pMatch = activePriority === 'all' || p === activePriority;
+      const sMatch = activeStatus === 'all' || s === activeStatus;
+      item.style.display = (pMatch && sMatch) ? '' : 'none';
+    });
+  }
+
+  priorityChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      priorityChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      activePriority = chip.dataset.filterPriority;
+      applyFilters();
+    });
+  });
+  statusChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      statusChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      activeStatus = chip.dataset.filterStatus;
+      applyFilters();
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

@@ -19,6 +19,7 @@ Tracker di calorie e macro personalizzato — **PWA vanilla TypeScript installab
 - **4 pasti**: colazione, pranzo, cena, spuntino
 - **Alimenti**: CRUD completo, preferiti, ricerca testuale, creazione custom con valori per 100g (con calcolo automatico kcal da macro)
 - **Ricerca OFF**: ricerca su Open Food Facts con debounce + AbortController + fallback multi-istanza
+- **Scanner barcode**: scansione codice a barre via fotocamera (BarcodeDetector API nativa su Chrome/Android, fallback `@zxing/library` su Safari iOS) — riutilizza `getOffByBarcode()` per recuperare il prodotto
 - **Ricette**: CRUD completo, editor con ingredienti (ricerca OFF/salvati/custom), calcolo automatico per porzione, aggiunta al diario (ingredienti scalati)
 - **Impostazioni**: obiettivo calorie (input + slider), split macro personalizzato con preset (Bilanciato/Alto proteico/Low carb/Keto/Mediterranea), calcolatore TDEE Mifflin-St Jeor, tema (system/light/dark), export/import JSON, reset
 - **PWA**: installabile, offline-ready, maskable icons, safe-area iOS, dark by default
@@ -32,6 +33,7 @@ nutritrack-pwa/
 │   ├── ci.yml                  # typecheck + build su PR/push main
 │   └── deploy.yml              # build + GitHub Pages, base path auto
 ├── .gitignore
+├── LICENSE                     # MIT (P0 #1)
 ├── README.md
 ├── index.html                  # meta iOS, preconnect OFF, manifest link
 ├── package.json
@@ -41,6 +43,7 @@ nutritrack-pwa/
 │   └── gen-icons.py            # genera icone mancanti (maskable, apple-touch, favicon)
 ├── public/
 │   ├── robots.txt
+│   ├── privacy.html            # informativa privacy statica GDPR (P0 #3)
 │   └── icons/
 │       ├── icon.svg
 │       ├── icon-192.png
@@ -52,7 +55,7 @@ nutritrack-pwa/
 └── src/
     ├── main.ts                 # entry: init store, load, render, registerSW (prod only)
     ├── types.ts                # tipi dominio + tipi OFF + WorkerRequest/Response + AppState
-    ├── vite-env.d.ts
+    ├── vite-env.d.ts           # tipi BarcodeDetector API + requestVideoFrameCallback
     ├── sw.ts                   # Service Worker (Workbox injectManifest)
     ├── styles/
     │   └── main.css            # CSS variables, safe-area, dark by default, layout, componenti
@@ -62,6 +65,7 @@ nutritrack-pwa/
     │   ├── store.ts            # state observer + RAF + mutators
     │   ├── storage.ts          # localStorage + backup + quota + multi-tab sync
     │   ├── api.ts              # apiGetJson + ApiError + searchOff + getOffByBarcode
+    │   ├── barcode.ts          # BarcodeDetector nativo + fallback @zxing/library (P0 #2)
     │   ├── normalize.ts        # normalizeXxx + buildFoodFromOff + reconcileAll
     │   ├── nutrition.ts        # calcMacroGrams, scaleNutrition, sumNutrition, calcBMR, calcTDEE
     │   ├── foods.ts            # azioni dominio: createCustomFood, requestDeleteFood, ...
@@ -76,14 +80,15 @@ nutritrack-pwa/
     │   ├── img.ts              # imgTag(src, alt, cls, fallback) con data-fallback
     │   ├── imageFallback.ts    # initImageFallback() capture-phase globale
     │   ├── header.ts           # renderHeader + renderBottomNav
-    │   ├── search.ts           # search dialog OFF con tabs preferiti/salvati/cerca
+    │   ├── search.ts           # search dialog OFF con tabs preferiti/salvati/cerca + scan barcode
+    │   ├── barcode-scanner.ts  # modal scanner camera con BarcodeDetector/ZXing (P0 #2)
     │   ├── exportImport.ts     # export JSON Blob + import validato
     │   └── renderer.ts         # render() RAF + code-splitting viste + event delegation globale
     └── views/
         ├── dashboard.ts        # diario giornaliero + macro ring + bar + week stats
         ├── foods.ts            # elenco alimenti salvati + search + preferiti
         ├── recipes.ts          # elenco ricette + search + add-to-diary
-        ├── settings.ts         # calorie/macro/TDEE/tema/export/import/reset
+        ├── settings.ts         # calorie/macro/TDEE/tema/export/import/reset + link privacy
         ├── food-editor.ts      # modal crea/modifica alimento custom
         ├── recipe-editor.ts    # modal crea/modifica ricetta con ingredienti
         └── recipe-viewer.ts    # modal vista ricetta read-only
@@ -155,6 +160,10 @@ Se deployi su sottopercorso, imposta `VITE_BASE_PATH=/tuo-percorso/` prima del b
 
 Tutti i dati restano sul dispositivo (localStorage). Nessun invio a server di terzi se non le ricerche su Open Food Facts (database collaborativo gratuito, no chiave API).
 
+L'informativa privacy completa è disponibile in [`/privacy.html`](./public/privacy.html) (visibile anche dall'app: Impostazioni → Informazioni → Informativa privacy).
+
+L'app **non utilizza cookie**, non installa tracker, non richiede account. Il barcode scanner elabora i frame video localmente nel browser e non trasmette né salva immagini.
+
 ## Target browser
 
 - **iOS Safari 16+** (target primario — PWA installabile, safe-area, dvh)
@@ -163,4 +172,4 @@ Tutti i dati restano sul dispositivo (localStorage). Nessun invio a server di te
 
 ## Licenza
 
-Codice sotto licenza MIT. Dati nutrizionali forniti da [Open Food Facts](https://world.openfoodfacts.org) (database collaborativo, licenza ODbL).
+Codice sotto licenza [MIT](./LICENSE). Dati nutrizionali forniti da [Open Food Facts](https://world.openfoodfacts.org) (database collaborativo, licenza ODbL).

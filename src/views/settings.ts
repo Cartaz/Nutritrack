@@ -464,6 +464,7 @@ export function renderSettings(main: HTMLElement): void {
         <p><strong>NutriTrack</strong> — clone open di Lifesum come PWA.</p>
         <p>Dati nutrizionali forniti da <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a> (database collaborativo gratuito).</p>
         <p>Tutti i dati restano sul tuo dispositivo. Installabile come app dal browser (Aggiungi a Home Screen).</p>
+        <p><a href="./privacy.html" target="_blank" rel="noreferrer">Informativa privacy</a> · <a href="https://github.com/Cartaz/Nutritrack" target="_blank" rel="noreferrer">Codice sorgente</a> · <a href="https://github.com/Cartaz/Nutritrack/blob/main/LICENSE" target="_blank" rel="noreferrer">Licenza MIT</a></p>
       </section>
     </div>
   `;
