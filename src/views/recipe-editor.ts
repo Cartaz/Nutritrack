@@ -100,7 +100,7 @@ function renderEditorBody(): string {
       </label>
       <label class="field field-sm">
         <span>Porzioni *</span>
-        <input id="re-servings" type="number" min="1" max="50" value="${escapeAttr(_recipeEditorState.servings)}" />
+        <input id="re-servings" type="number" min="1" max="200" value="${escapeAttr(_recipeEditorState.servings)}" />
       </label>
       <div class="separator"></div>
       <div class="ing-head">
@@ -559,6 +559,11 @@ function handleSave(recipeId: string | null): boolean {
   }
   if (servings < 1) {
     showToast('Il numero di porzioni deve essere almeno 1', 'error');
+    return false;
+  }
+  // Fix R8 (T4): validazione max servings (coerente con normalizeRecipe max=200 e HTML max=200)
+  if (servings > 200) {
+    showToast('Il numero di porzioni non può superare 200', 'error');
     return false;
   }
   // Validazione grammi di ogni ingrediente: parse strict, rifiuta NaN/negativi/zero
