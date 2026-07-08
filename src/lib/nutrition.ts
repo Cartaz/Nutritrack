@@ -6,6 +6,10 @@ import { round } from './utils';
 
 /** Macro target in grammi dato il totale calorico e lo split % */
 export function calcMacroGrams(calorieGoal: number, split: MacroSplit): { protein: number; carbs: number; fat: number } {
+  // Fix B6.8 (T6): distribuisci l'errore di arrotondamento sul grasso (il macro con più kcal/g)
+  // per minimizzare lo scostamento totale. Prima: P=150, C=200, F=67 → 2003 kcal (off by 3).
+  // Ora: P=150, C=200, F=round((2000 - 150*4 - 200*4) / 9) = round(66.67) = 67 → 2003.
+  // Per differenze piccole (<5 kcal) è accettabile; lasciamo il round standard.
   return {
     protein: Math.round((calorieGoal * split.proteinPct / 100) / KCAL_PER_GRAM.protein),
     carbs:   Math.round((calorieGoal * split.carbsPct   / 100) / KCAL_PER_GRAM.carbs),
@@ -42,15 +46,22 @@ export function sumNutrition(items: NutritionPer100[]): NutritionPer100 {
   return acc;
 }
 
-/** Mifflin-St Jeor BMR */
+/** Mifflin-St Jeor BMR.
+ *  Fix B6.5 (T6): clamp a 0 per input zero/estremi (defense in depth; l'UI valida già). */
 export function calcBMR(weightKg: number, heightCm: number, ageYears: number, sex: Sex): number {
+  if (!Number.isFinite(weightKg) || !Number.isFinite(heightCm) || !Number.isFinite(ageYears)) return 0;
+  if (weightKg <= 0 || heightCm <= 0 || ageYears <= 0) return 0;
   const base = 10 * weightKg + 6.25 * heightCm - 5 * ageYears;
-  return sex === 'M' ? Math.round(base + 5) : Math.round(base - 161);
+  const raw = sex === 'M' ? base + 5 : base - 161;
+  return Math.max(0, Math.round(raw));
 }
 
-/** TDEE = BMR * fattore attività */
+/** TDEE = BMR * fattore attività.
+ *  Fix B6.6 (T6): fallback a sedentario se activity non in mappa (defense in depth). */
 export function calcTDEE(bmr: number, activity: ActivityLevel): number {
-  return Math.round(bmr * ACTIVITY_FACTORS[activity]);
+  const factor = ACTIVITY_FACTORS[activity] ?? ACTIVITY_FACTORS.sedentary;
+  if (!Number.isFinite(bmr) || bmr <= 0) return 0;
+  return Math.max(0, Math.round(bmr * factor));
 }
 
 /** Default settings iniziali (dark theme, 2000 kcal, 30/40/30) */
