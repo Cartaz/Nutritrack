@@ -22,10 +22,13 @@ export function renderRecipes(main: HTMLElement): void {
   const state = getState();
   const q = _recipesQuery.trim().toLowerCase();
 
-  // Signature cache
+  // Fix R5 (T4): signature cache include grams degli ingredienti (non solo count)
+  // Prima: edit grams di un ingrediente senza aggiungere/rimuovere → card stale
   const renderSig = JSON.stringify({
     q: _recipesQuery,
-    recipes: state.recipes.map((r) => `${r.id}:${r.name}:${r.description ?? ''}:${r.servings}:${r.ingredients.length}`).join('|'),
+    recipes: state.recipes.map((r) =>
+      `${r.id}:${r.name}:${r.description ?? ''}:${r.servings}:${r.ingredients.map((i) => `${i.foodSnapshot.id}:${i.grams}`).join(',')}`
+    ).join('|'),
   });
   if (renderSig === _recipesRenderSig) return;
   _recipesRenderSig = renderSig;
@@ -48,6 +51,12 @@ export function renderRecipes(main: HTMLElement): void {
       ? `<section class="card empty-state muted">Nessuna ricetta trovata per "${escapeHtml(_recipesQuery)}"</section>`
       : `<div class="recipes-grid">${filtered.map((r) => recipeCard(r)).join('')}</div>`;
 
+  // Fix R2 (T4): preserva focus e selection della search box attraverso il re-render
+  const activeEl = document.activeElement;
+  const isSearchFocused = activeEl && activeEl.id === 'recipes-search';
+  const searchSelectionStart = isSearchFocused ? (activeEl as HTMLInputElement).selectionStart : null;
+  const searchSelectionEnd = isSearchFocused ? (activeEl as HTMLInputElement).selectionEnd : null;
+
   main.innerHTML = `
     <div class="recipes-view">
       <div class="view-head">
@@ -64,6 +73,17 @@ export function renderRecipes(main: HTMLElement): void {
       ${listHtml}
     </div>
   `;
+
+  // Fix R2 (T4): ripristina focus e selection della search box
+  if (isSearchFocused) {
+    const newInput = main.querySelector<HTMLInputElement>('#recipes-search');
+    if (newInput) {
+      newInput.focus();
+      if (searchSelectionStart !== null && searchSelectionEnd !== null) {
+        try { newInput.setSelectionRange(searchSelectionStart, searchSelectionEnd); } catch { /* noop */ }
+      }
+    }
+  }
 
   bindRecipesEvents(main);
 }
