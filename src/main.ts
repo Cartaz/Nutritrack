@@ -1,13 +1,14 @@
 // Entry point: init store, load data, bind events, register SW (prod only), first render.
 
 import './styles/main.css';
-import { subscribe, getState } from './lib/store';
+import { subscribe, getState, setCurrentDate } from './lib/store';
 import { loadData, enableAutoSave, initMultiTabSync, isStorageAvailable, shouldWarnQuota } from './lib/storage';
 import { setStorageDisabled } from './lib/store';
 import { render, bindGlobalEvents, applyInitialTheme } from './components/renderer';
 import { showToast } from './components/toast';
 import { showModal } from './components/modal';
 import { terminateWorker } from './worker/client';
+import { toDateKey } from './lib/utils';
 
 function init(): void {
   // 1. Storage detection + load
@@ -49,6 +50,34 @@ function init(): void {
   window.addEventListener('beforeunload', () => {
     terminateWorker();
   });
+
+  // Fix 2.12 (T2): auto-advance della data a mezzanotte + su visibilitychange/focus.
+  // Se l'app resta aperta overnight, state.currentDate resta su ieri → badge "Oggi" sbagliato,
+  // nuove entry vanno alla data sbagliata, week stats non includono il nuovo giorno.
+  const checkMidnightRollover = (): void => {
+    const today = toDateKey(new Date());
+    if (getState().currentDate !== today) {
+      setCurrentDate(today);
+    }
+  };
+  // Check su visibilitychange (tab torna attivo)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkMidnightRollover();
+  });
+  // Check su focus (window torna in primo piano)
+  window.addEventListener('focus', checkMidnightRollover);
+  // Timer che scatta a mezzanotte (setTimeout calcolato al primo caricamento)
+  const scheduleMidnightCheck = (): void => {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0); // prossima mezzanotte
+    const msUntilMidnight = midnight.getTime() - now.getTime();
+    setTimeout(() => {
+      checkMidnightRollover();
+      scheduleMidnightCheck(); // rischedule per il giorno dopo
+    }, msUntilMidnight + 1000); // +1s per sicurezza
+  };
+  scheduleMidnightCheck();
 }
 
 async function registerSW(): Promise<void> {
