@@ -3,7 +3,7 @@
 import { getState, openFoodSearch, setCurrentDate, emitChange, openEntryEditor } from '../lib/store';
 import { removeDiaryEntry, changeEntryQuantity } from '../lib/diary';
 import { calcMacroGrams, scaleNutrition, sumNutrition } from '../lib/nutrition';
-import { escapeHtml, escapeAttr, formatDateIT, isToday, toDateKey, parseISODateLocal } from '../lib/utils';
+import { escapeHtml, escapeAttr, formatDateIT, isToday, toDateKey, parseISODateLocal, isValidDateKey } from '../lib/utils';
 import { imgTag } from '../components/img';
 import { MEAL_LABELS, MEAL_ICONS, MEAL_ORDER } from '../types';
 import type { DiaryEntry, MealType } from '../types';
@@ -108,11 +108,11 @@ export function renderDashboard(main: HTMLElement): void {
               : 0;
             const overBadge = over ? ` <span class="week-bar-over">+${overPct}%</span>` : '';
             return `
-              <div class="week-bar${isCurrent ? ' current' : ''}${over ? ' over' : ''}" title="${escapeAttr(d.date)}: ${Math.round(d.calories)} kcal">
+              <button type="button" class="week-bar${isCurrent ? ' current' : ''}${over ? ' over' : ''}" data-action="goToDate" data-date="${escapeAttr(d.date)}" title="${escapeAttr(d.date)}: ${Math.round(d.calories)} kcal" aria-label="Vai al ${escapeAttr(formatDateIT(d.date))}: ${Math.round(d.calories)} kcal">
                 <div class="week-bar-fill" style="height:${height}px"></div>
                 <span class="week-bar-label">${escapeHtml(dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1, 3))}</span>
                 ${overBadge}
-              </div>
+              </button>
             `;
           }).join('')}
         </div>
@@ -298,6 +298,15 @@ function bindDashboardEvents(main: HTMLElement): void {
       if (!isNaN(d.getTime())) {
         d.setDate(d.getDate() + delta);
         setCurrentDate(toDateKey(d));
+      }
+      return;
+    }
+    if (action === 'goToDate') {
+      // Click su una barra della settimana → naviga a quel giorno.
+      // Fix dead affordance: le .week-bar avevano cursor:pointer e tooltip ma nessun handler.
+      const date = target.dataset.date || '';
+      if (date && isValidDateKey(date)) {
+        setCurrentDate(date);
       }
       return;
     }
