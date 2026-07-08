@@ -1,6 +1,6 @@
 // Modal: viewer ricetta (read-only) con ingredienti + totali per porzione + add-to-diary.
 
-import { getState, closeRecipeViewer, openAddRecipeToMeal } from '../lib/store';
+import { getState, closeRecipeViewer, openAddRecipeToMeal, openRecipeEditor } from '../lib/store';
 import { showModal } from '../components/modal';
 import { escapeHtml, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
@@ -48,13 +48,22 @@ export function renderRecipeViewerModal(recipeId: string): void {
     modalId: 'recipe-viewer',
     title: recipe.name,
     bodyHtml,
+    // Fix R10 (T4): aggiunto bottone "Modifica" per editare direttamente dal viewer
     actions: [
       { label: 'Chiudi', action: 'close', variant: 'outline' },
+      { label: 'Modifica', action: 'confirm', variant: 'outline', id: 'edit' },
       { label: 'Aggiungi al diario', action: 'confirm', variant: 'primary' },
     ],
-    onConfirm: () => {
+    onConfirm: (el) => {
+      // Fix R10: se il bottone cliccato ha id 'edit', apri l'editor invece di aggiungere al diario
+      if (el && el.dataset.modalIdAttr === 'edit') {
+        closeRecipeViewer();
+        openRecipeEditor(recipe.id);
+        return false; // non chiudere (già chiuso)
+      }
       closeRecipeViewer();
       openAddRecipeToMeal(recipe.id);
+      return true;
     },
     onClose: () => closeRecipeViewer(),
   });
