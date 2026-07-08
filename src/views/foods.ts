@@ -26,10 +26,13 @@ export function renderFoods(main: HTMLElement): void {
     return f.name.toLowerCase().includes(q) || (f.brand || '').toLowerCase().includes(q);
   });
 
-  // Signature cache: skip se niente è cambiato
+  // Fix BUG #1 (T3): signature cache completa — include tutti i campi visualizzati (protein, carbs, fat, servingSize, servingLabel, customPortions)
+  // Prima: solo id:name:brand:calories → card stale dopo edit di protein/servingSize (calorie invariate)
   const renderSig = JSON.stringify({
     q: _foodsQuery,
-    foods: state.foods.map((f) => `${f.id}:${f.name}:${f.brand ?? ''}:${f.nutrition.calories}`).join('|'),
+    foods: state.foods.map((f) =>
+      `${f.id}:${f.name}:${f.brand ?? ''}:${f.nutrition.calories}:${f.nutrition.protein}:${f.nutrition.carbs}:${f.nutrition.fat}:${f.servingSize}:${f.servingLabel ?? ''}:${(f.customPortions || []).map((p) => p.id).join(',')}`
+    ).join('|'),
     favs: state.favoriteFoodIds.slice().sort().join(','),
   });
   if (renderSig === _foodsRenderSig) return;
@@ -41,6 +44,14 @@ export function renderFoods(main: HTMLElement): void {
     if (aFav !== bFav) return aFav - bFav;
     return b.createdAt - a.createdAt;
   });
+
+  // Fix BUG #8 (T3): nascondi search box nell'empty state (nessun food salvato)
+  const searchBoxHtml = state.foods.length > 0
+    ? `<div class="search-input-wrap">
+        <span class="search-icon" aria-hidden="true">🔍</span>
+        <input id="foods-search" type="search" placeholder="Cerca tra i tuoi alimenti…" value="${escapeAttr(_foodsQuery)}" autocomplete="off" />
+      </div>`
+    : '';
 
   const listHtml = state.foods.length === 0
     ? `
@@ -55,6 +66,12 @@ export function renderFoods(main: HTMLElement): void {
       ? `<section class="card empty-state muted">Nessun alimento trovato per "${escapeHtml(_foodsQuery)}"</section>`
       : `<div class="foods-list">${sorted.map((f) => foodCard(f, state.favoriteFoodIds.includes(f.id))).join('')}</div>`;
 
+  // Fix BUG #2 (T3): preserva focus e selection della search box attraverso il re-render
+  const activeEl = document.activeElement;
+  const isSearchFocused = activeEl && activeEl.id === 'foods-search';
+  const searchSelectionStart = isSearchFocused ? (activeEl as HTMLInputElement).selectionStart : null;
+  const searchSelectionEnd = isSearchFocused ? (activeEl as HTMLInputElement).selectionEnd : null;
+
   main.innerHTML = `
     <div class="foods-view">
       <div class="view-head">
@@ -64,13 +81,21 @@ export function renderFoods(main: HTMLElement): void {
         </div>
         <button type="button" class="btn btn-primary" data-action="newFood"><span aria-hidden="true">＋</span> Nuovo</button>
       </div>
-      <div class="search-input-wrap">
-        <span class="search-icon" aria-hidden="true">🔍</span>
-        <input id="foods-search" type="search" placeholder="Cerca tra i tuoi alimenti…" value="${escapeAttr(_foodsQuery)}" autocomplete="off" />
-      </div>
+      ${searchBoxHtml}
       ${listHtml}
     </div>
   `;
+
+  // Fix BUG #2 (T3): ripristina focus e selection della search box
+  if (isSearchFocused) {
+    const newInput = main.querySelector<HTMLInputElement>('#foods-search');
+    if (newInput) {
+      newInput.focus();
+      if (searchSelectionStart !== null && searchSelectionEnd !== null) {
+        try { newInput.setSelectionRange(searchSelectionStart, searchSelectionEnd); } catch { /* noop */ }
+      }
+    }
+  }
 
   bindFoodsEvents(main);
 }
