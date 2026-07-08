@@ -18,7 +18,8 @@ import { safeId, toDateKey } from './utils';
 import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
 
 const state: AppState = {
-  settings: { ...DEFAULT_SETTINGS },
+  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
+  settings: { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } },
   foods: [],
   diary: {},
   recipes: [],
@@ -138,6 +139,14 @@ export function getFood(id: string): FoodItem | undefined {
 }
 
 export function toggleFavorite(id: string): void {
+  // Fix BUG #18 (T5): pulisci id stale che non corrispondono a nessun food salvato
+  // (previene accumulo di id orfani da OFF food non salvati favoritati per errore)
+  if (!state.foods.some((f) => f.id === id)) {
+    // Food non esiste: rimuovi da preferiti se presente, non aggiungere
+    state.favoriteFoodIds = state.favoriteFoodIds.filter((fid) => fid !== id);
+    emitChange();
+    return;
+  }
   state.favoriteFoodIds = state.favoriteFoodIds.includes(id)
     ? state.favoriteFoodIds.filter((fid) => fid !== id)
     : [...state.favoriteFoodIds, id];
@@ -166,9 +175,31 @@ export function addDiaryEntry(input: Omit<DiaryEntry, 'id' | 'createdAt'>): Diar
 }
 
 export function updateDiaryEntry(id: string, patch: Partial<DiaryEntry>): void {
+  // Fix Bug #6 (T1): se patch.date cambia, sposta l'entry nell'array della nuova data
+  // (prima l'entry restava nell'array originale → worker stats la contava nel giorno sbagliato)
   const newDiary: DayDiary = {};
+  let movedEntry: DiaryEntry | null = null;
+  let movedToDate: string | null = null;
   for (const [date, entries] of Object.entries(state.diary)) {
-    newDiary[date] = entries.map((e) => (e.id === id ? { ...e, ...patch } : e));
+    const filtered: DiaryEntry[] = [];
+    for (const e of entries) {
+      if (e.id === id) {
+        const updated = { ...e, ...patch };
+        if (patch.date && patch.date !== date) {
+          // L'entry sta cambiando data: estraila per inserirla nel nuovo contenitore
+          movedEntry = updated;
+          movedToDate = patch.date;
+          continue;
+        }
+        filtered.push(updated);
+      } else {
+        filtered.push(e);
+      }
+    }
+    newDiary[date] = filtered;
+  }
+  if (movedEntry && movedToDate) {
+    newDiary[movedToDate] = [...(newDiary[movedToDate] || []), movedEntry];
   }
   state.diary = newDiary;
   emitChange();
@@ -321,11 +352,23 @@ export function closeEntryEditor(): void {
 // ============ Bulk operations ============
 
 export function resetAll(): void {
-  state.settings = { ...DEFAULT_SETTINGS };
+  // Fix Bug #7 (T1): resetta anche i flag UI/modal per evitare modal aperti su UI vuota
+  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference
+  state.settings = { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } };
   state.foods = [];
   state.diary = {};
   state.recipes = [];
   state.favoriteFoodIds = [];
+  state._storageDisabled = false;
+  state._searchOpen = false;
+  state._editingFoodId = null;
+  state._editingRecipeId = null;
+  state._viewingRecipeId = null;
+  state._confirmDeleteFoodId = null;
+  state._confirmDeleteRecipeId = null;
+  state._confirmReset = false;
+  state._addRecipeToMealPickerId = null;
+  state._editingEntryId = null;
   emitChange();
 }
 
