@@ -288,10 +288,14 @@ export function normalizeUserSettings(v: unknown): UserSettings {
     targetWeightKg: weightGoalType === 'maintain' || v.targetWeightKg == null
       ? undefined
       : safeNum(v.targetWeightKg, 0, 30, 500),
-    // goalWeeks: clamp [1..156] (3 anni max) — oltre non ha senso pratico.
-    goalWeeks: weightGoalType === 'maintain' || v.goalWeeks == null
+    // weeklyRateKg: rateo di variazione peso desiderato, clamp [0.1..MAX_WEEKLY_KG_RATE=0.5].
+    // undefined se maintain o se mancante.
+    // Backward compat: se un vecchio backup aveva goalWeeks (approccio precedente),
+    // viene ignorato — l'utente dovrà re-impostare il rateo. Default a 0.5 (max) se maintain->lose/gain
+    // senza weeklyRateKg esplicito viene gestito dal frontend (default UI = 0.5).
+    weeklyRateKg: weightGoalType === 'maintain' || v.weeklyRateKg == null
       ? undefined
-      : safeNum(v.goalWeeks, 0, 1, 156),
+      : safeNum(v.weeklyRateKg, 0.5, 0.1, 0.5),
   };
 }
 

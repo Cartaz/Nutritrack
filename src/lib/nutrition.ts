@@ -64,30 +64,36 @@ export function calcTDEE(bmr: number, activity: ActivityLevel): number {
   return Math.max(0, Math.round(bmr * factor));
 }
 
-/** Calcola la variazione di peso settimanale necessaria per andare dal peso attuale
- *  al peso target nel numero di settimane indicato. Clampa il rateo a +/-0.5 kg/settimana
- *  (linea guida WHO/ACSM: perdere/aumentare più di 0.5 kg/settimana è rischioso).
- *  Ritorna un numero con segno: negativo = deficit (perdere), positivo = surplus (aumentare),
- *  zero = mantieni o maintain.
- *  Fix: ritorna 0 se maintain, se mancano dati (pesi/setting non validi), o se il rateo calcolato
- *  supererebbe il limite e l'utente avrebbe bisogno di più tempo. */
-export function calcWeeklyDeltaKg(
+/** Calcola il numero di settimane necessarie per andare dal peso attuale al peso target
+ *  dato un rateo (kg/settimana, valore assoluto positivo). Ritorna 0 se i dati sono mancanti
+ *  o invalidi. Sempre arrotondato per eccesso (ceil) — meglio promettere 1 settimana in più
+ *  che in meno, dato che il ritmo reale dipende da molti fattori metabolici. */
+export function calcWeeksToTarget(
   currentWeightKg: number | undefined,
   targetWeightKg: number | undefined,
-  goalWeeks: number | undefined,
+  weeklyRateKg: number | undefined,
+): number {
+  if (currentWeightKg == null || !Number.isFinite(currentWeightKg) || currentWeightKg <= 0) return 0;
+  if (targetWeightKg == null || !Number.isFinite(targetWeightKg) || targetWeightKg <= 0) return 0;
+  if (weeklyRateKg == null || !Number.isFinite(weeklyRateKg) || weeklyRateKg <= 0) return 0;
+  const delta = Math.abs(targetWeightKg - currentWeightKg);
+  if (delta < 0.01) return 0; // già al target
+  return Math.ceil(delta / weeklyRateKg);
+}
+
+/** Calcola la variazione di peso settimanale CON SEGNO a partire dal rateo scelto dall'utente
+ *  (sempre positivo) e dal tipo di obiettivo. negativo = deficit (perdere),
+ *  positivo = surplus (aumentare), zero = mantieni.
+ *  Il rateo viene clampato a MAX_WEEKLY_KG_RATE per safety (defense in depth — l'UI fa già clamp). */
+export function calcWeeklyDeltaKg(
+  weeklyRateKg: number | undefined,
   goalType: WeightGoalType | undefined,
 ): number {
   if (goalType === 'maintain' || goalType == null) return 0;
-  if (currentWeightKg == null || !Number.isFinite(currentWeightKg) || currentWeightKg <= 0) return 0;
-  if (targetWeightKg == null || !Number.isFinite(targetWeightKg) || targetWeightKg <= 0) return 0;
-  if (goalWeeks == null || !Number.isFinite(goalWeeks) || goalWeeks <= 0) return 0;
-  const delta = targetWeightKg - currentWeightKg;
-  // Coerenza direzione: se l'utente dice "perdere" ma targetWeight > current, forziamo la direzione a -|delta|
-  const directionSign = goalType === 'gain' ? +1 : -1;
-  const weeklyRaw = (Math.abs(delta) / goalWeeks) * directionSign;
-  // Clamp al rateo massimo (es. +0.5 o -0.5 kg/settimana)
-  const clamped = Math.max(-MAX_WEEKLY_KG_RATE, Math.min(MAX_WEEKLY_KG_RATE, weeklyRaw));
-  return round(clamped, 3);
+  if (weeklyRateKg == null || !Number.isFinite(weeklyRateKg) || weeklyRateKg <= 0) return 0;
+  const clampedRate = Math.min(MAX_WEEKLY_KG_RATE, weeklyRateKg);
+  const sign = goalType === 'gain' ? +1 : -1;
+  return round(clampedRate * sign, 3);
 }
 
 /** Converte un rateo di variazione peso (kg/settimana, con segno) in adjustment calorico
@@ -100,25 +106,39 @@ export function weeklyDeltaToDailyKcal(weeklyDeltaKg: number): number {
 
 /** Calcola l'obiettivo calorico giornaliero aggiustato per l'obiettivo di peso.
  *  TDEE + adjustment (deficit se perdere, surplus se aumentare, zero se mantenere).
- *  Clamp a range sano [500..10000] coerente con normalizeUserSettings. */
+ *  Clamp a range sano [500..10000] coerente con normalizeUserSettings.
+ *  Ritorna anche le settimane necessarie e i kg totali da perdere/aumentare. */
 export function calcGoalAdjustedCalories(
   tdee: number,
   currentWeightKg: number | undefined,
   targetWeightKg: number | undefined,
-  goalWeeks: number | undefined,
+  weeklyRateKg: number | undefined,
   goalType: WeightGoalType | undefined,
-): { kcal: number; weeklyDeltaKg: number; dailyAdjustment: number; clamped: boolean } {
+): {
+  kcal: number;
+  weeklyDeltaKg: number;
+  dailyAdjustment: number;
+  weeksToTarget: number;
+  totalDeltaKg: number;
+  rateClamped: boolean;
+  kcalClamped: boolean;
+} {
   if (!Number.isFinite(tdee) || tdee <= 0) {
-    return { kcal: 0, weeklyDeltaKg: 0, dailyAdjustment: 0, clamped: false };
+    return { kcal: 0, weeklyDeltaKg: 0, dailyAdjustment: 0, weeksToTarget: 0, totalDeltaKg: 0, rateClamped: false, kcalClamped: false };
   }
-  const weeklyDeltaKg = calcWeeklyDeltaKg(currentWeightKg, targetWeightKg, goalWeeks, goalType);
+  const rateClamped = weeklyRateKg != null && Number.isFinite(weeklyRateKg) && weeklyRateKg > MAX_WEEKLY_KG_RATE;
+  const weeklyDeltaKg = calcWeeklyDeltaKg(weeklyRateKg, goalType);
   const dailyAdjustment = weeklyDeltaToDailyKcal(weeklyDeltaKg);
+  const weeksToTarget = calcWeeksToTarget(currentWeightKg, targetWeightKg, Math.abs(weeklyDeltaKg));
+  const totalDeltaKg = currentWeightKg != null && targetWeightKg != null
+    ? round(targetWeightKg - currentWeightKg, 1)
+    : 0;
   const raw = tdee + dailyAdjustment;
   const min = 500;
   const max = 10000;
-  const clamped = raw < min || raw > max;
+  const kcalClamped = raw < min || raw > max;
   const kcal = Math.max(min, Math.min(max, Math.round(raw)));
-  return { kcal, weeklyDeltaKg, dailyAdjustment, clamped };
+  return { kcal, weeklyDeltaKg, dailyAdjustment, weeksToTarget, totalDeltaKg, rateClamped, kcalClamped };
 }
 
 /** Default settings iniziali (dark theme, 2000 kcal, 30/40/30) */

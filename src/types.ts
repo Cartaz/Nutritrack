@@ -152,8 +152,10 @@ export interface UserSettings {
   weightGoalType?: WeightGoalType;
   /** Peso target in kg che l'utente vuole raggiungere (undefined se maintain). */
   targetWeightKg?: number;
-  /** Numero di settimane entro cui raggiungere il target (undefined se maintain). */
-  goalWeeks?: number;
+  /** Rateo di variazione peso desiderato in kg/settimana (es. 0.5 = 0.5 kg/sett).
+   *  Clampato a [0.1 .. MAX_WEEKLY_KG_RATE]. Il sistema calcola dinamicamente
+   *  le settimane necessarie da questo valore + la differenza di peso. */
+  weeklyRateKg?: number;
 }
 
 /** Mappa date -> entries */
