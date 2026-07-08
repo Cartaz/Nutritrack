@@ -5,18 +5,15 @@ import { requestDeleteFood, toggleFoodFavorite } from '../lib/foods';
 import { escapeHtml, escapeAttr, debounce } from '../lib/utils';
 import { imgTag } from '../components/img';
 import type { FoodItem } from '../types';
+// Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
+import { getFoodsRenderSig, setFoodsRenderSig, resetFoodsSignature as resetFoodsSig } from './signatures';
+// Re-export per compatibilità (renderer importava resetFoodsSignature da qui)
+export { resetFoodsSig as resetFoodsSignature };
 
 let _foodsBound = false;
 let _foodsQuery = '';
-// Signature cache: previene re-render inutili di main.innerHTML
-let _foodsRenderSig = '';
 
-/** Reset signature cache (chiamato dal renderer al cambio vista) */
-export function resetFoodsSignature(): void {
-  _foodsRenderSig = '';
-}
-
-const _filterFoods = debounce(() => { _foodsRenderSig = ''; emitChange(); }, 80);
+const _filterFoods = debounce(() => { setFoodsRenderSig(''); emitChange(); }, 80);
 
 export function renderFoods(main: HTMLElement): void {
   const state = getState();
@@ -35,8 +32,8 @@ export function renderFoods(main: HTMLElement): void {
     ).join('|'),
     favs: state.favoriteFoodIds.slice().sort().join(','),
   });
-  if (renderSig === _foodsRenderSig) return;
-  _foodsRenderSig = renderSig;
+  if (renderSig === getFoodsRenderSig()) return;
+  setFoodsRenderSig(renderSig);
 
   const sorted = [...filtered].sort((a, b) => {
     const aFav = state.favoriteFoodIds.includes(a.id) ? 0 : 1;

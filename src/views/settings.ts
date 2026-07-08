@@ -8,17 +8,20 @@ import { showToast } from '../components/toast';
 import { applyTheme } from '../components/renderer';
 import { MACRO_PRESETS, ACTIVITY_LABELS } from '../types';
 import type { MacroSplit, Theme, Sex, ActivityLevel } from '../types';
+// Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
+import { getSettingsRenderSig, setSettingsRenderSig, resetSettingsSignature as resetSettingsSig, registerViewReset } from './signatures';
 
 let _settingsBound = false;
 let _pendingMacroSplit: MacroSplit | null = null;
-// Signature cache: previene re-render inutili mentre l'utente digita nei campi del form
-let _settingsRenderSig = '';
 
-/** Reset signature cache (chiamato dal renderer al cambio vista).
+// Fix CI: registra il reset di _pendingMacroSplit nel registry del modulo signatures
+// (così resetAllViewSignatures lo resetta senza che signatures.ts importi settings.ts)
+registerViewReset(() => { _pendingMacroSplit = null; });
+
+/** Reset signature cache + _pendingMacroSplit (chiamato dal renderer al cambio vista).
  *  Fix B6.4 (T6): resetta anche _pendingMacroSplit per evitare valori stale dopo resetAll. */
 export function resetSettingsSignature(): void {
-  _settingsRenderSig = '';
-  // Fix B6.4: resetta _pendingMacroSplit per coerenza con state.settings.macroSplit
+  resetSettingsSig();
   _pendingMacroSplit = null;
 }
 
@@ -97,8 +100,8 @@ export function renderSettings(main: HTMLElement): void {
     height: s.heightCm ?? '',
     age: s.ageYears ?? '',
   });
-  if (renderSig === _settingsRenderSig) return;
-  _settingsRenderSig = renderSig;
+  if (renderSig === getSettingsRenderSig()) return;
+  setSettingsRenderSig(renderSig);
 
   const macroGrams = calcMacroGrams(s.calorieGoal, split);
   const splitSum = split.proteinPct + split.carbsPct + split.fatPct;

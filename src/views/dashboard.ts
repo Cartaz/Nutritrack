@@ -6,25 +6,23 @@ import { calcMacroGrams, scaleNutrition, sumNutrition } from '../lib/nutrition';
 import { escapeHtml, escapeAttr, formatDateIT, isToday, toDateKey, parseISODateLocal } from '../lib/utils';
 import { imgTag } from '../components/img';
 import { MEAL_LABELS, MEAL_ICONS, MEAL_ORDER } from '../types';
-import type { DiaryEntry, MealType, DayTotals } from '../types';
+import type { DiaryEntry, MealType } from '../types';
 import { computeStatsAsync } from '../worker/client';
+// Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
+import {
+  getDashRenderSig,
+  setDashRenderSig,
+  getWeekStats,
+  setWeekStats,
+  getWeekStatsInputSig,
+  setWeekStatsInputSig,
+  resetDashboardSignature as resetDashSig,
+} from './signatures';
+// Re-export per compatibilità (renderer importava resetDashboardSignature da qui)
+export { resetDashSig as resetDashboardSignature };
 
 let _dashBound = false;
-let _weekStats: { days: DayTotals[]; avgCalories: number } | null = null;
 let _weekStatsToken = 0;
-// Signature cache: previene loop infinito worker -> emitChange -> render -> worker
-let _weekStatsInputSig = '';
-// Signature cache vista: previene re-render inutili di main.innerHTML
-let _dashRenderSig = '';
-
-/** Reset signature cache (chiamato dal renderer al cambio vista).
- *  Fix 2.11 (T2): resetta anche _weekStats per evitare statistiche stale dopo resetAll. */
-export function resetDashboardSignature(): void {
-  _dashRenderSig = '';
-  // Fix 2.11: resetta anche le week stats cached (utile dopo resetAll o cambio dati significativo)
-  _weekStats = null;
-  _weekStatsInputSig = '';
-}
 
 export function renderDashboard(main: HTMLElement): void {
   const state = getState();
@@ -39,14 +37,14 @@ export function renderDashboard(main: HTMLElement): void {
     split: state.settings.macroSplit,
     favCount: state.favoriteFoodIds.length,
     diarySig: diary.map((e) => `${e.id}:${e.quantity}:${e.gramsOverride ?? ''}`).join('|'),
-    weekSig: _weekStats ? `${_weekStats.avgCalories}:${_weekStats.days.length}` : 'null',
+    weekSig: getWeekStats() ? `${getWeekStats()!.avgCalories}:${getWeekStats()!.days.length}` : 'null',
   });
-  if (renderSig === _dashRenderSig) {
+  if (renderSig === getDashRenderSig()) {
     // Stato invariato: non distruggere il DOM. Aggiorna comunque week stats se serve.
     maybeLaunchWeekStatsWorker(state);
     return;
   }
-  _dashRenderSig = renderSig;
+  setDashRenderSig(renderSig);
 
   // Totale giornata
   const nutritions = diary.map((e) => {
@@ -93,12 +91,12 @@ export function renderDashboard(main: HTMLElement): void {
     return `<section class="card meal-card">${header}${body}</section>`;
   }).join('');
 
-  const weekSummary = _weekStats
+  const weekSummary = getWeekStats()
     ? `
       <section class="card week-summary">
         <h3 class="section-title">Ultimi 7 giorni</h3>
         <div class="week-bars">
-          ${_weekStats.days.map((d) => {
+          ${getWeekStats()!.days.map((d) => {
             const ratio = state.settings.calorieGoal > 0 ? Math.min(d.calories / state.settings.calorieGoal, 1.2) : 0;
             const over = d.calories > state.settings.calorieGoal && state.settings.calorieGoal > 0;
             const height = Math.max(2, ratio * 60);
@@ -118,7 +116,7 @@ export function renderDashboard(main: HTMLElement): void {
             `;
           }).join('')}
         </div>
-        <p class="week-avg">Media: <strong>${_weekStats.avgCalories} kcal/giorno</strong></p>
+        <p class="week-avg">Media: <strong>${getWeekStats()!.avgCalories} kcal/giorno</strong></p>
       </section>
     `
     : `
@@ -185,22 +183,22 @@ function maybeLaunchWeekStatsWorker(state: ReturnType<typeof getState>): void {
   }
   // Signature: dates + entries identity + qty + gramsOverride
   const sig = dates.join(',') + '|' + allEntries.map((e) => `${e.id}:${e.quantity}:${e.gramsOverride ?? ''}`).join('|');
-  if (sig === _weekStatsInputSig) return; // già calcolato per questo input
-  _weekStatsInputSig = sig;
+  if (sig === getWeekStatsInputSig()) return; // già calcolato per questo input
+  setWeekStatsInputSig(sig);
 
   const token = ++_weekStatsToken;
   // Fix 2.4: catch per evitare unhandled rejection → spinner perenne + memory leak
   void computeStatsAsync(allEntries, dates)
     .then((res) => {
       if (token !== _weekStatsToken) return; // obsolete
-      _weekStats = { days: res.days, avgCalories: res.avgCalories };
+      setWeekStats({ days: res.days, avgCalories: res.avgCalories });
       emitChange();
     })
     .catch((err) => {
       console.error('[dashboard] worker stats error', err);
       // Reset signature per permettere retry al prossimo emitChange
-      _weekStatsInputSig = '';
-      // Lascia _weekStats null → mostra spinner ma almeno non è bloccato
+      setWeekStatsInputSig('');
+      // Lascia weekStats null → mostra spinner ma almeno non è bloccato
     });
 }
 

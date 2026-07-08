@@ -5,18 +5,15 @@ import { requestDeleteRecipe } from '../lib/recipes';
 import { escapeHtml, escapeAttr, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
 import type { Recipe } from '../types';
+// Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
+import { getRecipesRenderSig, setRecipesRenderSig, resetRecipesSignature as resetRecipesSig } from './signatures';
+// Re-export per compatibilità (renderer importava resetRecipesSignature da qui)
+export { resetRecipesSig as resetRecipesSignature };
 
 let _recipesBound = false;
 let _recipesQuery = '';
-// Signature cache: previene re-render inutili
-let _recipesRenderSig = '';
 
-/** Reset signature cache (chiamato dal renderer al cambio vista) */
-export function resetRecipesSignature(): void {
-  _recipesRenderSig = '';
-}
-
-const _filterRecipes = debounce(() => { _recipesRenderSig = ''; emitChange(); }, 80);
+const _filterRecipes = debounce(() => { setRecipesRenderSig(''); emitChange(); }, 80);
 
 export function renderRecipes(main: HTMLElement): void {
   const state = getState();
@@ -30,8 +27,8 @@ export function renderRecipes(main: HTMLElement): void {
       `${r.id}:${r.name}:${r.description ?? ''}:${r.servings}:${r.ingredients.map((i) => `${i.foodSnapshot.id}:${i.grams}`).join(',')}`
     ).join('|'),
   });
-  if (renderSig === _recipesRenderSig) return;
-  _recipesRenderSig = renderSig;
+  if (renderSig === getRecipesRenderSig()) return;
+  setRecipesRenderSig(renderSig);
 
   const filtered = state.recipes.filter((r) => {
     if (!q) return true;

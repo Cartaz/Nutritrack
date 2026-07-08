@@ -14,11 +14,9 @@ import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
 import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
 import { flushPendingMultiTabUpdate } from '../lib/storage';
-// Fix 9.2 (T9): import statici per resetViewSignatures sincrono (prima era async con race → skeleton perpetuo)
-import { resetDashboardSignature } from '../views/dashboard';
-import { resetFoodsSignature } from '../views/foods';
-import { resetRecipesSignature } from '../views/recipes';
-import { resetSettingsSignature } from '../views/settings';
+// Fix CI: import solo del modulo leggero signatures (NO import delle viste, rompe code-splitting)
+// Le viste sono caricate lazy sotto via dynamic import, mantenedo i chunk separati.
+import { resetAllViewSignatures } from '../views/signatures';
 
 let _mainEl: HTMLElement | null = null;
 let _appEl: HTMLElement | null = null;
@@ -335,12 +333,10 @@ function closeModalCleanup(): void {
 }
 
 /** Reset signature cache di tutte le viste (chiamato al cambio vista).
- *  Fix 9.2 (T9): sincrono con import statici (prima era async con race → skeleton perpetuo su navigazione rapida). */
+ *  Fix 9.2 (T9): sincrono (prima era async con race → skeleton perpetuo su navigazione rapida).
+ *  Fix CI: usa resetAllViewSignatures da modulo leggero signatures (no import delle viste, code-splitting preservato). */
 function resetViewSignatures(): void {
-  resetDashboardSignature();
-  resetFoodsSignature();
-  resetRecipesSignature();
-  resetSettingsSignature();
+  resetAllViewSignatures();
 }
 
 // ============ Global event delegation (Pattern 3) ============
