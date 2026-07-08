@@ -1,5 +1,8 @@
 // Web Worker per aggregazioni statistiche (ulti 7/30 giorni).
 // Pattern 5 dello standard: self.onmessage con union discriminata.
+//
+// Fix 9.4 (T9): try/catch nel handler, postMessage di errore al client (che fa fallback).
+// Fix 9.5 (T9): feedback anche per messaggi malformati (type sconosciuto).
 
 import type { WorkerRequest, WorkerResponse, DayTotals, StatsResult, DiaryEntry } from '../types';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
@@ -48,18 +51,34 @@ function computeStats(entries: DiaryEntry[], dates: string[]): StatsResult {
   };
 }
 
+// Fix 9.4 (T9): try/catch nel handler, postMessage di errore al client
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data;
-  if (msg.type === 'stats') {
-    const result = computeStats(msg.entries, msg.dates);
-    const resp: WorkerResponse = { type: 'stats', reqId: msg.reqId, result };
-    (self as unknown as Worker).postMessage(resp);
-    return;
-  }
-  if (msg.type === 'dayTotals') {
-    const result = computeDayTotals(msg.entries);
-    const resp: WorkerResponse = { type: 'dayTotals', reqId: msg.reqId, result };
-    (self as unknown as Worker).postMessage(resp);
-    return;
+  try {
+    if (msg.type === 'stats') {
+      const result = computeStats(msg.entries, msg.dates);
+      const resp: WorkerResponse = { type: 'stats', reqId: msg.reqId, result };
+      (self as unknown as Worker).postMessage(resp);
+      return;
+    }
+    if (msg.type === 'dayTotals') {
+      const result = computeDayTotals(msg.entries);
+      const resp: WorkerResponse = { type: 'dayTotals', reqId: msg.reqId, result };
+      (self as unknown as Worker).postMessage(resp);
+      return;
+    }
+    // Fix 9.5 (T9): messaggio malformato (type sconosciuto) → postMessage di errore
+    (self as unknown as Worker).postMessage({
+      type: 'error',
+      reqId: (msg as { reqId?: number })?.reqId ?? 0,
+      message: `Unknown message type: ${(msg as { type?: string }).type ?? 'undefined'}`,
+    });
+  } catch (e) {
+    // Fix 9.4: comunica l'errore al client che farà fallback main-thread
+    (self as unknown as Worker).postMessage({
+      type: 'error',
+      reqId: msg?.reqId ?? 0,
+      message: e instanceof Error ? e.message : String(e),
+    });
   }
 };
