@@ -183,7 +183,6 @@ Se deployi su sottopercorso, imposta `VITE_BASE_PATH=/tuo-percorso/` prima del b
 - **Vitest 2.1** con environment jsdom e coverage v8 — 193 test su `lib/nutrition.ts`, `lib/normalize.ts`, `lib/storage.ts`, `lib/utils.ts`. Soglie minime di coverage (60% statements, 50% branches)
 - **CI GitHub Actions** — pipeline: typecheck → lint → format:check → test → build → verifica PWA assets
 
-
 ## Privacy
 
 Tutti i dati restano sul dispositivo (localStorage). Nessun invio a server di terzi se non le ricerche su Open Food Facts (database collaborativo gratuito, no chiave API).
