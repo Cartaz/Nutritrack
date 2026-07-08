@@ -26,6 +26,13 @@ import {
 let _settingsBound = false;
 let _pendingMacroSplit: MacroSplit | null = null;
 
+/**
+ * Default conservativo per weeklyRateKg quando l'utente attiva lose/gain senza averlo impostato.
+ * Fix MEDIUM bug: prima era MAX_WEEKLY_KG_RATE (0.5 kg/sett) che è aggressivo e potrebbe
+ * causare perdita di massa magra. 0.25 kg/sett è più sicuro come default iniziale.
+ */
+const DEFAULT_WEEKLY_RATE_KG = 0.25;
+
 // Fix CI: registra il reset di _pendingMacroSplit nel registry del modulo signatures
 // (così resetAllViewSignatures lo resetta senza che signatures.ts importi settings.ts)
 registerViewReset(() => {
@@ -362,7 +369,7 @@ export function renderSettings(main: HTMLElement): void {
         <h2 class="setting-title">Calcolatore TDEE (Mifflin-St Jeor)</h2>
         <p class="setting-subtitle">Calcola automaticamente il fabbisogno calorico in base ai tuoi dati</p>
         <div class="tdee-grid">
-          <label class="field"><span>Peso (kg)</span><input id="tdee-weight" type="number" inputmode="decimal" value="${s.weightKg ?? ''}" placeholder="70" /></label>
+          <label class="field"><span>Peso (kg)</span><input id="tdee-weight" type="number" inputmode="decimal" min="0" max="500" value="${s.weightKg ?? ''}" placeholder="70" /></label>
           <label class="field"><span>Altezza (cm)</span><input id="tdee-height" type="number" inputmode="decimal" value="${s.heightCm ?? ''}" placeholder="175" /></label>
           <label class="field"><span>Età</span><input id="tdee-age" type="number" inputmode="decimal" value="${s.ageYears ?? ''}" placeholder="30" /></label>
           <label class="field"><span>Sesso</span>
@@ -399,14 +406,15 @@ export function renderSettings(main: HTMLElement): void {
               ? `
             <div class="tdee-grid goal-inputs">
               <label class="field"><span>Peso target (kg)</span><input id="tdee-target-weight" type="number" inputmode="decimal" min="30" max="500" step="0.1" value="${s.targetWeightKg ?? ''}" placeholder="es. 65" /></label>
-              <label class="field"><span>Peso attuale (kg)</span><input id="tdee-current-weight" type="number" inputmode="decimal" min="30" max="500" step="0.1" value="${s.weightKg ?? ''}" placeholder="es. 70" /></label>
+              <label class="field"><span>Peso attuale (kg)</span><input id="tdee-current-weight" type="number" inputmode="decimal" min="30" max="500" step="0.1" value="${s.weightKg ?? ''}" placeholder="es. 70" disabled title="Modificabile nella sezione TDEE sopra" /></label>
             </div>
+            <p class="hint-text">Il peso attuale è quello inserito nella sezione TDEE sopra. Modificalo lì per aggiornare anche il calcolo dell'obiettivo.</p>
             <div class="rate-slider-row">
               <div class="rate-slider-head">
-                <span class="rate-slider-label">Ritmo: <strong>${(s.weeklyRateKg ?? MAX_WEEKLY_KG_RATE).toFixed(2)} kg/settimana</strong></span>
+                <span class="rate-slider-label">Ritmo: <strong>${(s.weeklyRateKg ?? DEFAULT_WEEKLY_RATE_KG).toFixed(2)} kg/settimana</strong></span>
                 <span class="rate-slider-direction">${goalType === 'lose' ? '↓ perdita' : '↑ aumento'}</span>
               </div>
-              <input id="tdee-rate" type="range" min="0.1" max="${MAX_WEEKLY_KG_RATE}" step="0.05" value="${s.weeklyRateKg ?? MAX_WEEKLY_KG_RATE}" data-action="slideRate" />
+              <input id="tdee-rate" type="range" min="0.1" max="${MAX_WEEKLY_KG_RATE}" step="0.05" value="${s.weeklyRateKg ?? DEFAULT_WEEKLY_RATE_KG}" data-action="slideRate" />
               <div class="slider-range"><span>0.10 (lento)</span><span>${MAX_WEEKLY_KG_RATE.toFixed(2)} (max sicuro)</span></div>
             </div>
             <p class="hint-text">Scegli quanto velocemente perdere/aumentare peso. Il sistema calcolerà automaticamente le settimane necessarie. Massimo ${MAX_WEEKLY_KG_RATE} kg/settimana (linea guida WHO/ACSM).</p>
@@ -534,6 +542,20 @@ function bindSettingsEvents(main: HTMLElement): void {
       const id = target.dataset.presetId;
       const preset = MACRO_PRESETS.find((p) => p.id === id);
       if (preset) {
+        // Fix MEDIUM bug: se l'utente aveva modifiche custom non salvate in _pendingMacroSplit,
+        // chiedi conferma prima di sovrascrivere con il preset.
+        if (_pendingMacroSplit) {
+          const current = getState().settings.macroSplit;
+          const hasCustomMods =
+            _pendingMacroSplit.proteinPct !== current.proteinPct ||
+            _pendingMacroSplit.carbsPct !== current.carbsPct ||
+            _pendingMacroSplit.fatPct !== current.fatPct;
+          if (hasCustomMods) {
+            if (!confirm('Hai modifiche allo split macro non salvate. Sovrascrivere con il preset?')) {
+              return;
+            }
+          }
+        }
         // Fix B6.3 (T6): applica il preset solo a _pendingMacroSplit, NON persistere immediatamente
         // (prima: setMacroSplit persisteva in localStorage senza undo)
         _pendingMacroSplit = { ...preset.split };
@@ -582,14 +604,13 @@ function bindSettingsEvents(main: HTMLElement): void {
       let weeklyRate: number | undefined;
       if (currentGoalType !== 'maintain') {
         const twEl = main.querySelector<HTMLInputElement>('#tdee-target-weight');
-        const cwEl = main.querySelector<HTMLInputElement>('#tdee-current-weight');
         const rateEl = main.querySelector<HTMLInputElement>('#tdee-rate');
         const tw = twEl ? Number(twEl.value) : NaN;
-        // Peso attuale: usa il campo dedicato #tdee-current-weight se presente e valido,
-        // altrimenti fallback al #tdee-weight (sono lo stesso dato, ma l'utente potrebbe
-        // averli modificati indipendentemente — facciamo prevalere quello nella sezione goal).
-        const cwFromField = cwEl ? Number(cwEl.value) : NaN;
-        const cw = Number.isFinite(cwFromField) && cwFromField > 0 ? cwFromField : w;
+        // Fix HIGH bug: peso attuale = #tdee-weight (unica fonte di verità).
+        // Prima c'erano due campi divergenti (#tdee-weight e #tdee-current-weight)
+        // che potevano andare out of sync. Ora #tdee-current-weight è disabled e
+        // mostra solo il valore di #tdee-weight come riferimento.
+        const cw = w;
         const rate = rateEl ? Number(rateEl.value) : NaN;
 
         if (!Number.isFinite(tw) || tw <= 0) {
@@ -617,31 +638,6 @@ function bindSettingsEvents(main: HTMLElement): void {
         }
         targetWeight = tw;
         weeklyRate = clampedRate;
-        // Se il peso attuale nella sezione goal è diverso da quello nel TDEE, aggiorna anche quello.
-        // (utile: l'utente potrebbe modificare solo il campo nella sezione goal)
-        if (Number.isFinite(cwFromField) && cwFromField > 0 && cwFromField !== w) {
-          // ricalcola TDEE con il nuovo peso per coerenza
-          const newBmr = calcBMR(cwFromField, h, a, sex);
-          const newTdee = calcTDEE(newBmr, activity);
-          if (Number.isFinite(newTdee) && newTdee > 0) {
-            // usa newTdee invece di tdee per il calcolo del goal
-            const goal2 = calcGoalAdjustedCalories(newTdee, cwFromField, targetWeight, weeklyRate, currentGoalType);
-            setCalorieGoal(goal2.kcal);
-            updateSettings({
-              weightKg: cwFromField,
-              heightCm: h,
-              ageYears: a,
-              sex,
-              activityLevel: activity,
-              weightGoalType: currentGoalType,
-              targetWeightKg: targetWeight,
-              weeklyRateKg: weeklyRate,
-            });
-            updateCalorieGoalLive(goal2.kcal, currentGoalType, goal2);
-            showToast(buildGoalToast(currentGoalType, goal2), 'success', 5000);
-            return;
-          }
-        }
       }
 
       // Calcola obiettivo calorico aggiustato per l'obiettivo di peso.
@@ -675,10 +671,12 @@ function bindSettingsEvents(main: HTMLElement): void {
     if (action === 'setGoalType') {
       const g = target.dataset.goalType as WeightGoalType;
       // Persisti subito il tipo di obiettivo; se 'maintain', pulisci targetWeight/weeklyRateKg.
+      // Fix MEDIUM bug: default a DEFAULT_WEEKLY_RATE_KG (0.25) invece di MAX_WEEKLY_KG_RATE (0.5)
+      // — più conservativo come rateo iniziale.
       updateSettings({
         weightGoalType: g,
         targetWeightKg: g === 'maintain' ? undefined : getState().settings.targetWeightKg,
-        weeklyRateKg: g === 'maintain' ? undefined : (getState().settings.weeklyRateKg ?? MAX_WEEKLY_KG_RATE),
+        weeklyRateKg: g === 'maintain' ? undefined : (getState().settings.weeklyRateKg ?? DEFAULT_WEEKLY_RATE_KG),
       });
       // emitChange triggera re-render (il renderSig include i nuovi campi).
       return;

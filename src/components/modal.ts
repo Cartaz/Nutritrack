@@ -112,6 +112,15 @@ function closeModal(el: HTMLElement): void {
   const modalId = el.dataset.modalId || '';
   const cb = _callbacks.get(modalId);
 
+  // Fix BUG modal-double-click: cancella i callback PRIMA del fade-out 200ms.
+  // Prima erano cancellati dentro setTimeout(200ms), quindi durante il fade-out
+  // un secondo click su "Salva" ritrovava il callback ancora vivo e lo eseguiva
+  // una seconda volta, creando duplicati (food/recipe). Ora il callback viene
+  // rimosso immediatamente, così ulteriori click durante il fade-out sono no-op.
+  if (_callbacks.get(modalId) === cb) {
+    _callbacks.delete(modalId);
+  }
+
   el.classList.remove('modal-show');
   setTimeout(() => {
     el.remove();
@@ -125,11 +134,6 @@ function closeModal(el: HTMLElement): void {
       } catch (e) {
         console.error('[modal] onClose error', e);
       }
-    }
-    // Fix race condition: cancella i callback SOLO se non sono stati
-    // già sostituiti da un nuovo showModal con lo stesso modalId
-    if (_callbacks.get(modalId) === cb) {
-      _callbacks.delete(modalId);
     }
     _closing.delete(el);
     // Fix 2.7 (T2): ripristina focus all'elemento focalizzato prima dell'apertura del modal

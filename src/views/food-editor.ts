@@ -10,6 +10,7 @@ import { refreshSearchAfterCustomFood } from '../components/search';
 interface FoodFormState {
   name: string;
   brand: string;
+  barcode: string;
   calories: string;
   protein: string;
   carbs: string;
@@ -25,6 +26,7 @@ interface FoodFormState {
 const _foodEditorState: FoodFormState = {
   name: '',
   brand: '',
+  barcode: '',
   calories: '',
   protein: '',
   carbs: '',
@@ -38,11 +40,14 @@ const _foodEditorState: FoodFormState = {
 };
 
 let _foodEditorBound = false;
+// Fix MEDIUM bug: traccia lo stato iniziale per dirty check su close.
+let _foodEditorInitial: FoodFormState | null = null;
 
 function resetFoodEditorState(): void {
   Object.assign(_foodEditorState, {
     name: '',
     brand: '',
+    barcode: '',
     calories: '',
     protein: '',
     carbs: '',
@@ -56,6 +61,30 @@ function resetFoodEditorState(): void {
   });
 }
 
+// Fix MEDIUM bug: snapshot dello stato iniziale per dirty check.
+function snapshotState(): FoodFormState {
+  return { ..._foodEditorState };
+}
+
+function isDirty(): boolean {
+  if (!_foodEditorInitial) return false;
+  return (
+    _foodEditorState.name !== _foodEditorInitial.name ||
+    _foodEditorState.brand !== _foodEditorInitial.brand ||
+    _foodEditorState.barcode !== _foodEditorInitial.barcode ||
+    _foodEditorState.calories !== _foodEditorInitial.calories ||
+    _foodEditorState.protein !== _foodEditorInitial.protein ||
+    _foodEditorState.carbs !== _foodEditorInitial.carbs ||
+    _foodEditorState.fat !== _foodEditorInitial.fat ||
+    _foodEditorState.fiber !== _foodEditorInitial.fiber ||
+    _foodEditorState.sugar !== _foodEditorInitial.sugar ||
+    _foodEditorState.salt !== _foodEditorInitial.salt ||
+    _foodEditorState.servingSize !== _foodEditorInitial.servingSize ||
+    _foodEditorState.servingLabel !== _foodEditorInitial.servingLabel ||
+    _foodEditorState.lockFromMacros !== _foodEditorInitial.lockFromMacros
+  );
+}
+
 function loadFromFood(foodId: string): void {
   const f = getState().foods.find((x) => x.id === foodId);
   if (!f) {
@@ -64,6 +93,7 @@ function loadFromFood(foodId: string): void {
   }
   _foodEditorState.name = f.name;
   _foodEditorState.brand = f.brand || '';
+  _foodEditorState.barcode = f.barcode || '';
   _foodEditorState.calories = String(Math.round(f.nutrition.calories));
   _foodEditorState.protein = String(Math.round(f.nutrition.protein));
   _foodEditorState.carbs = String(Math.round(f.nutrition.carbs));
@@ -82,6 +112,8 @@ export function renderFoodEditorModal(foodId: string | null): void {
   } else {
     resetFoodEditorState();
   }
+  // Fix MEDIUM bug: snapshot iniziale per dirty check su close
+  _foodEditorInitial = snapshotState();
 
   const editing = !!foodId && foodId !== 'new';
   showModal({
@@ -98,7 +130,15 @@ export function renderFoodEditorModal(foodId: string | null): void {
       return result;
     },
     // Fix B6: cleanup state quando il modal viene chiuso (✕, ESC, overlay, o conferma successful)
-    onClose: () => closeFoodEditor(),
+    // Fix MEDIUM bug: dirty check — se ci sono modifiche non salvate, avvisa l'utente (non-blocking,
+    // perché onClose viene chiamato dopo che il modal è già stato rimosso dal DOM).
+    onClose: () => {
+      if (isDirty()) {
+        showToast('Modifiche non salvate', 'info', 2000);
+      }
+      closeFoodEditor();
+      _foodEditorInitial = null;
+    },
   });
 
   bindFoodEditorModalEvents();
@@ -112,10 +152,16 @@ function renderFormBody(editing: boolean): string {
         <span>Nome *</span>
         <input id="fe-name" type="text" value="${escapeAttr(_foodEditorState.name)}" placeholder="es. Pane integrale fatto in casa" />
       </label>
-      <label class="field">
-        <span>Marca (opzionale)</span>
-        <input id="fe-brand" type="text" value="${escapeAttr(_foodEditorState.brand)}" placeholder="es. Fatto in casa" />
-      </label>
+      <div class="form-grid-2">
+        <label class="field">
+          <span>Marca (opzionale)</span>
+          <input id="fe-brand" type="text" value="${escapeAttr(_foodEditorState.brand)}" placeholder="es. Fatto in casa" />
+        </label>
+        <label class="field">
+          <span>Barcode (opzionale)</span>
+          <input id="fe-barcode" type="text" inputmode="numeric" value="${escapeAttr(_foodEditorState.barcode)}" placeholder="es. 8076809510053" maxlength="14" />
+        </label>
+      </div>
       <div class="form-box">
         <div class="form-box-head">
           <span class="form-box-title">Valori per 100g / 100ml</span>
@@ -158,6 +204,9 @@ function bindFoodEditorModalEvents(): void {
         break;
       case 'fe-brand':
         _foodEditorState.brand = v;
+        break;
+      case 'fe-barcode':
+        _foodEditorState.barcode = v;
         break;
       case 'fe-calories':
         _foodEditorState.calories = v;
@@ -278,6 +327,21 @@ function handleSave(foodId: string | null): boolean {
     return false;
   }
 
+  // Fix MEDIUM bug: se calories=0 ma almeno un macro > 0, stima kcal da macro (algoritmo Atwater).
+  // Stesso comportamento di buildFoodFromOff. Prima l'utente poteva salvare un food con
+  // calories=0 e macro>0, creando inconsistenza con i food OFF che vengono ricalcolati.
+  let finalCalories = calories;
+  if (calories === 0) {
+    const macroKcal =
+      Math.max(0, protein) * KCAL_PER_GRAM.protein +
+      Math.max(0, carbs) * KCAL_PER_GRAM.carbs +
+      Math.max(0, fat) * KCAL_PER_GRAM.fat;
+    if (macroKcal > 0) {
+      finalCalories = Math.round(macroKcal);
+      showToast(`Calorie calcolate dai macro: ${finalCalories} kcal`, 'info', 3000);
+    }
+  }
+
   // Campi opzionali: undefined se vuoti, errore se non parsabili
   const fiber = parseNum(_foodEditorState.fiber, 'Fibre', false);
   if (fiber !== undefined && Number.isNaN(fiber)) return false;
@@ -289,10 +353,16 @@ function handleSave(foodId: string | null): boolean {
   // Fix BUG #6 (T3): clamp lunghezza name/brand/servingLabel su save (coerente con normalize.ts)
   const trimmedName = _foodEditorState.name.trim().slice(0, 300);
   const trimmedBrand = _foodEditorState.brand.trim().slice(0, 200) || undefined;
+  // Fix MEDIUM bug: supporta campo barcode (validazione: solo cifre, max 14)
+  const trimmedBarcode = _foodEditorState.barcode.trim().slice(0, 14) || undefined;
+  if (trimmedBarcode && !/^\d{6,14}$/.test(trimmedBarcode)) {
+    showToast('Barcode non valido: inserisci 6-14 cifre (EAN/UPC)', 'error');
+    return false;
+  }
   const trimmedServingLabel = _foodEditorState.servingLabel.trim().slice(0, 100) || undefined;
 
   const nutrition: NutritionPer100 = {
-    calories,
+    calories: finalCalories,
     protein,
     carbs,
     fat,
@@ -303,6 +373,7 @@ function handleSave(foodId: string | null): boolean {
   const payload = {
     name: trimmedName,
     brand: trimmedBrand,
+    barcode: trimmedBarcode,
     source: 'custom' as const,
     servingSize,
     servingLabel: trimmedServingLabel,
@@ -330,7 +401,18 @@ function handleSave(foodId: string | null): boolean {
 
   if (foodId && foodId !== 'new') {
     updateFood(foodId, payload);
-    showToast('Alimento aggiornato', 'success');
+    // Fix MEDIUM bug: avvisa l'utente che le entries del diario esistenti non verranno aggiornate
+    // (foodSnapshot è una snapshot al momento dell'aggiunta, non un riferimento live).
+    const diaryEntriesUsingFood = Object.values(getState().diary).some((entries) =>
+      entries.some((e) => e.foodId === foodId),
+    );
+    showToast(
+      diaryEntriesUsingFood
+        ? 'Alimento aggiornato. Le voci del diario esistenti manterranno i valori precedenti (snapshot).'
+        : 'Alimento aggiornato',
+      diaryEntriesUsingFood ? 'info' : 'success',
+      5000,
+    );
   } else {
     addFood(payload);
     showToast('Alimento custom creato', 'success');
@@ -351,6 +433,8 @@ function handleSave(foodId: string | null): boolean {
   }
   // NOTA: non chiamiamo closeFoodEditor() qui — ci pensa onClose callback del modal.
   // Chiamiamo solo emitChange per re-render.
+  // Fix MEDIUM bug: resetta _foodEditorInitial così onClose non triggera dirty check
+  _foodEditorInitial = snapshotState();
   emitChange();
   return true;
 }

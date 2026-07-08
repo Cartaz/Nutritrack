@@ -176,7 +176,12 @@ export function saveData(): SaveDataResult {
         });
         return { ok: true };
       } catch {
-        console.error('[storage] storage esaurito anche dopo strip. Esporta backup.');
+        // Fix MEDIUM bug: flip _storageOK a false per interrompere i retry wasteful.
+        // Prima _storageOK restava true anche quando storage era effettivamente inutilizzabile,
+        // quindi ogni successivo emitChange (auto-save) ritentava 2 setItem fallimentari,
+        // sprecando CPU e loggando errori ad ogni tentativo.
+        _storageOK = false;
+        console.error('[storage] storage esaurito anche dopo strip. Esporta backup. Salvataggio disabilitato.');
         return {
           ok: false,
           error: 'Quota superata anche dopo strip immagini. Esporta un backup e riprova.',
@@ -242,6 +247,19 @@ export function checkStorageSize(): { bytes: number; warn: boolean } {
 /** Avviso se ci si avvicina alla quota */
 export function shouldWarnQuota(): boolean {
   return checkStorageSize().bytes > STORAGE_WARN_BYTES * 0.9;
+}
+
+/**
+ * Reset interno per test (non usare in produzione).
+ * Fix MEDIUM bug: dopo il test "QuotaExceededError anche dopo strip, ritorna fatal",
+ * _storageOK resta false e contamina i test successivi. Questa funzione permette
+ * al test setup di ripristinare lo stato interno del modulo storage.
+ */
+export function __resetStorageInternalForTesting(): void {
+  _storageOK = true;
+  _quotaWarnedThisSession = false;
+  _stripWarnedThisSession = false;
+  _pendingMultiTabUpdate = null;
 }
 
 // ============ Auto-save: subscribe a ogni emit ============
@@ -366,6 +384,31 @@ export function flushPendingMultiTabUpdate(): void {
 
 export function exportDataJson(): string {
   return JSON.stringify(buildPayload(), null, 2);
+}
+
+/**
+ * Cancella sia la chiave primaria che il backup da localStorage.
+ * Fix HIGH bug (privacy): resetAll() in store.ts prima cancellava solo lo state in-memory
+ * e saveData() sovrascriveva STORAGE_KEY con payload vuoto, ma BACKUP_KEY conservava
+ * ancora il payload precedente (snapshot pre-reset). Al prossimo parsing fallito di
+ * STORAGE_KEY (es. corruption), loadData() avrebbe fatto fallback al backup resuscitando
+ * i dati "cancellati". Ora questa funzione pulisce entrambe le chiavi.
+ */
+export function clearAllStoredData(): void {
+  if (!_storageOK) return;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.removeItem(BACKUP_KEY);
+  } catch {
+    /* ignore */
+  }
+  // Reset dei flag di sessione per permettere future notifiche
+  _quotaWarnedThisSession = false;
+  _stripWarnedThisSession = false;
 }
 
 /** Importa un backup JSON.

@@ -7,7 +7,6 @@ import {
   updateRecipe,
   openFoodEditor,
   emitChange,
-  addFood,
 } from '../lib/store';
 import { showToast } from '../components/toast';
 import { showModal, closeModalById } from '../components/modal';
@@ -15,6 +14,7 @@ import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
 import { searchOff } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
+import { saveOffFood } from '../lib/foods';
 import { imgTag } from '../components/img';
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
 import type { FoodItem, RecipeIngredient } from '../types';
@@ -66,7 +66,11 @@ function resetRecipeEditorState(): void {
 function loadFromRecipe(recipeId: string): void {
   const r = getState().recipes.find((x) => x.id === recipeId);
   if (!r) {
+    // Fix MEDIUM bug: se la ricetta è stata cancellata in altro tab mentre il viewer era aperto,
+    // chiudi l'editor invece di lasciarlo in uno stato inconsistente (titolo "Modifica" su form vuoto).
     resetRecipeEditorState();
+    closeRecipeEditor();
+    showToast('La ricetta non esiste più (potrebbe essere stata eliminata in un altro tab)', 'warning', 5000);
     return;
   }
   _recipeEditorState.name = r.name;
@@ -121,7 +125,7 @@ function renderEditorBody(): string {
       </label>
       <label class="field">
         <span>Descrizione / Note</span>
-        <textarea id="re-desc" rows="2" placeholder="Preparazione, trucchi, ecc.">${escapeHtml(_recipeEditorState.description)}</textarea>
+        <textarea id="re-desc" rows="2" maxlength="2000" placeholder="Preparazione, trucchi, ecc.">${escapeHtml(_recipeEditorState.description)}</textarea>
       </label>
       <label class="field field-sm">
         <span>Porzioni *</span>
@@ -543,25 +547,11 @@ function bindRecipeEditorModalEvents(): void {
       const all = [...state.foods, ..._recipeEditorState.searchResults];
       const f = all.find((x) => x.id === id);
       if (f) {
-        // Se proviene da OFF e non è salvato, salva
-        let foodRef = f;
-        if (f.source === 'openfoodfacts' && !state.foods.find((x) => x.id === f.id)) {
-          foodRef = { ...f, id: safeId('food_') };
-          addFood(foodRef);
-          _recipeEditorState.ingredients = [
-            ..._recipeEditorState.ingredients,
-            {
-              id: safeId('ing_'),
-              foodId: foodRef.id,
-              foodSnapshot: foodRef,
-              grams: foodRef.servingSize,
-            },
-          ];
-          closeModalById('recipe-search-sub');
-          rerenderModalBody();
-          showToast(`${foodRef.name} aggiunto`, 'success');
-          return;
-        }
+        // Fix HIGH bug: usa saveOffFood() che centralizza il dedupe per barcode.
+        // Prima veniva fatto `addFood({...f, id: safeId('food_')})` che generava
+        // un nuovo id ad ogni pick, creando duplicati per lo stesso prodotto OFF
+        // quando pickato in sessioni/recipe-editor diverse.
+        const foodRef = f.source === 'openfoodfacts' ? saveOffFood(f) : f;
         _recipeEditorState.ingredients = [
           ..._recipeEditorState.ingredients,
           {

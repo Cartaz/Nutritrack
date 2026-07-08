@@ -85,6 +85,12 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   const abortCtrl = new AbortController();
   let stream: MediaStream | null = null;
   let stopped = false;
+  // Fix HIGH bug (memory leak): escHandler viene registrato su document con capture=true.
+  // Prima veniva rimosso SOLO dentro se stesso (riga 146), MAI in cleanup(). Quindi se lo
+  // scanner veniva chiuso via Annulla/overlay/detection, l'escHandler restava attivo e si
+  // accumulava ad ogni apertura. Ora lo dichiariamo a livello di funzione così cleanup()
+  // può rimuoverlo esplicitamente.
+  let escHandler: ((e: KeyboardEvent) => void) | null = null;
 
   const cleanup = (): void => {
     if (stopped) return;
@@ -93,6 +99,13 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       abortCtrl.abort();
     } catch {
       /* noop */
+    }
+    // Fix HIGH bug: rimuovi esplicitamente l'escHandler per evitare memory leak.
+    // Prima era rimosso solo dentro se stesso (se l'utente premeva ESC), ma non negli
+    // altri path di chiusura (Annulla, overlay click, detection riuscita).
+    if (escHandler) {
+      document.removeEventListener('keydown', escHandler, true);
+      escHandler = null;
     }
     if (stream) {
       stream.getTracks().forEach((t) => {
@@ -133,7 +146,8 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   };
 
   // ESC handler (capture per intercettare PRIMA di modal.ts)
-  const escHandler = (e: KeyboardEvent): void => {
+  // Fix HIGH bug: assegnato a variabile esterna per permettere cleanup() di rimuoverlo.
+  escHandler = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape') return;
     if (!document.querySelector('[data-modal-id="barcode-scanner"]')) return;
     // Solo se lo scanner è il modal top
@@ -143,7 +157,7 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
     e.stopPropagation();
     e.preventDefault();
     cleanup();
-    document.removeEventListener('keydown', escHandler, true);
+    // cleanup() rimuove già escHandler, non serve rimuoverlo qui
   };
   document.addEventListener('keydown', escHandler, true);
 
@@ -170,7 +184,16 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       const input = overlay.querySelector<HTMLInputElement>('[data-manual-input]');
       if (input) {
         const code = input.value.trim();
+        // Fix LOW bug: validazione barcode manuale — accetta solo 6-14 cifre (EAN-8/13, UPC-A/E).
+        // Prima qualsiasi stringa non vuota veniva inviata a OFF, sprecando una richiesta 404.
         if (code) {
+          if (!/^\d{6,14}$/.test(code)) {
+            statusEl.textContent = 'Codice non valido: inserisci 6-14 cifre (EAN/UPC).';
+            statusEl.classList.add('scanner-status-error');
+            input.focus();
+            input.select();
+            return;
+          }
           finishWithBarcode(code);
         }
       }
@@ -190,7 +213,15 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       e.preventDefault();
       const input = target as HTMLInputElement;
       const code = input.value.trim();
+      // Fix LOW bug: stessa validazione del click submitManual (6-14 cifre)
       if (code) {
+        if (!/^\d{6,14}$/.test(code)) {
+          statusEl.textContent = 'Codice non valido: inserisci 6-14 cifre (EAN/UPC).';
+          statusEl.classList.add('scanner-status-error');
+          input.focus();
+          input.select();
+          return;
+        }
         finishWithBarcode(code);
       }
     }
@@ -203,11 +234,21 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       if (stopped) return; // cleanup avvenuto durante await getUserMedia
       video.srcObject = stream;
       // Attendi metadata + play
+      let playFailed = false;
       await video.play().catch((e) => {
         // play() può fallire su iOS senza user gesture o se interrotto — logghiamo per debug
         console.warn('[scanner] video.play() failed:', e);
+        playFailed = true;
       });
       if (stopped) return;
+      if (playFailed) {
+        // Fix LOW bug: se video.play() fallisce (es. iOS senza user gesture), non avviare
+        // il loop di detection (non fire mai perché readyState < 2 perennemente) e informa
+        // l'utente che deve inserire il codice manualmente.
+        statusEl.textContent = 'Impossibile avviare la fotocamera. Inserisci il codice manualmente.';
+        statusEl.classList.add('scanner-status-error');
+        return;
+      }
       statusEl.textContent = 'Inquadra il codice a barre…';
 
       // FIX: passa lo stream esistente a detectBarcodeFromVideo (evita double getUserMedia in ZXing)

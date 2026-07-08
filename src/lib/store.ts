@@ -15,7 +15,28 @@ import type {
 } from '../types';
 import { DEFAULT_SETTINGS } from './nutrition';
 import { safeId, toDateKey } from './utils';
-import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
+import { MAX_DIARY_ENTRIES_PER_DAY, STORAGE_KEY, BACKUP_KEY } from './constants';
+
+/**
+ * Fix HIGH bug (privacy): cancella sia STORAGE_KEY che BACKUP_KEY da localStorage.
+ * Implementato qui in store.ts (invece di importare da storage.ts) per evitare
+ * circular import: storage.ts importa già da store.ts (getState, setState, ecc.).
+ *
+ * Prima resetAll() sovrascriveva solo STORAGE_KEY con payload vuoto, ma BACKUP_KEY
+ * conservava il payload precedente e loadData() poteva resuscitarlo come fallback.
+ */
+function clearAllStoredDataLocal(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.removeItem(BACKUP_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 const state: AppState = {
   // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
@@ -82,6 +103,18 @@ export function emitChange(): void {
 // ============ View navigation ============
 
 export function switchView(view: ViewName): void {
+  // Fix MEDIUM bug: chiudi tutti i modal UI aperti quando si cambia vista.
+  // Prima switchView lasciava aperti modal come search-dialog/food-editor/recipe-editor,
+  // che rimanevano floating sopra la nuova vista creando confusione UX.
+  state._searchOpen = false;
+  state._editingFoodId = null;
+  state._editingRecipeId = null;
+  state._viewingRecipeId = null;
+  state._confirmDeleteFoodId = null;
+  state._confirmDeleteRecipeId = null;
+  state._confirmReset = false;
+  state._addRecipeToMealPickerId = null;
+  state._editingEntryId = null;
   state.currentView = view;
   emitChange();
 }
@@ -177,6 +210,18 @@ export function addDiaryEntry(input: Omit<DiaryEntry, 'id' | 'createdAt'>): Diar
 export function updateDiaryEntry(id: string, patch: Partial<DiaryEntry>): void {
   // Fix Bug #6 (T1): se patch.date cambia, sposta l'entry nell'array della nuova data
   // (prima l'entry restava nell'array originale → worker stats la contava nel giorno sbagliato)
+  // Fix MEDIUM bug: se la destinazione ha già MAX_DIARY_ENTRIES_PER_DAY entries, non spostare
+  // (silently skip il move, mantieni l'entry nella data originale con gli altri campi aggiornati).
+  if (patch.date && patch.date !== getCurrentEntryDate(id)) {
+    const destCount = (state.diary[patch.date]?.length ?? 0);
+    if (destCount >= MAX_DIARY_ENTRIES_PER_DAY) {
+      console.warn('[store] diario destinazione pieno per la data', patch.date, '— move skipped');
+      // Rimuovi patch.date per applicare solo gli altri campi nella data originale
+      const { date: _omitted, ...restPatch } = patch;
+      void _omitted;
+      patch = restPatch;
+    }
+  }
   const newDiary: DayDiary = {};
   let movedEntry: DiaryEntry | null = null;
   let movedToDate: string | null = null;
@@ -205,10 +250,24 @@ export function updateDiaryEntry(id: string, patch: Partial<DiaryEntry>): void {
   emitChange();
 }
 
+/** Helper: ritorna la data corrente di un entry, o undefined se non trovata. */
+function getCurrentEntryDate(id: string): string | undefined {
+  for (const [date, entries] of Object.entries(state.diary)) {
+    if (entries.some((e) => e.id === id)) return date;
+  }
+  return undefined;
+}
+
 export function deleteDiaryEntry(id: string): void {
   const newDiary: DayDiary = {};
   for (const [date, entries] of Object.entries(state.diary)) {
-    newDiary[date] = entries.filter((e) => e.id !== id);
+    const filtered = entries.filter((e) => e.id !== id);
+    // Fix LOW bug: rimuovi le chiavi date con array vuoto, altrimenti rimangono in memoria
+    // come `diary[date] = []`. normalizeDayDiary le pulirebbe su rehydrate, ma in-memory
+    // potrebbero causare over-count in futuri consumer che iterano Object.keys.
+    if (filtered.length > 0) {
+      newDiary[date] = filtered;
+    }
   }
   state.diary = newDiary;
   emitChange();
@@ -352,6 +411,9 @@ export function closeEntryEditor(): void {
 export function resetAll(): void {
   // Fix Bug #7 (T1): resetta anche i flag UI/modal per evitare modal aperti su UI vuota
   // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference
+  // Fix HIGH bug (privacy): cancella anche BACKUP_KEY da localStorage, non solo lo state in-memory.
+  //   Prima saveData() sovrascriveva STORAGE_KEY con payload vuoto, ma BACKUP_KEY conservava
+  //   il payload precedente e loadData() poteva resuscitarlo come fallback.
   state.settings = { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } };
   state.foods = [];
   state.diary = {};
@@ -367,6 +429,12 @@ export function resetAll(): void {
   state._confirmReset = false;
   state._addRecipeToMealPickerId = null;
   state._editingEntryId = null;
+  // Fix HIGH bug: pulisci entrambe le chiavi localStorage per evitare resurrezione dati
+  try {
+    clearAllStoredDataLocal();
+  } catch (e) {
+    console.warn('[store] clearAllStoredDataLocal fallito durante resetAll', e);
+  }
   emitChange();
 }
 

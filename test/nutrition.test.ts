@@ -129,14 +129,17 @@ describe('sumNutrition', () => {
     expect(r.salt).toBeCloseTo(0.3, 5);
   });
 
-  it('ritorna zeri per lista vuota', () => {
+  it('ritorna zeri per lista vuota (fiber/sugar/salt undefined se nessun item li ha)', () => {
     const r = sumNutrition([]);
     expect(r.calories).toBe(0);
     expect(r.protein).toBe(0);
     expect(r.carbs).toBe(0);
     expect(r.fat).toBe(0);
-    // fiber/sugar/salt inizializzati a 0 (non undefined) per sum
-    expect(r.fiber).toBe(0);
+    // Fix LOW bug: fiber/sugar/salt ora undefined (non 0) se NESSUN item li ha,
+    // per coerenza con scaleNutrition che preserva undefined. Inconsistenza display.
+    expect(r.fiber).toBeUndefined();
+    expect(r.sugar).toBeUndefined();
+    expect(r.salt).toBeUndefined();
   });
 
   it('gestisce campi mancanti trattandoli come 0', () => {
@@ -340,9 +343,12 @@ describe('calcGoalAdjustedCalories', () => {
     expect(r.kcalClamped).toBe(true);
   });
 
-  it('ritorna 0 per TDEE non valido', () => {
+  it('ritorna 500 (clamp min) per TDEE non valido, con kcalClamped=true', () => {
+    // Fix MEDIUM bug: prima ritornava kcal=0 (violando il clamp min 500 dichiarato).
+    // Ora ritorna 500 con kcalClamped=true per permettere alla UI di mostrare un warning.
     const r = calcGoalAdjustedCalories(0, 80, 75, 0.5, 'lose' as WeightGoalType);
-    expect(r.kcal).toBe(0);
+    expect(r.kcal).toBe(500);
+    expect(r.kcalClamped).toBe(true);
     expect(r.weeklyDeltaKg).toBe(0);
   });
 });
@@ -389,6 +395,23 @@ describe('normalizeMacroSplit', () => {
       const r = normalizeMacroSplit(split);
       expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
     }
+  });
+
+  // Fix MEDIUM bug: tolleranza 0.5 non deve più permettere sum != 100
+  it('ridistribuisce su fat split entro tolleranza 0.5 per garantire sum=100 esatto', () => {
+    // Prima {99.6, 0, 0} passava invariata (sum=99.6 ≠ 100). Ora fat = 100 - 99.6 - 0 = 0.4
+    // ma Math.max(0, 0.4) = 0.4 → sum = 99.6 + 0 + 0.4 = 100. OK
+    const r = normalizeMacroSplit({ proteinPct: 99.6, carbsPct: 0, fatPct: 0 });
+    expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
+    expect(r.proteinPct).toBe(99.6);
+  });
+});
+
+describe('calcBMR sex validation (Fix MEDIUM bug)', () => {
+  it('ritorna 0 se sex è undefined (backup legacy senza sex)', () => {
+    // @ts-expect-error: simuliamo backup legacy con sex undefined
+    const bmr = calcBMR(80, 180, 30, undefined);
+    expect(bmr).toBe(0);
   });
 });
 

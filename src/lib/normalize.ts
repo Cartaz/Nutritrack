@@ -53,9 +53,14 @@ export function normalizeString(v: unknown, maxLen = 500): string {
     if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
       return sliced.slice(0, sliced.length - 1);
     }
-    return sliced;
+    // Fix LOW bug: filtra null byte e caratteri di controllo (eccetto newline/tab) prima del trim della lunghezza.
+    // I caratteri di controllo possono rompere rendering HTML o essere usati per injection in alcuni contesti.
+    // eslint-disable-next-line no-control-regex
+    return sliced.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   }
-  return trimmed;
+  // Fix LOW bug: filtra null byte e caratteri di controllo anche per stringhe entro maxLen
+  // eslint-disable-next-line no-control-regex
+  return trimmed.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 }
 
 export function normalizeOptionalString(v: unknown, maxLen = 500): string | undefined {
@@ -128,10 +133,16 @@ export function normalizeNutrition(v: unknown): NutritionPer100 | null {
   const protein = safeNum(v.protein, 0, 0, 1_000);
   const carbs = safeNum(v.carbs, 0, 0, 1_000);
   const fat = safeNum(v.fat, 0, 0, 1_000);
-  if (calories === 0 && protein === 0 && carbs === 0 && fat === 0) return null;
   const fiber = v.fiber == null ? undefined : safeNum(v.fiber, 0, 0, 1_000);
   const sugar = v.sugar == null ? undefined : safeNum(v.sugar, 0, 0, 1_000);
   const salt = v.salt == null ? undefined : safeNum(v.salt, 0, 0, 1_000);
+  // Fix MEDIUM bug: prima scartava alimenti con calories=protein=carbs=fat=0 ANCHE se avevano
+  // fiber/sugar/salt (es. psyllium husk 0kcal/5g fiber, sale da cucina 0kcal/0P/0C/0F/97g salt).
+  // Ora accettiamo anche alimenti con almeno un campo opzionale significativo.
+  const hasMain = calories > 0 || protein > 0 || carbs > 0 || fat > 0;
+  const hasOptional =
+    (fiber != null && fiber > 0) || (sugar != null && sugar > 0) || (salt != null && salt > 0);
+  if (!hasMain && !hasOptional) return null;
   return { calories, protein, carbs, fat, fiber, sugar, salt };
 }
 
@@ -352,11 +363,25 @@ function pickName(p: OffProduct): string {
 
 /** Converte un prodotto OFF grezzo in FoodItem normalizzato.
  *  Ritorna null se il prodotto non ha nome o nutrizione utile.
- *  Fix B-8-11 (T8): se kcal=0 ma almeno un macro > 0, stima kcal da macro (4/4/9). */
+ *  Fix B-8-11 (T8): se kcal=0 ma almeno un macro > 0, stima kcal da macro (4/4/9).
+ *  Fix MEDIUM bug: gestisci energy-kcal_100g come stringa vuota o falsy (prima `?? kJtoKcal(...)`
+ *  non triggrava perché `''` non è nullish — `''===0` è false, quindi calories restava 0). */
 export function buildFoodFromOff(p: OffProduct): FoodItem | null {
   if (!p || typeof p !== 'object') return null;
   const n: OffNutriments = p.nutriments || {};
-  let calories = n['energy-kcal_100g'] ?? kJtoKcal(n.energy_100g) ?? 0;
+  // Fix MEDIUM bug: tratta stringa vuota e nullish entrambi come " mancante " per kcal.
+  // Prima `n['energy-kcal_100g'] ?? kJtoKcal(n.energy_100g) ?? 0` restituiva '' (empty string)
+  // quando OFF aveva il campo ma con valore vuoto, perché `'' ?? x` restituisce '' (non x).
+  const kcalRaw = n['energy-kcal_100g'];
+  const kJRaw = n.energy_100g;
+  let calories: number;
+  if (typeof kcalRaw === 'number' && Number.isFinite(kcalRaw)) {
+    calories = kcalRaw;
+  } else if (typeof kJRaw === 'number' && Number.isFinite(kJRaw)) {
+    calories = kJtoKcal(kJRaw) ?? 0;
+  } else {
+    calories = 0;
+  }
   // Fix B18: costruisci nutrition raw e passalo per normalizeNutrition per clampare negativi/NaN
   let rawNutrition = {
     calories,

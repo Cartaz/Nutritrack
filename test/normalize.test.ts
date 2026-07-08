@@ -238,6 +238,33 @@ describe('normalizeNutrition', () => {
     const r = normalizeNutrition({ calories: 100, protein: 5, carbs: 10, fat: 1 });
     expect(r!.fiber).toBeUndefined();
   });
+
+  // Fix MEDIUM bug: alimenti fiber/sugar/salt-only non devono più essere scartati
+  it('accetta alimenti con solo fiber (es. psyllium husk 0kcal/5g fiber)', () => {
+    const r = normalizeNutrition({ calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 5 });
+    expect(r).not.toBeNull();
+    expect(r!.fiber).toBe(5);
+    expect(r!.calories).toBe(0);
+  });
+
+  it('accetta alimenti con solo salt (es. sale da cucina)', () => {
+    const r = normalizeNutrition({ calories: 0, protein: 0, carbs: 0, fat: 0, salt: 97 });
+    expect(r).not.toBeNull();
+    expect(r!.salt).toBe(97);
+  });
+});
+
+describe('normalizeString control chars (Fix LOW bug)', () => {
+  it('filtra null byte e caratteri di controllo', () => {
+    expect(normalizeString('ciao\x00mondo')).toBe('ciaomondo');
+    expect(normalizeString('test\x01\x02foo')).toBe('testfoo');
+    expect(normalizeString('a\x7Fb')).toBe('ab');
+  });
+
+  it('preserva newline e tab', () => {
+    expect(normalizeString('riga1\nriga2')).toBe('riga1\nriga2');
+    expect(normalizeString('col1\tcol2')).toBe('col1\tcol2');
+  });
 });
 
 describe('normalizeFoodItem', () => {

@@ -179,12 +179,18 @@ export function renderDashboard(main: HTMLElement): void {
 }
 
 /** Lancia il worker solo se l'input è cambiato (previene loop worker -> emitChange -> render -> worker).
- *  Fix 2.4 (T2): catch su rejection del worker per evitare spinner perenne + memory leak. */
+ *  Fix 2.4 (T2): catch su rejection del worker per evitare spinner perenne + memory leak.
+ *  Fix MEDIUM bug: ancoraggio a state.currentDate invece di new Date() — prima la sezione
+ *  "Ultimi 7 giorni" mostrava sempre gli ultimi 7 giorni da today, ignorando la data
+ *  selezionata nel dashboard. Ora se l'utente naviga a una data passata, vede i 7 giorni
+ *  che terminano in quella data. */
 function maybeLaunchWeekStatsWorker(state: ReturnType<typeof getState>): void {
-  const today = new Date();
+  // Fix MEDIUM bug: usa state.currentDate come anchor per la settimana, non today.
+  // Se currentDate è invalida (teoricamente possibile dopo corruption), fallback a today.
+  const anchor = isValidDateKey(state.currentDate) ? parseISODateLocal(state.currentDate) : new Date();
   const dates: string[] = [];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
+    const d = new Date(anchor);
     d.setDate(d.getDate() - i);
     dates.push(toDateKey(d));
   }

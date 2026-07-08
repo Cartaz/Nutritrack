@@ -16,7 +16,7 @@ import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
 import { bindSearchEvents, renderSearchShell, updateSearchContent } from './search';
 import { showToast } from './toast';
-import { showModal } from './modal';
+import { showModal, closeModalById } from './modal';
 import { escapeHtml, escapeAttr, formatDateIT } from '../lib/utils';
 import type { ViewName, FoodItem, Recipe } from '../types';
 import { MEAL_LABELS } from '../types';
@@ -169,20 +169,41 @@ function renderSearchOverlay(): void {
 
 // ============ Confirm dialog renders ============
 
+/** Fix MEDIUM bug: traccia l'id associato al modal confirm-delete attualmente aperto.
+ *  Prima, se l'utente clickava "delete" su un secondo food mentre il primo modal era aperto,
+ *  `_confirmDeleteFoodId` veniva aggiornato a B ma il body mostrava ancora A (perché il
+ *  check `if (!id || existing) return;` skippava la creazione). Ora confrontiamo l'id
+ *  attuale con quello associato al modal esistente e forziamo re-open se diverso. */
+let _openConfirmDeleteFoodId: string | null = null;
+let _openConfirmDeleteRecipeId: string | null = null;
+
 function renderConfirmDeleteFood(): void {
   const id = getStoreState()._confirmDeleteFoodId;
   const existing = document.querySelector('[data-modal-id="confirm-delete-food"]');
   if (!id && existing) {
     existing.remove();
     closeModalCleanup();
+    _openConfirmDeleteFoodId = null;
     return;
   }
-  if (!id || existing) return;
+  if (!id) {
+    _openConfirmDeleteFoodId = null;
+    return;
+  }
+  // Fix MEDIUM bug: se il modal esiste ma l'id è cambiato, chiudilo e riaprilo con il nuovo food.
+  if (existing && _openConfirmDeleteFoodId !== id) {
+    closeModalById('confirm-delete-food');
+    _openConfirmDeleteFoodId = null;
+    // Non return — continua a creare il nuovo modal sotto
+  } else if (existing && _openConfirmDeleteFoodId === id) {
+    return; // stesso id, modal già corretto
+  }
   const food = getStoreState().foods.find((f: FoodItem) => f.id === id);
   if (!food) {
     cancelDeleteFood();
     return;
   }
+  _openConfirmDeleteFoodId = id;
   showModal({
     modalId: 'confirm-delete-food',
     title: "Eliminare l'alimento?",
@@ -195,7 +216,10 @@ function renderConfirmDeleteFood(): void {
       confirmDeleteFood();
       closeModalCleanup();
     },
-    onClose: () => closeDeleteFoodConfirm(),
+    onClose: () => {
+      closeDeleteFoodConfirm();
+      _openConfirmDeleteFoodId = null;
+    },
   });
 }
 
@@ -205,14 +229,26 @@ function renderConfirmDeleteRecipe(): void {
   if (!id && existing) {
     existing.remove();
     closeModalCleanup();
+    _openConfirmDeleteRecipeId = null;
     return;
   }
-  if (!id || existing) return;
+  if (!id) {
+    _openConfirmDeleteRecipeId = null;
+    return;
+  }
+  // Fix MEDIUM bug: se il modal esiste ma l'id è cambiato, chiudilo e riaprilo.
+  if (existing && _openConfirmDeleteRecipeId !== id) {
+    closeModalById('confirm-delete-recipe');
+    _openConfirmDeleteRecipeId = null;
+  } else if (existing && _openConfirmDeleteRecipeId === id) {
+    return;
+  }
   const recipe = getStoreState().recipes.find((r: Recipe) => r.id === id);
   if (!recipe) {
     cancelDeleteRecipe();
     return;
   }
+  _openConfirmDeleteRecipeId = id;
   showModal({
     modalId: 'confirm-delete-recipe',
     title: 'Eliminare la ricetta?',
@@ -225,7 +261,10 @@ function renderConfirmDeleteRecipe(): void {
       confirmDeleteRecipe();
       closeModalCleanup();
     },
-    onClose: () => closeDeleteRecipeConfirm(),
+    onClose: () => {
+      closeDeleteRecipeConfirm();
+      _openConfirmDeleteRecipeId = null;
+    },
   });
 }
 

@@ -10,9 +10,14 @@
 import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
 import { searchOff, getOffByBarcode } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
-import { getState, closeFoodSearch, openFoodEditor, emitChange, addFood } from '../lib/store';
+import { getState, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
-import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
+import {
+  toggleFoodFavorite,
+  addCustomPortionToFood,
+  removeCustomPortionFromFood,
+  saveOffFood,
+} from '../lib/foods';
 import { showToast } from './toast';
 import { imgTag } from './img';
 import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';
@@ -37,6 +42,9 @@ interface SearchDialogState {
   newPortionLabel: string;
   newPortionGrams: string;
   abortController: AbortController | null;
+  // Fix MEDIUM bug: paginazione OFF — page corrente e totale risultati da OFF (count)
+  page: number;
+  totalCount: number;
 }
 
 const _searchState: SearchDialogState = {
@@ -51,6 +59,8 @@ const _searchState: SearchDialogState = {
   newPortionLabel: '',
   newPortionGrams: '',
   abortController: null,
+  page: 1,
+  totalCount: 0,
 };
 
 function resetSearchState(): void {
@@ -74,16 +84,22 @@ function resetSearchState(): void {
   _searchState.newPortionLabel = '';
   _searchState.newPortionGrams = '';
   _searchState.abortController = null;
+  // Fix MEDIUM bug: reset paginazione
+  _searchState.page = 1;
+  _searchState.totalCount = 0;
 }
 
 // ============ Debounced search ============
 // Fix BUG #1 (T5): aggiunto guard _searchOpen all'inizio del callback per evitare fetch a modal chiuso
-const runSearch = debounce(async (query: string) => {
+// Fix MEDIUM bug: supporta paginazione via loadMoreResults (page > 1 appende invece di sostituire)
+const runSearch = debounce(async (query: string, page: number = 1) => {
   // Fix BUG #1 (T5): se il modal è stato chiuso mentre il debounce era pending, skip
   if (!getState()._searchOpen) return;
   if (query.trim().length < SEARCH_MIN_QUERY) {
     _searchState.results = [];
     _searchState.loading = false;
+    _searchState.page = 1;
+    _searchState.totalCount = 0;
     emitChange();
     return;
   }
@@ -98,7 +114,7 @@ const runSearch = debounce(async (query: string) => {
   _searchState.abortController = ctrl;
   try {
     // Fix B-8-5 (T8): italianOnly=true di default (app italiana, prodotti italiani più rilevanti)
-    const data = await searchOff(query.trim(), { signal: ctrl.signal, italianOnly: true });
+    const data = await searchOff(query.trim(), { signal: ctrl.signal, italianOnly: true, page });
     if (ctrl.signal.aborted) return;
     if (!getState()._searchOpen) return; // modal chiuso durante fetch
     const items: FoodItem[] = [];
@@ -106,7 +122,17 @@ const runSearch = debounce(async (query: string) => {
       const f = buildFoodFromOff(p);
       if (f) items.push(f);
     }
-    _searchState.results = items;
+    // Fix MEDIUM bug: page 1 sostituisce, page > 1 appende
+    if (page === 1) {
+      _searchState.results = items;
+    } else {
+      // Dedupe per id (evita duplicati se OFF ritorna overlap tra pagine)
+      const existingIds = new Set(_searchState.results.map((r) => r.id));
+      const newItems = items.filter((it) => !existingIds.has(it.id));
+      _searchState.results = [..._searchState.results, ...newItems];
+    }
+    _searchState.page = page;
+    _searchState.totalCount = data.count;
   } catch (e) {
     if (ctrl.signal.aborted) return;
     if (!getState()._searchOpen) return;
@@ -127,6 +153,8 @@ const runSearch = debounce(async (query: string) => {
       showToast('Errore nella ricerca. Verifica la connessione e riprova.', 'error');
     }
     _searchState.results = [];
+    _searchState.page = 1;
+    _searchState.totalCount = 0;
   } finally {
     if (_searchState.abortController === ctrl) {
       _searchState.abortController = null;
@@ -135,6 +163,20 @@ const runSearch = debounce(async (query: string) => {
     if (getState()._searchOpen) emitChange();
   }
 }, SEARCH_DEBOUNCE_MS);
+
+/** Fix MEDIUM bug: carica la pagina successiva di risultati OFF (paginazione load-more). */
+async function loadMoreResults(): Promise<void> {
+  if (!getState()._searchOpen) return;
+  if (_searchState.loading) return;
+  if (_searchState.query.trim().length < SEARCH_MIN_QUERY) return;
+  const nextPage = _searchState.page + 1;
+  // Verifica che ci siano altri risultati da caricare
+  const loaded = _searchState.results.length;
+  if (_searchState.totalCount > 0 && loaded >= _searchState.totalCount) return;
+  _searchState.loading = true;
+  emitChange();
+  await runSearch(_searchState.query, nextPage);
+}
 
 // ============ Event bindings (una sola volta) ============
 
@@ -247,14 +289,19 @@ export function bindSearchEvents(): void {
         if (!id) return;
         // Fix BUG #6 (T5): se è un OFF food non salvato, salvalo prima di favoritarlo
         // (altrimenti l'id è orfano e il tab Preferiti resta vuoto)
+        // Fix HIGH bug: usa saveOffFood() che centralizza il dedupe per barcode/name+brand,
+        // altrimenti favoritare lo stesso OFF food in due sessioni diverse creava due food salvati
         const isSaved = getState().foods.some((x) => x.id === id);
         if (!isSaved) {
           const list = currentList();
           const offFood = list.find((x) => x.id === id);
           if (offFood && offFood.source === 'openfoodfacts') {
-            // Salva l'OFF food nei foods prima di favoritarlo
-            addFood(offFood);
-            showToast(`${offFood.name} salvato nei tuoi alimenti`, 'success');
+            // Salva l'OFF food nei foods prima di favoritarlo (con dedupe)
+            const saved = saveOffFood(offFood);
+            // Se saveOffFood ha riusato un food esistente (dedupe), favorita quello
+            toggleFoodFavorite(saved.id);
+            showToast(`${saved.name} salvato nei tuoi alimenti`, 'success');
+            return;
           }
         }
         toggleFoodFavorite(id);
@@ -289,8 +336,15 @@ export function bindSearchEvents(): void {
         abortInFlightSearch();
         _searchState.query = '';
         _searchState.results = [];
+        // Fix MEDIUM bug: reset paginazione su clearQuery
+        _searchState.page = 1;
+        _searchState.totalCount = 0;
         const input = document.querySelector<HTMLInputElement>('#search-input');
-        if (input) input.value = '';
+        if (input) {
+          input.value = '';
+          // Fix LOW bug: rifocalizza l'input dopo clear per permettere nuova ricerca immediata
+          input.focus();
+        }
         emitChange();
         return;
       }
@@ -305,6 +359,11 @@ export function bindSearchEvents(): void {
             /* toast/messaggio già gestito nel modal */
           },
         });
+        return;
+      }
+      case 'loadMore': {
+        // Fix MEDIUM bug: paginazione OFF — carica pagina successiva
+        void loadMoreResults();
         return;
       }
       case 'usePortion': {
@@ -480,12 +539,23 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
     emitChange();
     showToast(`${food.name} trovato`, 'success', 2200);
   } catch (e) {
+    // Fix MEDIUM bug: getOffByBarcode ora propaga errori non-404 (5xx, network, timeout).
+    // Prima tornava null silenziosamente per qualsiasi errore, mostrando il fuorviante
+    // "Nessun prodotto trovato" anche quando il servizio era down. Ora distinguiamo.
     if (!getState()._searchOpen) return;
     _searchState.loading = false;
     _searchState.results = [];
     emitChange();
-    const msg = e instanceof Error ? e.message : String(e);
-    showToast(`Errore nella ricerca del prodotto: ${msg}`, 'error');
+    const errName = e instanceof Error ? e.name : '';
+    const msg =
+      errName === 'NetworkError'
+        ? 'Servizio OFF non raggiungibile (offline). Verifica la connessione.'
+        : errName === 'TimeoutError'
+          ? 'Servizio OFF lento (timeout). Riprova tra poco.'
+          : e instanceof Error
+            ? `Errore nella ricerca del prodotto: ${e.message}`
+            : 'Servizio Open Food Facts non disponibile. Riprova tra poco.';
+    showToast(msg, 'error', 5000);
   }
 }
 
@@ -688,11 +758,23 @@ export function updateSearchContent(overlay: HTMLElement): void {
   // --- List ---
   const listEl = overlay.querySelector<HTMLElement>('[data-search-zone="list"]');
   if (listEl) {
-    const listHtml = _searchState.loading
-      ? `<div class="search-loading"><span class="spinner" aria-hidden="true"></span> Ricerca in corso…</div>`
-      : list.length === 0
-        ? `<div class="search-empty">${escapeHtml(renderEmptyHint())}</div>`
-        : list.map((f) => renderFoodRow(f)).join('');
+    let listHtml: string;
+    if (_searchState.loading) {
+      listHtml = `<div class="search-loading"><span class="spinner" aria-hidden="true"></span> Ricerca in corso…</div>`;
+    } else if (list.length === 0) {
+      listHtml = `<div class="search-empty">${escapeHtml(renderEmptyHint())}</div>`;
+    } else {
+      listHtml = list.map((f) => renderFoodRow(f)).join('');
+      // Fix MEDIUM bug: aggiungi bottone "Carica altri" se ci sono altri risultati OFF
+      if (
+        _searchState.tab === 'search' &&
+        _searchState.totalCount > list.length &&
+        _searchState.query.trim().length >= SEARCH_MIN_QUERY
+      ) {
+        const remaining = _searchState.totalCount - list.length;
+        listHtml += `<div class="search-load-more"><button type="button" class="btn btn-outline btn-sm btn-block" data-search-action="loadMore">Carica altri risultati (${remaining} restanti)</button></div>`;
+      }
+    }
     if (listEl.innerHTML !== listHtml) {
       listEl.innerHTML = listHtml;
     }

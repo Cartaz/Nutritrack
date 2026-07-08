@@ -77,12 +77,15 @@ export function parseISODateLocal(key: string): Date {
   return date;
 }
 
-/** Date -> YYYY-MM-DD (locale) */
+/** Date -> YYYY-MM-DD (locale)
+ *  Fix LOW bug: pad year a 4 cifre per evitare date invalide (es. year 999 → "999-01-14")
+ *  che falliscono la regex `/^\d{4}-\d{2}-\d{2}$/` in isValidDateKey e bloccano la navigazione
+ *  silenziosamente. Scenario teorico (700k+ click < prev), ma fixato per robustezza. */
 export function toDateKey(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return `${String(y).padStart(4, '0')}-${m}-${day}`;
 }
 
 /** Formatta data YYYY-MM-DD in italiano lungo (es. "lunedì 5 gennaio") */

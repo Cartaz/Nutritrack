@@ -56,6 +56,26 @@ textarea,
   touch-action: manipulation;
 }
 
+/* Fix MEDIUM bug (E2E a11y): :focus-visible globale per tutti gli elementi interattivi.
+   Prima solo .week-bar aveva outline dedicato, gli altri bottoni (.icon-btn, .nav-item,
+   [role=tab]) usavano l'outline browser default 1px rgb(16,16,16) invisibile in dark mode.
+   Violazione WCAG 2.4.7 (Focus Visible). Ora outline 2px primary su tutti. */
+button:focus-visible,
+[role='button']:focus-visible,
+[role='tab']:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.icon-btn:focus-visible,
+.nav-item:focus-visible,
+.qty-btn:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 /* ============ CSS Variables (dark by default) ============ */
 :root {
   /* Brand */
@@ -213,7 +233,10 @@ body {
 .app-main {
   flex: 1;
   padding: var(--space-4);
-  padding-bottom: calc(var(--bottom-nav-h) + var(--space-6) + env(safe-area-inset-bottom, 0));
+  /* Fix MEDIUM bug (E2E): aumentato padding-bottom per evitare che il FAB "Aggiungi a [pasto]"
+     venga oscurato dalla bottom-nav sticky su viewport desktop 1280x720.
+     Prima: bottom-nav-h + space-6 (~88px); Ora: + space-8 extra per dare margine al FAB. */
+  padding-bottom: calc(var(--bottom-nav-h) + var(--space-8) + env(safe-area-inset-bottom, 0));
 }
 
 /* ============ Bottom nav ============ */

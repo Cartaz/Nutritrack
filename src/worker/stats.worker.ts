@@ -7,14 +7,16 @@
 import type { WorkerRequest, WorkerResponse, DayTotals, StatsResult, DiaryEntry } from '../types';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
 
-function computeDayTotals(entries: DiaryEntry[]): DayTotals {
+function computeDayTotals(entries: DiaryEntry[], dateKey?: string): DayTotals {
   const nutritions = entries.map((e) => {
     const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
     return scaleNutrition(e.foodSnapshot.nutrition, grams);
   });
   const sum = sumNutrition(nutritions);
   return {
-    date: entries[0]?.date ?? '',
+    // Fix LOW bug: usa dateKey se fornito (più affidabile di entries[0]?.date in caso di
+    // entries con date mismatchate); fallback a entries[0]?.date per il path dayTotals diretto.
+    date: dateKey ?? entries[0]?.date ?? '',
     calories: sum.calories,
     protein: sum.protein,
     carbs: sum.carbs,
@@ -36,7 +38,8 @@ function computeStats(entries: DiaryEntry[], dates: string[]): StatsResult {
     if (list.length === 0) {
       return { date: d, calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 };
     }
-    return computeDayTotals(list);
+    // Fix LOW bug: passa la date key esplicita per allineare con il fallback main-thread
+    return computeDayTotals(list, d);
   });
   const tracked = days.filter((d) => d.count > 0);
   const n = tracked.length || 1;

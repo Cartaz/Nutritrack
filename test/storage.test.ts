@@ -14,6 +14,7 @@ import {
   importDataJson,
   isStorageAvailable,
   checkStorageSize,
+  __resetStorageInternalForTesting,
 } from '../src/lib/storage';
 import { STORAGE_KEY, BACKUP_KEY, SCHEMA_VERSION } from '../src/lib/constants';
 import { getState, setState } from '../src/lib/store';
@@ -21,6 +22,10 @@ import { getState, setState } from '../src/lib/store';
 // Reset dello store e localStorage prima di ogni test.
 beforeEach(() => {
   localStorage.clear();
+  // Fix MEDIUM bug: resetta lo stato interno del modulo storage (_storageOK, flag sessione)
+  // perché il test "QuotaExceededError anche dopo strip, ritorna fatal" flippa _storageOK a false
+  // e questo persiste contaminando i test successivi.
+  __resetStorageInternalForTesting();
   // Reset dello store a stato vuoto
   setState({
     settings: { calorieGoal: 2000, macroSplit: { proteinPct: 30, carbsPct: 40, fatPct: 30 }, theme: 'system' },

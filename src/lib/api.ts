@@ -12,7 +12,11 @@
 // Fix B-8-13 (T8): guard contro data null.
 
 import type { OffProduct, OffSearchResponse } from '../types';
-import { API_TIMEOUT_MS, OFF_INSTANCES, OFF_PAGE_SIZE, OFF_USER_AGENT } from './constants';
+import { API_TIMEOUT_MS, OFF_INSTANCES, OFF_PAGE_SIZE } from './constants';
+
+// Fix MEDIUM bug: OFF_USER_AGENT rimosso perché `User-Agent` è un forbidden header nei browser
+// (silently stripped per fingerprinting protection). Era dead code. Se in futuro vorremo
+// identificarci presso OFF, dovremo usare un header custom (es. `X-User-Agent`) o un proxy.
 
 /** Deadline globale cumulativo per tutte le istanze OFF (ms). */
 const GLOBAL_DEADLINE_MS = 15_000;
@@ -79,8 +83,8 @@ export async function apiGetJson<T>(
         const res = await fetch(url, {
           headers: {
             'Accept': 'application/json',
-            // Fix B-8-6: User-Agent identificativo (best practice OFF)
-            'User-Agent': OFF_USER_AGENT,
+            // Fix MEDIUM bug: rimosso 'User-Agent' header — è forbidden dai browser (silently stripped).
+            // Era dead code. Vedere nota nel commento in cima al file.
           },
           signal: currentController.signal,
         });
@@ -205,7 +209,9 @@ export async function searchOff(
 }
 
 /** Recupera un prodotto per barcode.
- *  Fix B-8-7: mantenuto (potrebbe essere usato per barcode scan futuro); logga errori in console. */
+ *  Fix MEDIUM bug: distingue 404 (prodotto non trovato, ritorna null) da altri errori
+ *  (5xx, network, timeout) che ora propagano come ApiError per permettere alla UI di
+ *  mostrare un messaggio appropriato invece del fuorviante "Nessun prodotto trovato". */
 export async function getOffByBarcode(barcode: string, signal?: AbortSignal): Promise<OffProduct | null> {
   try {
     const data = await apiGetJson<{ product?: OffProduct } | null>(
@@ -215,7 +221,13 @@ export async function getOffByBarcode(barcode: string, signal?: AbortSignal): Pr
     if (!data || typeof data !== 'object') return null;
     return data.product ?? null;
   } catch (e) {
-    console.warn('[api] getOffByBarcode error', e);
-    return null;
+    // Fix MEDIUM bug: 404 = prodotto non trovato, ritorna null silenziosamente.
+    // Altri errori (5xx, network, timeout) → propaga come ApiError per feedback UI corretto.
+    if (e instanceof ApiError && e.status === 404) {
+      return null;
+    }
+    // Per altri errori, logga e rilancia così il caller può distinguere "non trovato" da "servizio down"
+    console.warn('[api] getOffByBarcode error (non-404)', e);
+    throw e;
   }
 }

@@ -1,6 +1,39 @@
 # NutriTrack PWA
 
-Tracker di calorie e macro personalizzato — **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Costruito seguendo lo **Standard di Creazione PWA**: Vite 5 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI.
+**v1.0.0** — Tracker di calorie e macro personalizzato, **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Costruito seguendo lo **Standard di Creazione PWA**: Vite 5 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI.
+
+## Cos'è NutriTrack
+
+NutriTrack è un tracker nutrizionale **privacy-first** che funziona interamente nel browser: nessun account, nessun server, nessun tracker. Tutti i dati restano sul dispositivo (localStorage). È pensato per chi vuole tenere sotto controllo calorie e macro (proteine, carboidrati, grassi) senza rinunciare alla privacy né installare app native.
+
+**Caso d'uso tipico**: apri l'app, aggiungi alimenti al diario (ricercandoli su Open Food Facts o creandoli custom), vedi in tempo reale quante calorie/macro hai consumato rispetto all'obiettivo, e tieni d'occhio la media settimanale. Le ricette ti permettono di raggruppare ingredienti e aggiungerli al diario in un tap. Il calcolatore TDEE (Mifflin-St Jeor) stima il fabbisogno calorico in base a peso/altezza/età/sesso/attività, e l'obiettivo di peso (perdere/mantenere/aumentare) regola automaticamente le calorie con un rateo sicuro (max 0.5 kg/settimana, linea guida WHO/ACSM).
+
+**Funziona offline**, è installabile come app su iOS/Android/desktop, e il barcode scanner usa la fotocamera per cercare prodotti su Open Food Facts. Il codice è open source (MIT), i dati nutrizionali provengono da [Open Food Facts](https://world.openfoodfacts.org) (database collaborativo, licenza ODbL).
+
+---
+
+## 🎉 What's new in v1.0.0
+
+Questa è la **prima release stabile**. Prima del tag v1.0.0 l'app è stata sottoposta a uno **stress test intensivo** con 10 subagent paralleli che hanno analizzato edge cases su tutte le aree (storage, normalize, nutrition calc, diary, foods/recipes CRUD, dashboard, settings, editors, API/barcode/worker, E2E browser). Sono stati identificati e corretti **~95 bug** (0 CRITICAL, 7 HIGH, 25 MEDIUM, 13 LOW), di cui i più rilevanti:
+
+### Bug fix più significativi
+
+- **Privacy**: `resetAll()` ora cancella anche `BACKUP_KEY` da localStorage — prima i dati "cancellati" potevano resuscitare via fallback
+- **Correttezza dati**: `addRecipeToDiary` valida `state.currentDate` prima di scrivere (evita silent data loss con date invalide)
+- **Dedupe barcode**: nuova `saveOffFood()` centralizzata con dedupe per barcode + fallback name+brand, usata in search dialog e recipe editor (prima ogni pick OFF generava un nuovo id → duplicati)
+- **Modal double-click**: i callback vengono rimossi PRIMA del fade-out 200ms → previene food/recipe duplicati su double-click "Salva"
+- **Memory leak**: `escHandler` nel barcode scanner ora rimosso in `cleanup()` (prima si accumulava ad ogni apertura)
+- **Settings**: eliminata duplicazione campo "peso attuale" che poteva divergere tra sezione TDEE e sezione obiettivo
+- **Nutrition calc**: `calcBMR` ritorna 0 se sex è undefined (backup legacy), `normalizeMacroSplit` garantisce sum=100 esatto, `calcGoalAdjustedCalories` rispetta il clamp min 500 kcal
+- **Normalize**: alimenti fiber/sugar/salt-only (psyllium husk, sale) non vengono più scartati; `buildFoodFromOff` gestisce `energy-kcal_100g` come stringa vuota
+- **A11y**: `:focus-visible` globale su tutti gli elementi interattivi (WCAG 2.4.7), padding-bottom aumentato per FAB non oscurato da bottom-nav
+- **API**: rimosso header `User-Agent` (forbidden dai browser, dead code), `getOffByBarcode` distingue 404 da 5xx/network, paginazione OFF con bottone "Carica altri risultati"
+- **Editor**: campo barcode nei food custom, kcal calcolate da macro (Atwater) se kcal=0, dirty check su close, toast informativo su updateFood (stale diary snapshots)
+
+### Test
+199 test unitari (+6 nuovi per le fix) — typecheck, lint, build tutti verdi. Copertura: storage, normalize, nutrition, utils. La CI GitHub Actions esegue l'intera pipeline su ogni PR/push.
+
+---
 
 ## Stack
 
