@@ -107,6 +107,11 @@ body {
   margin: 0 auto;
   background-color: var(--bg-app);
 }
+/* Safety net iOS: evita overflow orizzontale quando grid/flex item
+   hanno contenuto intrinsecamente piu largo del viewport (es. select
+   con opzioni lunghe). overflow-x: clip non crea scroll container,
+   quindi non rompe position: sticky di header/nav. */
+html, body { overflow-x: clip; }
 
 /* Splash iniziale (sostituito da main.ts) */
 .splash {
@@ -643,11 +648,21 @@ input[type="range"]::-moz-range-thumb {
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
   margin-bottom: var(--space-3);
+  /* iOS: impedisce alla griglia di superare la largezza del content-box
+     del .setting-card anche se i figli hanno min-width intrinseco. */
+  min-width: 0;
 }
-.field { display: flex; flex-direction: column; gap: 4px; }
+/* min-width: 0 fondamentale su grid/flex item che contengono input/select:
+   di default e `auto` (non si restringe sotto il contenuto intrinseco),
+   quindi una <select> con opzioni lunghe fa overfloware tutta la griglia
+   su iOS Safari. Vedi issue layout su iOS 27. */
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field-full { grid-column: span 2; }
 .field span { font-size: 11px; color: var(--text-muted); }
 .field input, .field select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: var(--space-2) var(--space-3);
   background-color: var(--bg-input);
   border: 1px solid var(--border-color);
@@ -657,8 +672,11 @@ input[type="range"]::-moz-range-thumb {
 .field input:focus, .field select:focus { outline: none; border-color: var(--color-primary); }
 
 .theme-row { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
-.backup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
-.backup-grid .btn { cursor: pointer; }
+/* iOS: i bottoni del tema devono poter restringersi per stare nel viewport.
+   Senza min-width: 0 e flex: 1, il 3° bottone esce dallo schermo. */
+.theme-row .btn { flex: 1 1 0; min-width: 0; }
+.backup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); min-width: 0; }
+.backup-grid .btn { cursor: pointer; min-width: 0; }
 .about p { font-size: 12px; color: var(--text-muted); margin-bottom: var(--space-2); }
 .about a { color: var(--color-primary); text-decoration: underline; }
 .about strong { color: var(--text-primary); }
@@ -864,7 +882,7 @@ body.modal-open { overflow: hidden; }
 .selected-info { flex: 1; min-width: 0; }
 .selected-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .selected-brand { font-size: 12px; color: var(--text-muted); }
-.qty-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-top: var(--space-3); }
+.qty-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-top: var(--space-3); min-width: 0; }
 .field-label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
 .qty-row input {
   width: 100%;
@@ -1028,6 +1046,7 @@ body.modal-open { overflow: hidden; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
+  min-width: 0;
 }
 .field-sm { max-width: 120px; }
 .hint-text { font-size: 11px; color: var(--text-muted); }
@@ -1079,7 +1098,7 @@ textarea {
 }
 .ing-qty span { font-size: 11px; color: var(--text-muted); }
 
-.totals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.totals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); min-width: 0; }
 .totals-block { padding: var(--space-3); border-radius: var(--radius); }
 .totals-block.muted { background-color: var(--bg-muted); }
 .totals-block.highlight { background-color: var(--color-primary-soft); }
@@ -1096,7 +1115,7 @@ textarea {
 .recipe-viewer-sub { font-size: 13px; font-weight: 600; margin-bottom: var(--space-2); }
 
 /* Grid utilities */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); min-width: 0; }
 .muted { color: var(--text-muted); font-size: 13px; }
 
 /* ============ Toast ============ */
