@@ -17,9 +17,13 @@ let _weekStatsInputSig = '';
 // Signature cache vista: previene re-render inutili di main.innerHTML
 let _dashRenderSig = '';
 
-/** Reset signature cache (chiamato dal renderer al cambio vista) */
+/** Reset signature cache (chiamato dal renderer al cambio vista).
+ *  Fix 2.11 (T2): resetta anche _weekStats per evitare statistiche stale dopo resetAll. */
 export function resetDashboardSignature(): void {
   _dashRenderSig = '';
+  // Fix 2.11: resetta anche le week stats cached (utile dopo resetAll o cambio dati significativo)
+  _weekStats = null;
+  _weekStatsInputSig = '';
 }
 
 export function renderDashboard(main: HTMLElement): void {
@@ -100,10 +104,16 @@ export function renderDashboard(main: HTMLElement): void {
             const height = Math.max(2, ratio * 60);
             const dateLabel = parseISODateLocal(d.date).toLocaleDateString('it-IT', { weekday: 'short' });
             const isCurrent = d.date === state.currentDate;
+            // Fix 2.10 (T2): mostra overage come tooltip + testo "+N%" se oltre 100%
+            const overPct = over && state.settings.calorieGoal > 0
+              ? Math.round((d.calories / state.settings.calorieGoal - 1) * 100)
+              : 0;
+            const overBadge = over ? ` <span class="week-bar-over">+${overPct}%</span>` : '';
             return `
               <div class="week-bar${isCurrent ? ' current' : ''}${over ? ' over' : ''}" title="${escapeAttr(d.date)}: ${Math.round(d.calories)} kcal">
                 <div class="week-bar-fill" style="height:${height}px"></div>
                 <span class="week-bar-label">${escapeHtml(dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1, 3))}</span>
+                ${overBadge}
               </div>
             `;
           }).join('')}
@@ -158,7 +168,8 @@ export function renderDashboard(main: HTMLElement): void {
   maybeLaunchWeekStatsWorker(state);
 }
 
-/** Lancia il worker solo se l'input è cambiato (previene loop worker -> emitChange -> render -> worker). */
+/** Lancia il worker solo se l'input è cambiato (previene loop worker -> emitChange -> render -> worker).
+ *  Fix 2.4 (T2): catch su rejection del worker per evitare spinner perenne + memory leak. */
 function maybeLaunchWeekStatsWorker(state: ReturnType<typeof getState>): void {
   const today = new Date();
   const dates: string[] = [];
@@ -178,11 +189,19 @@ function maybeLaunchWeekStatsWorker(state: ReturnType<typeof getState>): void {
   _weekStatsInputSig = sig;
 
   const token = ++_weekStatsToken;
-  void computeStatsAsync(allEntries, dates).then((res) => {
-    if (token !== _weekStatsToken) return; // obsolete
-    _weekStats = { days: res.days, avgCalories: res.avgCalories };
-    emitChange();
-  });
+  // Fix 2.4: catch per evitare unhandled rejection → spinner perenne + memory leak
+  void computeStatsAsync(allEntries, dates)
+    .then((res) => {
+      if (token !== _weekStatsToken) return; // obsolete
+      _weekStats = { days: res.days, avgCalories: res.avgCalories };
+      emitChange();
+    })
+    .catch((err) => {
+      console.error('[dashboard] worker stats error', err);
+      // Reset signature per permettere retry al prossimo emitChange
+      _weekStatsInputSig = '';
+      // Lascia _weekStats null → mostra spinner ma almeno non è bloccato
+    });
 }
 
 function entryRow(e: DiaryEntry): string {
@@ -239,8 +258,10 @@ function macroRing(value: number, goal: number, size: number): string {
 
 function macroBar(label: string, value: number, goal: number, color: string): string {
   const ratio = goal > 0 ? Math.min(value / goal, 1) : 0;
-  const pct = Math.round(ratio * 100);
+  // Fix 2.9 (T2): usa floor invece di round per evitare 100% visuale prematuro
+  // (prima: value/goal=0.995 → ratio=0.995 → pct=Math.round(99.5)=100 ma over=false)
   const over = value > goal;
+  const pct = over ? 100 : Math.floor(ratio * 100);
   return `
     <div class="macro-bar">
       <div class="macro-bar-head">
@@ -292,7 +313,8 @@ function bindDashboardEvents(main: HTMLElement): void {
       const id = target.dataset.entryId || '';
       const delta = action === 'qtyInc' ? 0.5 : -0.5;
       const entry = state.diary[state.currentDate]?.find((en) => en.id === id);
-      if (entry) changeEntryQuantity(id, delta, entry.quantity);
+      // Fix 2.2 (T2): passa gramsOverride corrente per preservare modalità grammi
+      if (entry) changeEntryQuantity(id, delta, entry.quantity, entry.gramsOverride);
       return;
     }
     if (action === 'editEntry') {
