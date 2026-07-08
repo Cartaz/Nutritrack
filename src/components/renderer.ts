@@ -7,12 +7,18 @@ import { initImageFallback } from './imageFallback';
 import { bindSearchEvents, renderSearchShell, updateSearchContent } from './search';
 import { showToast } from './toast';
 import { showModal } from './modal';
-import { escapeHtml, escapeAttr } from '../lib/utils';
+import { escapeHtml, escapeAttr, formatDateIT } from '../lib/utils';
 import type { ViewName, FoodItem, Recipe } from '../types';
 import { MEAL_LABELS } from '../types';
 import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
 import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
+import { flushPendingMultiTabUpdate } from '../lib/storage';
+// Fix 9.2 (T9): import statici per resetViewSignatures sincrono (prima era async con race → skeleton perpetuo)
+import { resetDashboardSignature } from '../views/dashboard';
+import { resetFoodsSignature } from '../views/foods';
+import { resetRecipesSignature } from '../views/recipes';
+import { resetSettingsSignature } from '../views/settings';
 
 let _mainEl: HTMLElement | null = null;
 let _appEl: HTMLElement | null = null;
@@ -289,19 +295,30 @@ async function renderEntryEditor(): Promise<void> {
 }
 
 function renderRecipeMealPicker(): void {
-  const id = getStoreState()._addRecipeToMealPickerId;
+  const s = getStoreState();
+  const id = s._addRecipeToMealPickerId;
   const existing = document.querySelector('[data-modal-id="recipe-meal-picker"]');
   if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
   if (!id || existing) return;
-  const recipe = getStoreState().recipes.find((r: Recipe) => r.id === id);
+  const recipe = s.recipes.find((r: Recipe) => r.id === id);
   if (!recipe) { closeAddRecipeToMeal(); return; }
+  // Fix R4 (T4): mostra la data corrente del dashboard (non hardcoded "per oggi")
+  // Fix C1 (CRITICAL): la data passata ad addRecipeToDiary è ora state.currentDate (vedi diary.ts)
+  const dateLabel = formatDateIT(s.currentDate);
   const buttons = (['breakfast', 'lunch', 'dinner', 'snack'] as const)
     .map((m) => `<button type="button" class="btn btn-outline btn-block" data-action="addRecipeMeal" data-recipe-id="${escapeAttr(recipe.id)}" data-meal="${m}">${escapeHtml(MEAL_LABELS[m])}</button>`)
     .join('');
+  // Fix R4 (T4): aggiungi selettore porzioni (servings) di default 1
+  const servingsInput = `
+    <div class="recipe-meal-servings">
+      <label for="recipe-servings" class="field-label">Porzioni</label>
+      <input id="recipe-servings" type="number" min="0.5" max="20" step="0.5" value="1" />
+    </div>
+  `;
   showModal({
     modalId: 'recipe-meal-picker',
     title: 'Aggiungi a quale pasto?',
-    bodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per oggi</p><div class="grid-2">${buttons}</div>`,
+    bodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per ${escapeHtml(dateLabel)}</p>${servingsInput}<div class="grid-2">${buttons}</div>`,
     actions: [{ label: 'Annulla', action: 'close', variant: 'outline' }],
     onClose: () => closeAddRecipeToMeal(),
   });
@@ -310,29 +327,20 @@ function renderRecipeMealPicker(): void {
 function closeModalCleanup(): void {
   if (!document.querySelector('.modal-overlay')) {
     document.body.classList.remove('modal-open');
+    // Fix C3 (CRITICAL): quando tutti i modali sono chiusi, applica eventuali
+    // update cross-tab ricevuti mentre un modale era aperto (altrimenti lo stato
+    // stale verrebbe scritto su localStorage al prossimo autosave).
+    flushPendingMultiTabUpdate();
   }
 }
 
-/** Reset signature cache di tutte le viste (chiamato al cambio vista). */
+/** Reset signature cache di tutte le viste (chiamato al cambio vista).
+ *  Fix 9.2 (T9): sincrono con import statici (prima era async con race → skeleton perpetuo su navigazione rapida). */
 function resetViewSignatures(): void {
-  // Import statico per evitare ciclo: le funzioni di reset sono pure e non hanno side-effect sul renderer.
-  // Le viste sono caricate lazy sotto, ma i moduli di reset sono leggeri e staticamente importabili.
-  // Per evitare dipendenze circolari con il lazy import, usiamo dynamic import con fire-and-forget.
-  void resetAllSignatures();
-}
-
-async function resetAllSignatures(): Promise<void> {
-  // Import lazy per evitare di caricare tutte le viste nel bundle principale del renderer
-  const [dash, foods, recipes, settings] = await Promise.all([
-    import('../views/dashboard'),
-    import('../views/foods'),
-    import('../views/recipes'),
-    import('../views/settings'),
-  ]);
-  dash.resetDashboardSignature();
-  foods.resetFoodsSignature();
-  recipes.resetRecipesSignature();
-  settings.resetSettingsSignature();
+  resetDashboardSignature();
+  resetFoodsSignature();
+  resetRecipesSignature();
+  resetSettingsSignature();
 }
 
 // ============ Global event delegation (Pattern 3) ============
@@ -367,8 +375,15 @@ function handleAction(action: string, el: HTMLElement): void {
     case 'addRecipeMeal': {
       const recipeId = el.dataset.recipeId || '';
       const meal = el.dataset.meal as 'breakfast' | 'lunch' | 'dinner' | 'snack' | undefined;
+      // Fix R4 (T4): leggi servings dal modal input (di default 1)
+      const servingsInput = document.querySelector<HTMLInputElement>('#recipe-servings');
+      let servings = 1;
+      if (servingsInput) {
+        const parsed = Number(servingsInput.value);
+        servings = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+      }
       if (recipeId && meal) {
-        addRecipeToDiary(meal, recipeId, 1);
+        addRecipeToDiary(meal, recipeId, servings);
         closeAddRecipeToMeal();
       }
       return;
