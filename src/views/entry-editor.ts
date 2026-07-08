@@ -50,6 +50,8 @@ function findEntryById(entryId: string): DiaryEntry | null {
 
 export function renderEntryEditorModal(entryId: string): void {
   if (!loadFromEntry(entryId)) {
+    // Fix 2.5 (T2): entry non esiste più (eliminata in altro tab o resetAll)
+    showToast('La voce del diario non esiste più', 'info');
     closeEntryEditor();
     return;
   }
@@ -134,7 +136,7 @@ function renderFormBody(entry: DiaryEntry): string {
       </div>
       <div class="qty-row-single">
         <label for="ee-grams-input" class="field-label">Grammi / ml</label>
-        <input id="ee-grams-input" type="number" min="0" step="0.1" placeholder="es. 150" value="${escapeAttr(_entryEditorState.grams)}" />
+        <input id="ee-grams-input" type="number" min="0" max="10000" step="0.1" placeholder="es. 150" value="${escapeAttr(_entryEditorState.grams)}" />
       </div>
       <div class="portion-section">
         <p class="portion-section-title">Porzioni personalizzate</p>
@@ -217,10 +219,12 @@ function bindEntryEditorModalEvents(): void {
         _entryEditorState.newPortionLabel = '';
         _entryEditorState.newPortionGrams = _entryEditorState.grams || '';
         rerenderModalBody();
-        setTimeout(() => {
+        // Fix BUG #15-equivalent (T5): requestAnimationFrame con guard per non rubare focus
+        requestAnimationFrame(() => {
+          if (!document.querySelector('[data-modal-id="entry-editor"]')) return;
           const inp = document.querySelector<HTMLInputElement>('#ee-new-portion-label');
-          if (inp) inp.focus();
-        }, 0);
+          if (inp && document.activeElement === document.body) inp.focus();
+        });
         return;
       }
       case 'cancelCreatePortion': {
@@ -250,6 +254,12 @@ function bindEntryEditorModalEvents(): void {
     if (t.id === 'ee-new-portion-label' || t.id === 'ee-new-portion-grams') {
       e.preventDefault();
       createCustomPortion();
+      return;
+    }
+    // Fix 2.6 (T2): keyboard activation per delete-portion (span role=button)
+    if ((e.key === 'Enter' || e.key === ' ') && t.closest('[data-ee-action="deleteCustomPortion"]')) {
+      e.preventDefault();
+      (t.closest('[data-ee-action="deleteCustomPortion"]') as HTMLElement).click();
       return;
     }
   });
@@ -351,10 +361,21 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
 
 function handleSave(entryId: string): boolean {
   const entry = findEntryById(entryId);
-  if (!entry) return false;
+  // Fix 2.5 (T2): se la entry non esiste più (eliminata in altro tab), chiudi il modal con feedback
+  if (!entry) {
+    showToast('La voce del diario non esiste più', 'info');
+    closeEntryEditor();
+    return true; // permetti chiusura
+  }
   const grams = Number(_entryEditorState.grams);
   if (!Number.isFinite(grams) || grams <= 0) {
     showToast('Inserisci i grammi', 'info');
+    return false;
+  }
+  // Fix 2.14 (T2): upper bound su grammi (max 10kg per singola entry)
+  const MAX_GRAMS = 10_000;
+  if (grams > MAX_GRAMS) {
+    showToast(`Grammi eccessivi (max ${MAX_GRAMS}g = 10kg)`, 'error');
     return false;
   }
   updateDiaryEntry(entry.id, {
