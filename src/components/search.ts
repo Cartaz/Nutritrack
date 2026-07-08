@@ -10,7 +10,7 @@
 import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
 import { searchOff } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
-import { getState, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
+import { getState, closeFoodSearch, openFoodEditor, emitChange, addFood } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
 import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
 import { showToast } from './toast';
@@ -56,6 +56,8 @@ function resetSearchState(): void {
   if (_searchState.abortController) {
     try { _searchState.abortController.abort(); } catch { /* noop */ }
   }
+  // Fix BUG #1 (T5): cancella il timer del debounce per evitare che parta una fetch a modal chiuso
+  runSearch.cancel();
   _searchState.tab = 'favorites';
   _searchState.query = '';
   _searchState.loading = false;
@@ -70,8 +72,10 @@ function resetSearchState(): void {
 }
 
 // ============ Debounced search ============
-
+// Fix BUG #1 (T5): aggiunto guard _searchOpen all'inizio del callback per evitare fetch a modal chiuso
 const runSearch = debounce(async (query: string) => {
+  // Fix BUG #1 (T5): se il modal è stato chiuso mentre il debounce era pending, skip
+  if (!getState()._searchOpen) return;
   if (query.trim().length < SEARCH_MIN_QUERY) {
     _searchState.results = [];
     _searchState.loading = false;
@@ -84,8 +88,10 @@ const runSearch = debounce(async (query: string) => {
   const ctrl = new AbortController();
   _searchState.abortController = ctrl;
   try {
-    const data = await searchOff(query.trim(), { signal: ctrl.signal });
+    // Fix B-8-5 (T8): italianOnly=true di default (app italiana, prodotti italiani più rilevanti)
+    const data = await searchOff(query.trim(), { signal: ctrl.signal, italianOnly: true });
     if (ctrl.signal.aborted) return;
+    if (!getState()._searchOpen) return; // modal chiuso durante fetch
     const items: FoodItem[] = [];
     for (const p of data.products) {
       const f = buildFoodFromOff(p);
@@ -94,11 +100,16 @@ const runSearch = debounce(async (query: string) => {
     _searchState.results = items;
   } catch (e) {
     if (ctrl.signal.aborted) return;
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes('non disponibile') || msg.includes('non JSON') || msg.includes('non valida')) {
-      showToast('Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.', 'error', 5000);
-    } else if (msg === 'Timeout') {
+    if (!getState()._searchOpen) return;
+    const err = e as { name?: string; message?: string };
+    const msg = err?.message ?? (e instanceof Error ? e.message : String(e));
+    if (err?.name === 'NetworkError' || (msg && msg.toLowerCase().includes('offline'))) {
+      showToast('Sei offline. Verifica la connessione e riprova.', 'error');
+    } else if (err?.name === 'TimeoutError' || (msg && msg.includes('Timeout'))) {
+      // Fix B-8-2 (T8): match corretto per timeout (prima era exact match 'Timeout' che non matchava mai)
       showToast('Ricerca troppo lenta. Riprova.', 'error');
+    } else if (msg && (msg.includes('non disponibile') || msg.includes('non JSON') || msg.includes('non valida'))) {
+      showToast('Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.', 'error', 5000);
     } else {
       showToast('Errore nella ricerca. Verifica la connessione e riprova.', 'error');
     }
@@ -108,7 +119,7 @@ const runSearch = debounce(async (query: string) => {
       _searchState.abortController = null;
     }
     _searchState.loading = false;
-    emitChange();
+    if (getState()._searchOpen) emitChange();
   }
 }, SEARCH_DEBOUNCE_MS);
 
@@ -140,6 +151,10 @@ export function bindSearchEvents(): void {
     if (top.dataset.modalId !== 'search-dialog') return;
     e.stopPropagation();
     e.preventDefault();
+    // Fix BUG #7 (T5): se ci sono modifiche non salvate, chiedi conferma
+    if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
+      if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
+    }
     closeFoodSearch();
     resetSearchState();
   }, true); // capture phase per intercettare PRIMA di modal.ts
@@ -149,6 +164,10 @@ export function bindSearchEvents(): void {
     // Background-click closing: se il click è direttamente sull'overlay (sfondo), chiudi
     const overlayEl = e.target as HTMLElement;
     if (overlayEl.classList.contains('modal-overlay') && overlayEl.dataset.modalId === 'search-dialog') {
+      // Fix BUG #7 (T5): se ci sono modifiche non salvate, chiedi conferma
+      if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
+        if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
+      }
       closeFoodSearch();
       resetSearchState();
       return;
@@ -167,7 +186,15 @@ export function bindSearchEvents(): void {
           }
           _searchState.tab = tab;
           _searchState.selectedId = null;
+          // Fix BUG #2 (T5): azzera pendingCustomPortions insieme a selectedId (coerenza)
+          _searchState.pendingCustomPortions = [];
           emitChange();
+          // Fix BUG #4 (T5): se torniamo su tab search con query valida, rilancia la search
+          if (tab === 'search' && _searchState.query.trim().length >= SEARCH_MIN_QUERY && _searchState.results.length === 0) {
+            _searchState.loading = true;
+            emitChange();
+            runSearch(_searchState.query);
+          }
         }
         return;
       }
@@ -176,20 +203,36 @@ export function bindSearchEvents(): void {
         const list = currentList();
         const f = list.find((x) => x.id === id);
         if (f) {
-          _searchState.selectedId = f.id;
-          // Default: preimposta i grammi alla servingSize del food
-          _searchState.gramsOverride = String(f.servingSize || 100);
-          _searchState.pendingCustomPortions = [];
-          _searchState.creatingPortion = false;
-          _searchState.newPortionLabel = '';
-          _searchState.newPortionGrams = '';
+          // Fix BUG #2 (T5): non azzerare pendingCustomPortions se stiamo riselezionando lo stesso food
+          if (_searchState.selectedId !== f.id) {
+            _searchState.selectedId = f.id;
+            // Default: preimposta i grammi alla servingSize del food
+            _searchState.gramsOverride = String(f.servingSize || 100);
+            _searchState.pendingCustomPortions = [];
+            _searchState.creatingPortion = false;
+            _searchState.newPortionLabel = '';
+            _searchState.newPortionGrams = '';
+          }
           emitChange();
         }
         return;
       }
       case 'toggleFav': {
         const id = target.dataset.foodId || '';
-        if (id) toggleFoodFavorite(id);
+        if (!id) return;
+        // Fix BUG #6 (T5): se è un OFF food non salvato, salvalo prima di favoritarlo
+        // (altrimenti l'id è orfano e il tab Preferiti resta vuoto)
+        const isSaved = getState().foods.some((x) => x.id === id);
+        if (!isSaved) {
+          const list = currentList();
+          const offFood = list.find((x) => x.id === id);
+          if (offFood && offFood.source === 'openfoodfacts') {
+            // Salva l'OFF food nei foods prima di favoritarlo
+            addFood(offFood);
+            showToast(`${offFood.name} salvato nei tuoi alimenti`, 'success');
+          }
+        }
+        toggleFoodFavorite(id);
         return;
       }
       case 'clearSelected': {
@@ -204,6 +247,10 @@ export function bindSearchEvents(): void {
         return;
       }
       case 'close': {
+        // Fix BUG #7 (T5): se ci sono modifiche non salvate, chiedi conferma
+        if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
+          if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
+        }
         closeFoodSearch();
         resetSearchState();
         return;
@@ -238,10 +285,12 @@ export function bindSearchEvents(): void {
         _searchState.newPortionGrams = _searchState.gramsOverride || '';
         emitChange();
         // Autofocus sul campo label dopo il re-render
-        setTimeout(() => {
+        // Fix BUG #15 (T5): requestAnimationFrame con guard per non rubare focus
+        requestAnimationFrame(() => {
+          if (!getState()._searchOpen) return;
           const inp = document.querySelector<HTMLInputElement>('#new-portion-label');
-          if (inp) inp.focus();
-        }, 0);
+          if (inp && document.activeElement === document.body) inp.focus();
+        });
         return;
       }
       case 'cancelCreatePortion': {
@@ -272,6 +321,11 @@ export function bindSearchEvents(): void {
       if (_searchState.tab !== 'search') {
         _searchState.tab = 'search';
       }
+      // Fix BUG #3 (T5): resetta selectedId/gramsOverride/pendingCustomPortions su nuova search
+      // (gli OFF id cambiano ad ogni fetch, quindi il selectedId vecchio non sarà più valido)
+      _searchState.selectedId = null;
+      _searchState.gramsOverride = '';
+      _searchState.pendingCustomPortions = [];
       if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
         // Fix B7: abortisce ricerca in corso + reset loading (niente spinner permanente)
         abortInFlightSearch();
@@ -301,12 +355,25 @@ export function bindSearchEvents(): void {
 
   document.addEventListener('keydown', (e) => {
     if (!getState()._searchOpen) return;
-    if (e.key !== 'Enter') return;
     const target = e.target as HTMLElement;
     // Enter nel form di creazione porzione → conferma
-    if (target.id === 'new-portion-label' || target.id === 'new-portion-grams') {
+    if (e.key === 'Enter') {
+      if (target.id === 'new-portion-label' || target.id === 'new-portion-grams') {
+        e.preventDefault();
+        createCustomPortion();
+        return;
+      }
+    }
+    // Fix BUG #16 (T5): keyboard activation per food row (Enter/Space)
+    if ((e.key === 'Enter' || e.key === ' ') && target.closest('[data-search-action="selectFood"]')) {
       e.preventDefault();
-      createCustomPortion();
+      (target.closest('[data-search-action="selectFood"]') as HTMLElement).click();
+      return;
+    }
+    // Fix BUG #17 (T5): keyboard activation per delete-portion (span role=button)
+    if ((e.key === 'Enter' || e.key === ' ') && target.closest('[data-search-action="deleteCustomPortion"]')) {
+      e.preventDefault();
+      (target.closest('[data-search-action="deleteCustomPortion"]') as HTMLElement).click();
       return;
     }
   });
@@ -334,13 +401,21 @@ function confirmAdd(): void {
     showToast('Inserisci i grammi', 'error');
     return;
   }
-  const grams = Number(gramsRaw);
+  // Fix BUG #9 (T5): gestisci virgola italiana "1,5" → 1.5
+  const gramsNormalized = gramsRaw.replace(',', '.');
+  const grams = Number(gramsNormalized);
   if (!Number.isFinite(grams)) {
     showToast(`Grammi: valore non valido ("${gramsRaw}")`, 'error');
     return;
   }
   if (grams <= 0) {
     showToast('I grammi devono essere maggiori di 0', 'error');
+    return;
+  }
+  // Fix BUG #5 (T5): upper bound su grammi (max 10kg = 10000g per singola entry)
+  const MAX_GRAMS = 10_000;
+  if (grams > MAX_GRAMS) {
+    showToast(`Grammi eccessivi (max ${MAX_GRAMS}g = 10kg per singola entry)`, 'error');
     return;
   }
   // Se ci sono porzioni personalizzate pending (food non ancora salvato), allegale al food
@@ -458,6 +533,12 @@ export function updateSearchContent(overlay: HTMLElement): void {
     if (tabsEl.innerHTML !== tabsHtml) {
       tabsEl.innerHTML = tabsHtml;
     }
+    // Fix BUG #14 (T5): se il tab attivo è favorites ma è disabled (0 preferiti),
+    // fallback automatico a 'saved' (se ci sono salvati) o 'search'
+    if (_searchState.tab === 'favorites' && favoritesCount === 0) {
+      _searchState.tab = savedCount > 0 ? 'saved' : 'search';
+      emitChange();
+    }
   }
 
   // --- Search box (solo per tab search) ---
@@ -479,10 +560,12 @@ export function updateSearchContent(overlay: HTMLElement): void {
       const input = searchBoxEl.querySelector<HTMLInputElement>('#search-input');
       if (input) input.value = _searchState.query;
       // Autofocus
-      setTimeout(() => {
+      // Fix BUG #15 (T5): usa requestAnimationFrame con guard per non rubare focus attivo
+      requestAnimationFrame(() => {
+        if (!getState()._searchOpen) return;
         const inp = searchBoxEl.querySelector<HTMLInputElement>('#search-input');
-        if (inp) inp.focus();
-      }, 0);
+        if (inp && document.activeElement === document.body) inp.focus();
+      });
     } else if (!shouldShow && wasShowing) {
       // Rimuovi il search box
       searchBoxEl.innerHTML = '';
@@ -521,7 +604,11 @@ export function updateSearchContent(overlay: HTMLElement): void {
 }
 
 function renderSelectedFooter(selectedFood: FoodItem): string {
-  const selectedGrams = _searchState.gramsOverride ? Number(_searchState.gramsOverride) : selectedFood.servingSize;
+  // Fix BUG #10 (T5): gestisci gramsOverride non numerico (NaN) → fallback a servingSize
+  const gramsParsed = Number(_searchState.gramsOverride);
+  const selectedGrams = _searchState.gramsOverride && Number.isFinite(gramsParsed) && gramsParsed > 0
+    ? gramsParsed
+    : selectedFood.servingSize;
   const selectedNutrition = {
     calories: Math.round((selectedFood.nutrition.calories * selectedGrams) / 100),
     protein: Math.round((selectedFood.nutrition.protein * selectedGrams) / 100),
@@ -583,7 +670,7 @@ function renderSelectedFooter(selectedFood: FoodItem): string {
       </div>
       <div class="qty-row-single">
         <label for="grams-input" class="field-label">Grammi / ml</label>
-        <input id="grams-input" type="number" min="0" step="0.1" placeholder="es. 150" value="${escapeAttr(_searchState.gramsOverride)}" />
+        <input id="grams-input" type="number" min="0" max="10000" step="0.1" placeholder="es. 150" value="${escapeAttr(_searchState.gramsOverride)}" />
       </div>
       <div class="portion-section">
         <p class="portion-section-title">Porzioni personalizzate</p>
