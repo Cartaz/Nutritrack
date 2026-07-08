@@ -2,13 +2,21 @@
 """Genera le icone PWA mancanti: maskable-512, apple-touch-180, favicon-16/32/48, favicon.ico.
 
 Crea una variante "maskable" dell'icona esistente con padding 10% (sfondo verde a tutto quadro,
-icona ridotta al 80% per safe-zone maskable). Genera apple-touch-icon 180x180 e favicon
+icona ridotta all'80% per safe-zone maskable). Genera apple-touch-icon 180x180 e favicon
 multi-size. Usa solo PIL.
+
+Path resolution basata su __file__: funziona da qualsiasi working directory
+e da qualsiasi clone del repo (no path hardcoded).
 """
 import os
 from PIL import Image, ImageDraw
 
-ICONS_DIR = '/home/z/my-project/download/nutritrack-pwa/public/icons'
+# Risoluzione path relativa allo script:
+#   scripts/gen-icons.py  ->  ../public/icons
+# Così lo script è portabile e non dipende dalla macchina di sviluppo.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
+ICONS_DIR = os.path.join(_PROJECT_ROOT, 'public', 'icons')
 SRC_512 = os.path.join(ICONS_DIR, 'icon-512.png')
 
 BRAND = (16, 185, 129, 255)  # #10b981
@@ -53,6 +61,12 @@ def make_favicon_ico() -> None:
     print(f'  -> favicon.ico (16/32/48)')
 
 if __name__ == '__main__':
+    # Sanity check: SRC_512 deve esistere, altrimenti guida l'utente.
+    if not os.path.isfile(SRC_512):
+        raise SystemExit(
+            f'[gen-icons] File sorgente non trovato: {SRC_512}\n'
+            f'            Genera prima icon-512.png (es. da icon.svg) e riprova.'
+        )
     print('Generazione icone PWA in', ICONS_DIR)
     make_maskable(512)
     make_apple_touch(180)

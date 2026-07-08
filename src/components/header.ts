@@ -11,10 +11,10 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard', label: 'Oggi',       icon: '🏠' },
-  { id: 'foods',     label: 'Alimenti',   icon: '🥕' },
-  { id: 'recipes',   label: 'Ricette',    icon: '👨‍🍳' },
-  { id: 'settings',  label: 'Impost.',    icon: '⚙️' },
+  { id: 'dashboard', label: 'Oggi', icon: '🏠' },
+  { id: 'foods', label: 'Alimenti', icon: '🥕' },
+  { id: 'recipes', label: 'Ricette', icon: '👨‍🍳' },
+  { id: 'settings', label: 'Impost.', icon: '⚙️' },
 ];
 
 export function renderHeader(_currentView: ViewName): string {

@@ -15,9 +15,10 @@ export function renderRecipeViewerModal(recipeId: string): void {
   }
   const per = calcPerServing(recipe);
 
-  const ingredientsHtml = recipe.ingredients.map((ing) => {
-    const scaled = scaleNutrition(ing.foodSnapshot.nutrition, ing.grams);
-    return `
+  const ingredientsHtml = recipe.ingredients
+    .map((ing) => {
+      const scaled = scaleNutrition(ing.foodSnapshot.nutrition, ing.grams);
+      return `
       <div class="ing-row">
         ${imgTag(ing.foodSnapshot.image, ing.foodSnapshot.name, 'thumb', ing.foodSnapshot.source === 'custom' ? '✏️' : '🥫')}
         <div class="ing-info">
@@ -26,7 +27,8 @@ export function renderRecipeViewerModal(recipeId: string): void {
         </div>
       </div>
     `;
-  }).join('');
+    })
+    .join('');
 
   const bodyHtml = `
     <div class="recipe-viewer">
@@ -78,8 +80,8 @@ function calcPerServing(r: Recipe): { calories: number; protein: number; carbs: 
   const t = sumNutrition(nutritions);
   return {
     calories: r.servings > 0 ? round(t.calories / r.servings, 1) : 0,
-    protein:  r.servings > 0 ? round(t.protein  / r.servings, 1) : 0,
-    carbs:    r.servings > 0 ? round(t.carbs    / r.servings, 1) : 0,
-    fat:      r.servings > 0 ? round(t.fat      / r.servings, 1) : 0,
+    protein: r.servings > 0 ? round(t.protein / r.servings, 1) : 0,
+    carbs: r.servings > 0 ? round(t.carbs / r.servings, 1) : 0,
+    fat: r.servings > 0 ? round(t.fat / r.servings, 1) : 0,
   };
 }

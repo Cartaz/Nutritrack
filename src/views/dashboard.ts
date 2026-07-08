@@ -3,7 +3,15 @@
 import { getState, openFoodSearch, setCurrentDate, emitChange, openEntryEditor } from '../lib/store';
 import { removeDiaryEntry, changeEntryQuantity } from '../lib/diary';
 import { calcMacroGrams, scaleNutrition, sumNutrition } from '../lib/nutrition';
-import { escapeHtml, escapeAttr, formatDateIT, isToday, toDateKey, parseISODateLocal, isValidDateKey } from '../lib/utils';
+import {
+  escapeHtml,
+  escapeAttr,
+  formatDateIT,
+  isToday,
+  toDateKey,
+  parseISODateLocal,
+  isValidDateKey,
+} from '../lib/utils';
 import { imgTag } from '../components/img';
 import { MEAL_LABELS, MEAL_ICONS, MEAL_ORDER } from '../types';
 import type { DiaryEntry, MealType } from '../types';
@@ -56,18 +64,18 @@ export function renderDashboard(main: HTMLElement): void {
   // Totali per meal
   const byMeal: Record<MealType, { calories: number; protein: number; carbs: number; fat: number; count: number }> = {
     breakfast: { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
-    lunch:     { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
-    dinner:    { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
-    snack:     { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
+    lunch: { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
+    dinner: { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
+    snack: { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
   };
   for (const e of diary) {
     const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
     const n = scaleNutrition(e.foodSnapshot.nutrition, grams);
     byMeal[e.meal].calories += n.calories;
-    byMeal[e.meal].protein  += n.protein;
-    byMeal[e.meal].carbs    += n.carbs;
-    byMeal[e.meal].fat      += n.fat;
-    byMeal[e.meal].count    += 1;
+    byMeal[e.meal].protein += n.protein;
+    byMeal[e.meal].carbs += n.carbs;
+    byMeal[e.meal].fat += n.fat;
+    byMeal[e.meal].count += 1;
   }
 
   const mealCards = MEAL_ORDER.map((meal) => {
@@ -85,9 +93,10 @@ export function renderDashboard(main: HTMLElement): void {
         <button type="button" class="icon-btn" data-action="addMeal" data-meal="${meal}" aria-label="Aggiungi a ${escapeAttr(MEAL_LABELS[meal])}">＋</button>
       </div>
     `;
-    const body = entries.length > 0
-      ? `<div class="meal-entries">${entries.map((e) => entryRow(e)).join('')}</div>`
-      : `<button type="button" class="add-food-btn" data-action="addMeal" data-meal="${meal}"><span aria-hidden="true">🍪</span> Aggiungi alimento</button>`;
+    const body =
+      entries.length > 0
+        ? `<div class="meal-entries">${entries.map((e) => entryRow(e)).join('')}</div>`
+        : `<button type="button" class="add-food-btn" data-action="addMeal" data-meal="${meal}"><span aria-hidden="true">🍪</span> Aggiungi alimento</button>`;
     return `<section class="card meal-card">${header}${body}</section>`;
   }).join('');
 
@@ -96,25 +105,28 @@ export function renderDashboard(main: HTMLElement): void {
       <section class="card week-summary">
         <h3 class="section-title">Ultimi 7 giorni</h3>
         <div class="week-bars">
-          ${getWeekStats()!.days.map((d) => {
-            const ratio = state.settings.calorieGoal > 0 ? Math.min(d.calories / state.settings.calorieGoal, 1.2) : 0;
-            const over = d.calories > state.settings.calorieGoal && state.settings.calorieGoal > 0;
-            const height = Math.max(2, ratio * 60);
-            const dateLabel = parseISODateLocal(d.date).toLocaleDateString('it-IT', { weekday: 'short' });
-            const isCurrent = d.date === state.currentDate;
-            // Fix 2.10 (T2): mostra overage come tooltip + testo "+N%" se oltre 100%
-            const overPct = over && state.settings.calorieGoal > 0
-              ? Math.round((d.calories / state.settings.calorieGoal - 1) * 100)
-              : 0;
-            const overBadge = over ? ` <span class="week-bar-over">+${overPct}%</span>` : '';
-            return `
+          ${getWeekStats()!
+            .days.map((d) => {
+              const ratio = state.settings.calorieGoal > 0 ? Math.min(d.calories / state.settings.calorieGoal, 1.2) : 0;
+              const over = d.calories > state.settings.calorieGoal && state.settings.calorieGoal > 0;
+              const height = Math.max(2, ratio * 60);
+              const dateLabel = parseISODateLocal(d.date).toLocaleDateString('it-IT', { weekday: 'short' });
+              const isCurrent = d.date === state.currentDate;
+              // Fix 2.10 (T2): mostra overage come tooltip + testo "+N%" se oltre 100%
+              const overPct =
+                over && state.settings.calorieGoal > 0
+                  ? Math.round((d.calories / state.settings.calorieGoal - 1) * 100)
+                  : 0;
+              const overBadge = over ? ` <span class="week-bar-over">+${overPct}%</span>` : '';
+              return `
               <button type="button" class="week-bar${isCurrent ? ' current' : ''}${over ? ' over' : ''}" data-action="goToDate" data-date="${escapeAttr(d.date)}" title="${escapeAttr(d.date)}: ${Math.round(d.calories)} kcal" aria-label="Vai al ${escapeAttr(formatDateIT(d.date))}: ${Math.round(d.calories)} kcal">
                 <div class="week-bar-fill" style="height:${height}px"></div>
                 <span class="week-bar-label">${escapeHtml(dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1, 3))}</span>
                 ${overBadge}
               </button>
             `;
-          }).join('')}
+            })
+            .join('')}
         </div>
         <p class="week-avg">Media: <strong>${getWeekStats()!.avgCalories} kcal/giorno</strong></p>
       </section>
@@ -143,9 +155,9 @@ export function renderDashboard(main: HTMLElement): void {
             ${macroRing(totals.calories, state.settings.calorieGoal, 180)}
           </div>
           <div class="macro-bars">
-            ${macroBar('Proteine',    totals.protein, macroGrams.protein, 'var(--color-protein)')}
-            ${macroBar('Carboidrati', totals.carbs,   macroGrams.carbs,   'var(--color-carbs)')}
-            ${macroBar('Grassi',      totals.fat,     macroGrams.fat,     'var(--color-fat)')}
+            ${macroBar('Proteine', totals.protein, macroGrams.protein, 'var(--color-protein)')}
+            ${macroBar('Carboidrati', totals.carbs, macroGrams.carbs, 'var(--color-carbs)')}
+            ${macroBar('Grassi', totals.fat, macroGrams.fat, 'var(--color-fat)')}
             <div class="macro-split-info">
               <span>Obiettivo macro:</span>
               <span>P${state.settings.macroSplit.proteinPct}% · C${state.settings.macroSplit.carbsPct}% · G${state.settings.macroSplit.fatPct}%</span>

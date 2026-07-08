@@ -2,7 +2,15 @@
 // Le azioni sono orchestrazioni store + side-effect (toast, modal) mantenute semplici.
 
 import type { FoodItem, NutritionPer100, CustomPortion } from '../types';
-import { addFood, updateFood, deleteFood, toggleFavorite, getState, openDeleteFoodConfirm, closeDeleteFoodConfirm } from './store';
+import {
+  addFood,
+  updateFood,
+  deleteFood,
+  toggleFavorite,
+  getState,
+  openDeleteFoodConfirm,
+  closeDeleteFoodConfirm,
+} from './store';
 import { showToast } from '../components/toast';
 import { safeId } from './utils';
 

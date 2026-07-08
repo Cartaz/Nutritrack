@@ -25,7 +25,13 @@ import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
 
 let _storageOK = true;
 // Fix C3: queue di update cross-tab ricevuti mentre un modal era aperto
-let _pendingMultiTabUpdate: { settings: unknown; foods: unknown; diary: unknown; recipes: unknown; favoriteFoodIds: unknown } | null = null;
+let _pendingMultiTabUpdate: {
+  settings: unknown;
+  foods: unknown;
+  diary: unknown;
+  recipes: unknown;
+  favoriteFoodIds: unknown;
+} | null = null;
 let _quotaWarnedThisSession = false;
 let _stripWarnedThisSession = false;
 
@@ -139,7 +145,11 @@ export function saveData(): SaveDataResult {
         _quotaWarnedThisSession = true;
         // Lazy import per evitare ciclo: toast.ts non dipende da storage.ts
         import('../components/toast').then(({ showToast }) => {
-          showToast(`Attenzione: dati vicini al limite di quota (${Math.round(sizeInfo.bytes / 1024 / 1024 * 10) / 10}MB). Esporta un backup.`, 'warning', 6000);
+          showToast(
+            `Attenzione: dati vicini al limite di quota (${Math.round((sizeInfo.bytes / 1024 / 1024) * 10) / 10}MB). Esporta un backup.`,
+            'warning',
+            6000,
+          );
         });
       }
     }
@@ -167,7 +177,11 @@ export function saveData(): SaveDataResult {
         return { ok: true };
       } catch {
         console.error('[storage] storage esaurito anche dopo strip. Esporta backup.');
-        return { ok: false, error: 'Quota superata anche dopo strip immagini. Esporta un backup e riprova.', fatal: true };
+        return {
+          ok: false,
+          error: 'Quota superata anche dopo strip immagini. Esporta un backup e riprova.',
+          fatal: true,
+        };
       }
     } else if (err.name === 'SecurityError' || err.code === 18) {
       // Fix B2: flippa _storageOK a false per evitare loop RAF infinito
@@ -359,7 +373,9 @@ export function exportDataJson(): string {
  *  Fix 7.6: propaga errori di saveData (silenzioso prima).
  *  Fix 7.8: count post-reconcile ma con feedback su scarti.
  *  Fix 7.12: rimosso doppio save. */
-export function importDataJson(json: string): { ok: true; count: number; skipped?: number } | { ok: false; error: string } {
+export function importDataJson(
+  json: string,
+): { ok: true; count: number; skipped?: number } | { ok: false; error: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -378,8 +394,14 @@ export function importDataJson(json: string): { ok: true; count: number; skipped
   }
   // Fix 7.13: warning su version mismatch (non bloccante, reconcileAll gestisce)
   const parsedObj = parsed as { version?: unknown };
-  if (parsedObj.version !== undefined && typeof parsedObj.version === 'number' && parsedObj.version !== SCHEMA_VERSION) {
-    console.warn(`[storage] import con versione schema ${parsedObj.version} (attesa ${SCHEMA_VERSION}). Tentativo di migrazione...`);
+  if (
+    parsedObj.version !== undefined &&
+    typeof parsedObj.version === 'number' &&
+    parsedObj.version !== SCHEMA_VERSION
+  ) {
+    console.warn(
+      `[storage] import con versione schema ${parsedObj.version} (attesa ${SCHEMA_VERSION}). Tentativo di migrazione...`,
+    );
   }
 
   // Conta raw items PRIMA di reconcile per feedback su scarti (Fix 7.8)

@@ -31,9 +31,11 @@ export function hasNativeBarcodeDetector(): boolean {
 
 /** True se l'API fotocamera (getUserMedia) è disponibile. Necessaria per qualsiasi scanner. */
 export function isCameraAvailable(): boolean {
-  return typeof navigator !== 'undefined'
-    && !!navigator.mediaDevices
-    && typeof navigator.mediaDevices.getUserMedia === 'function';
+  return (
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === 'function'
+  );
 }
 
 /** Verifica se lo scanner può funzionare su questo device (camera + almeno un backend). */
@@ -66,10 +68,7 @@ async function createNativeDetector(): Promise<BarcodeDetector | null> {
 /** Loop di detection nativa via setInterval.
  *  Più affidabile di requestVideoFrameCallback che su alcuni setup (Chrome desktop
  *  con webcam USB) non fire mai, lasciando il loop bloccato. */
-async function detectWithNative(
-  video: HTMLVideoElement,
-  signal: AbortSignal
-): Promise<string | null> {
+async function detectWithNative(video: HTMLVideoElement, signal: AbortSignal): Promise<string | null> {
   const detector = await createNativeDetector();
   if (!detector) return null;
 
@@ -97,7 +96,9 @@ async function detectWithNative(
       if (video.readyState < 2 || video.videoWidth === 0) return;
       frameCount++;
       if (frameCount % 15 === 0) {
-        console.debug(`[barcode] native: frame #${frameCount}, video ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}`);
+        console.debug(
+          `[barcode] native: frame #${frameCount}, video ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}`,
+        );
       }
       try {
         const results = await detector.detect(video);
@@ -129,7 +130,7 @@ async function detectWithNative(
 async function detectWithZxing(
   stream: MediaStream,
   video: HTMLVideoElement,
-  signal: AbortSignal
+  signal: AbortSignal,
 ): Promise<string | null> {
   const mod = await import('@zxing/library');
   const BrowserMultiFormatReader = mod.BrowserMultiFormatReader;
@@ -137,9 +138,7 @@ async function detectWithZxing(
 
   // Hint: limita ai formati prodotto per ridurre falsi positivi e velocizzare.
   const hints = new Map();
-  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-    'EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39',
-  ]);
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39']);
   // 200ms = timeBetweenScansMillis (ritardo tra decode SUCCESSIVE, non tra tentativi)
   const reader = new BrowserMultiFormatReader(hints, 200);
   console.debug('[barcode] using ZXing (decodeFromStream)');
@@ -156,8 +155,16 @@ async function detectWithZxing(
     const stopReader = (): void => {
       if (stoppedCallback) return;
       stoppedCallback = true;
-      try { reader.stopContinuousDecode(); } catch { /* noop */ }
-      try { reader.reset(); } catch { /* noop */ }
+      try {
+        reader.stopContinuousDecode();
+      } catch {
+        /* noop */
+      }
+      try {
+        reader.reset();
+      } catch {
+        /* noop */
+      }
     };
     const onAbort = (): void => {
       if (stopped) return;
@@ -220,7 +227,7 @@ async function detectWithZxing(
 export async function detectBarcodeFromVideo(
   stream: MediaStream,
   video: HTMLVideoElement,
-  signal: AbortSignal
+  signal: AbortSignal,
 ): Promise<string | null> {
   // Path nativo
   if (hasNativeBarcodeDetector()) {

@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  typecheck-build:
-    name: Typecheck & Build
+  quality:
+    name: Typecheck · Lint · Test · Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,6 +28,15 @@ jobs:
 
       - name: Typecheck (tsc --noEmit strict)
         run: npm run typecheck
+
+      - name: Lint (ESLint flat config)
+        run: npm run lint
+
+      - name: Format check (Prettier)
+        run: npm run format:check
+
+      - name: Unit tests (Vitest)
+        run: npm run test
 
       - name: Build (Vite)
         run: npm run build
@@ -58,3 +67,12 @@ jobs:
           name: dist
           path: dist/
           retention-days: 7
+
+      - name: Upload coverage artifact (if present)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: ignore

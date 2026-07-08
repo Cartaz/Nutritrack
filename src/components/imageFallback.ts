@@ -21,6 +21,6 @@ export function initImageFallback(): void {
       placeholder.textContent = emoji;
       target.replaceWith(placeholder);
     },
-    true
+    true,
   );
 }

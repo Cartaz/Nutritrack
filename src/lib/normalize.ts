@@ -285,17 +285,15 @@ export function normalizeUserSettings(v: unknown): UserSettings {
     weightGoalType,
     // targetWeightKg: clamp [30..500] — valori realistici per adulto.
     // undefined se maintain o se mancante.
-    targetWeightKg: weightGoalType === 'maintain' || v.targetWeightKg == null
-      ? undefined
-      : safeNum(v.targetWeightKg, 0, 30, 500),
+    targetWeightKg:
+      weightGoalType === 'maintain' || v.targetWeightKg == null ? undefined : safeNum(v.targetWeightKg, 0, 30, 500),
     // weeklyRateKg: rateo di variazione peso desiderato, clamp [0.1..MAX_WEEKLY_KG_RATE=0.5].
     // undefined se maintain o se mancante.
     // Backward compat: se un vecchio backup aveva goalWeeks (approccio precedente),
     // viene ignorato — l'utente dovrà re-impostare il rateo. Default a 0.5 (max) se maintain->lose/gain
     // senza weeklyRateKg esplicito viene gestito dal frontend (default UI = 0.5).
-    weeklyRateKg: weightGoalType === 'maintain' || v.weeklyRateKg == null
-      ? undefined
-      : safeNum(v.weeklyRateKg, 0.5, 0.1, 0.5),
+    weeklyRateKg:
+      weightGoalType === 'maintain' || v.weeklyRateKg == null ? undefined : safeNum(v.weeklyRateKg, 0.5, 0.1, 0.5),
   };
 }
 
@@ -312,7 +310,9 @@ export interface NormalizedPayload {
 export function reconcileAll(raw: unknown): NormalizedPayload {
   // Fix Bug 7.13 (T7): warning se versione schema non supportata (migration placeholder)
   if (isObject(raw) && typeof raw.version === 'number' && raw.version !== SCHEMA_VERSION) {
-    console.warn(`[normalize] schema version mismatch: payload=${raw.version}, expected=${SCHEMA_VERSION}. Migrating...`);
+    console.warn(
+      `[normalize] schema version mismatch: payload=${raw.version}, expected=${SCHEMA_VERSION}. Migrating...`,
+    );
     // Qui in futuro si aggiungerà migrate(raw) per versioni > 1
   }
   if (!isObject(raw)) {
@@ -369,7 +369,10 @@ export function buildFoodFromOff(p: OffProduct): FoodItem | null {
   };
   // Fix B-8-11: se calories=0 ma almeno un macro > 0, stima kcal da macro (algoritmo Atwater)
   if (rawNutrition.calories === 0) {
-    const macroKcal = (Number(rawNutrition.protein) || 0) * 4 + (Number(rawNutrition.carbs) || 0) * 4 + (Number(rawNutrition.fat) || 0) * 9;
+    const macroKcal =
+      (Number(rawNutrition.protein) || 0) * 4 +
+      (Number(rawNutrition.carbs) || 0) * 4 +
+      (Number(rawNutrition.fat) || 0) * 9;
     if (macroKcal > 0) {
       calories = Math.round(macroKcal);
       rawNutrition = { ...rawNutrition, calories };

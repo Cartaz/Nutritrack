@@ -28,17 +28,17 @@ export default defineConfig({
           { src: `${base}icons/icon-192.png`, sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: `${base}icons/icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: `${base}icons/icon-maskable-512.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-          { src: `${base}icons/apple-touch-icon.png`, sizes: '180x180', type: 'image/png' }
-        ]
+          { src: `${base}icons/apple-touch-icon.png`, sizes: '180x180', type: 'image/png' },
+        ],
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       devOptions: {
-        enabled: false
-      }
-    })
+        enabled: false,
+      },
+    }),
   ],
   build: {
     target: 'es2022',
@@ -48,9 +48,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          api: ['./src/lib/api.ts']
-        }
-      }
-    }
-  }
+          api: ['./src/lib/api.ts'],
+        },
+      },
+    },
+  },
 });

@@ -86,19 +86,24 @@ function renderFormBody(entry: DiaryEntry): string {
   const allPortions: CustomPortion[] = f.customPortions || [];
   const foodId = f.id;
 
-  const portionsHtml = allPortions.length > 0
-    ? `
+  const portionsHtml =
+    allPortions.length > 0
+      ? `
       <div class="portion-chips">
-        ${allPortions.map((p) => `
+        ${allPortions
+          .map(
+            (p) => `
           <button type="button" class="portion-chip${Number(_entryEditorState.grams) === p.grams ? ' active' : ''}" data-ee-action="usePortion" data-grams="${p.grams}">
             <span class="portion-chip-label">${escapeHtml(p.label)}</span>
             <span class="portion-chip-grams">${p.grams}g</span>
             <span class="portion-chip-del" data-ee-action="deleteCustomPortion" data-food-id="${escapeAttr(foodId)}" data-portion-id="${escapeAttr(p.id)}" role="button" aria-label="Elimina porzione">✕</span>
           </button>
-        `).join('')}
+        `,
+          )
+          .join('')}
       </div>
     `
-    : '';
+      : '';
 
   const createPortionHtml = _entryEditorState.creatingPortion
     ? `

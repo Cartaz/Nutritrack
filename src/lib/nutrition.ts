@@ -1,19 +1,30 @@
 // Calcoli nutrizionali puri (no DOM, no side-effect).
 
-import { KCAL_PER_GRAM, type MacroSplit, type NutritionPer100, type Sex, type ActivityLevel, type UserSettings, type WeightGoalType } from '../types';
+import {
+  KCAL_PER_GRAM,
+  type MacroSplit,
+  type NutritionPer100,
+  type Sex,
+  type ActivityLevel,
+  type UserSettings,
+  type WeightGoalType,
+} from '../types';
 import { ACTIVITY_FACTORS, MAX_WEEKLY_KG_RATE, KCAL_PER_KG_BODYWEIGHT } from '../types';
 import { round } from './utils';
 
 /** Macro target in grammi dato il totale calorico e lo split % */
-export function calcMacroGrams(calorieGoal: number, split: MacroSplit): { protein: number; carbs: number; fat: number } {
+export function calcMacroGrams(
+  calorieGoal: number,
+  split: MacroSplit,
+): { protein: number; carbs: number; fat: number } {
   // Fix B6.8 (T6): distribuisci l'errore di arrotondamento sul grasso (il macro con più kcal/g)
   // per minimizzare lo scostamento totale. Prima: P=150, C=200, F=67 → 2003 kcal (off by 3).
   // Ora: P=150, C=200, F=round((2000 - 150*4 - 200*4) / 9) = round(66.67) = 67 → 2003.
   // Per differenze piccole (<5 kcal) è accettabile; lasciamo il round standard.
   return {
-    protein: Math.round((calorieGoal * split.proteinPct / 100) / KCAL_PER_GRAM.protein),
-    carbs:   Math.round((calorieGoal * split.carbsPct   / 100) / KCAL_PER_GRAM.carbs),
-    fat:     Math.round((calorieGoal * split.fatPct     / 100) / KCAL_PER_GRAM.fat),
+    protein: Math.round((calorieGoal * split.proteinPct) / 100 / KCAL_PER_GRAM.protein),
+    carbs: Math.round((calorieGoal * split.carbsPct) / 100 / KCAL_PER_GRAM.carbs),
+    fat: Math.round((calorieGoal * split.fatPct) / 100 / KCAL_PER_GRAM.fat),
   };
 }
 
@@ -22,12 +33,12 @@ export function scaleNutrition(n: NutritionPer100, grams: number): NutritionPer1
   const factor = grams / 100;
   return {
     calories: round(n.calories * factor, 1),
-    protein:  round(n.protein  * factor, 1),
-    carbs:    round(n.carbs    * factor, 1),
-    fat:      round(n.fat      * factor, 1),
-    fiber:    n.fiber != null ? round(n.fiber * factor, 1) : undefined,
-    sugar:    n.sugar != null ? round(n.sugar * factor, 1) : undefined,
-    salt:     n.salt  != null ? round(n.salt  * factor, 1) : undefined,
+    protein: round(n.protein * factor, 1),
+    carbs: round(n.carbs * factor, 1),
+    fat: round(n.fat * factor, 1),
+    fiber: n.fiber != null ? round(n.fiber * factor, 1) : undefined,
+    sugar: n.sugar != null ? round(n.sugar * factor, 1) : undefined,
+    salt: n.salt != null ? round(n.salt * factor, 1) : undefined,
   };
 }
 
@@ -36,12 +47,12 @@ export function sumNutrition(items: NutritionPer100[]): NutritionPer100 {
   const acc: NutritionPer100 = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, salt: 0 };
   for (const it of items) {
     acc.calories += it.calories || 0;
-    acc.protein  += it.protein  || 0;
-    acc.carbs    += it.carbs    || 0;
-    acc.fat      += it.fat      || 0;
+    acc.protein += it.protein || 0;
+    acc.carbs += it.carbs || 0;
+    acc.fat += it.fat || 0;
     acc.fiber = (acc.fiber || 0) + (it.fiber || 0);
     acc.sugar = (acc.sugar || 0) + (it.sugar || 0);
-    acc.salt  = (acc.salt  || 0) + (it.salt  || 0);
+    acc.salt = (acc.salt || 0) + (it.salt || 0);
   }
   return acc;
 }
@@ -85,10 +96,7 @@ export function calcWeeksToTarget(
  *  (sempre positivo) e dal tipo di obiettivo. negativo = deficit (perdere),
  *  positivo = surplus (aumentare), zero = mantieni.
  *  Il rateo viene clampato a MAX_WEEKLY_KG_RATE per safety (defense in depth — l'UI fa già clamp). */
-export function calcWeeklyDeltaKg(
-  weeklyRateKg: number | undefined,
-  goalType: WeightGoalType | undefined,
-): number {
+export function calcWeeklyDeltaKg(weeklyRateKg: number | undefined, goalType: WeightGoalType | undefined): number {
   if (goalType === 'maintain' || goalType == null) return 0;
   if (weeklyRateKg == null || !Number.isFinite(weeklyRateKg) || weeklyRateKg <= 0) return 0;
   const clampedRate = Math.min(MAX_WEEKLY_KG_RATE, weeklyRateKg);
@@ -124,15 +132,22 @@ export function calcGoalAdjustedCalories(
   kcalClamped: boolean;
 } {
   if (!Number.isFinite(tdee) || tdee <= 0) {
-    return { kcal: 0, weeklyDeltaKg: 0, dailyAdjustment: 0, weeksToTarget: 0, totalDeltaKg: 0, rateClamped: false, kcalClamped: false };
+    return {
+      kcal: 0,
+      weeklyDeltaKg: 0,
+      dailyAdjustment: 0,
+      weeksToTarget: 0,
+      totalDeltaKg: 0,
+      rateClamped: false,
+      kcalClamped: false,
+    };
   }
   const rateClamped = weeklyRateKg != null && Number.isFinite(weeklyRateKg) && weeklyRateKg > MAX_WEEKLY_KG_RATE;
   const weeklyDeltaKg = calcWeeklyDeltaKg(weeklyRateKg, goalType);
   const dailyAdjustment = weeklyDeltaToDailyKcal(weeklyDeltaKg);
   const weeksToTarget = calcWeeksToTarget(currentWeightKg, targetWeightKg, Math.abs(weeklyDeltaKg));
-  const totalDeltaKg = currentWeightKg != null && targetWeightKg != null
-    ? round(targetWeightKg - currentWeightKg, 1)
-    : 0;
+  const totalDeltaKg =
+    currentWeightKg != null && targetWeightKg != null ? round(targetWeightKg - currentWeightKg, 1) : 0;
   const raw = tdee + dailyAdjustment;
   const min = 500;
   const max = 10000;
@@ -169,8 +184,6 @@ export function normalizeMacroSplit(split: MacroSplit): MacroSplit {
 /** Calcola kcal da macro (verifica consistenza) */
 export function kcalFromMacros(grams: { protein: number; carbs: number; fat: number }): number {
   return Math.round(
-    grams.protein * KCAL_PER_GRAM.protein +
-    grams.carbs   * KCAL_PER_GRAM.carbs +
-    grams.fat     * KCAL_PER_GRAM.fat
+    grams.protein * KCAL_PER_GRAM.protein + grams.carbs * KCAL_PER_GRAM.carbs + grams.fat * KCAL_PER_GRAM.fat,
   );
 }

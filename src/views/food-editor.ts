@@ -23,8 +23,17 @@ interface FoodFormState {
 }
 
 const _foodEditorState: FoodFormState = {
-  name: '', brand: '', calories: '', protein: '', carbs: '', fat: '',
-  fiber: '', sugar: '', salt: '', servingSize: '100', servingLabel: '',
+  name: '',
+  brand: '',
+  calories: '',
+  protein: '',
+  carbs: '',
+  fat: '',
+  fiber: '',
+  sugar: '',
+  salt: '',
+  servingSize: '100',
+  servingLabel: '',
   lockFromMacros: false,
 };
 
@@ -32,15 +41,27 @@ let _foodEditorBound = false;
 
 function resetFoodEditorState(): void {
   Object.assign(_foodEditorState, {
-    name: '', brand: '', calories: '', protein: '', carbs: '', fat: '',
-    fiber: '', sugar: '', salt: '', servingSize: '100', servingLabel: '',
+    name: '',
+    brand: '',
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: '',
+    fiber: '',
+    sugar: '',
+    salt: '',
+    servingSize: '100',
+    servingLabel: '',
     lockFromMacros: false,
   });
 }
 
 function loadFromFood(foodId: string): void {
   const f = getState().foods.find((x) => x.id === foodId);
-  if (!f) { resetFoodEditorState(); return; }
+  if (!f) {
+    resetFoodEditorState();
+    return;
+  }
   _foodEditorState.name = f.name;
   _foodEditorState.brand = f.brand || '';
   _foodEditorState.calories = String(Math.round(f.nutrition.calories));
@@ -132,17 +153,42 @@ function bindFoodEditorModalEvents(): void {
     if (!document.querySelector('[data-modal-id="food-editor"]')) return;
     const v = (t as HTMLInputElement).value;
     switch (t.id) {
-      case 'fe-name':         _foodEditorState.name = v; break;
-      case 'fe-brand':        _foodEditorState.brand = v; break;
-      case 'fe-calories':     _foodEditorState.calories = v; break;
-      case 'fe-protein':      _foodEditorState.protein = v; recalcKcal(); break;
-      case 'fe-carbs':        _foodEditorState.carbs = v; recalcKcal(); break;
-      case 'fe-fat':          _foodEditorState.fat = v; recalcKcal(); break;
-      case 'fe-fiber':        _foodEditorState.fiber = v; break;
-      case 'fe-sugar':        _foodEditorState.sugar = v; break;
-      case 'fe-salt':         _foodEditorState.salt = v; break;
-      case 'fe-serving':      _foodEditorState.servingSize = v; break;
-      case 'fe-serving-label':_foodEditorState.servingLabel = v; break;
+      case 'fe-name':
+        _foodEditorState.name = v;
+        break;
+      case 'fe-brand':
+        _foodEditorState.brand = v;
+        break;
+      case 'fe-calories':
+        _foodEditorState.calories = v;
+        break;
+      case 'fe-protein':
+        _foodEditorState.protein = v;
+        recalcKcal();
+        break;
+      case 'fe-carbs':
+        _foodEditorState.carbs = v;
+        recalcKcal();
+        break;
+      case 'fe-fat':
+        _foodEditorState.fat = v;
+        recalcKcal();
+        break;
+      case 'fe-fiber':
+        _foodEditorState.fiber = v;
+        break;
+      case 'fe-sugar':
+        _foodEditorState.sugar = v;
+        break;
+      case 'fe-salt':
+        _foodEditorState.salt = v;
+        break;
+      case 'fe-serving':
+        _foodEditorState.servingSize = v;
+        break;
+      case 'fe-serving-label':
+        _foodEditorState.servingLabel = v;
+        break;
     }
   });
   document.addEventListener('change', (e) => {
@@ -181,7 +227,9 @@ function recalcKcal(): void {
   const p = Math.max(0, Number(_foodEditorState.protein) || 0);
   const c = Math.max(0, Number(_foodEditorState.carbs) || 0);
   const f = Math.max(0, Number(_foodEditorState.fat) || 0);
-  _foodEditorState.calories = String(Math.round(p * KCAL_PER_GRAM.protein + c * KCAL_PER_GRAM.carbs + f * KCAL_PER_GRAM.fat));
+  _foodEditorState.calories = String(
+    Math.round(p * KCAL_PER_GRAM.protein + c * KCAL_PER_GRAM.carbs + f * KCAL_PER_GRAM.fat),
+  );
   const calInput = document.querySelector<HTMLInputElement>('#fe-calories');
   if (calInput) calInput.value = _foodEditorState.calories;
 }
@@ -189,7 +237,7 @@ function recalcKcal(): void {
 /** Fix B5: ritorna false per bloccare chiusura modal se validazione fallisce. */
 function handleSave(foodId: string | null): boolean {
   if (!_foodEditorState.name.trim()) {
-    showToast('Inserisci il nome dell\'alimento', 'error');
+    showToast("Inserisci il nome dell'alimento", 'error');
     return false;
   }
 
@@ -264,12 +312,20 @@ function handleSave(foodId: string | null): boolean {
   // Fix BUG #4 (T3): validazione logica macro (P+C+F non può superare 100g per valori per-100g)
   const macroSum = protein + carbs + fat;
   if (macroSum > 100) {
-    showToast(`Attenzione: la somma dei macro (${macroSum.toFixed(1)}g) supera 100g (valori per 100g). Verifica i valori.`, 'warning', 5000);
+    showToast(
+      `Attenzione: la somma dei macro (${macroSum.toFixed(1)}g) supera 100g (valori per 100g). Verifica i valori.`,
+      'warning',
+      5000,
+    );
   }
   // Fix BUG #4 (T3): verifica coerenza kcal vs kcal da macro (tolleranza 5% per arrotondamenti/altri nutrienti)
   const macroKcal = protein * KCAL_PER_GRAM.protein + carbs * KCAL_PER_GRAM.carbs + fat * KCAL_PER_GRAM.fat;
   if (calories < macroKcal * 0.95 && macroKcal > 0) {
-    showToast(`Le calorie inserite (${calories}) sono inferiori a quelle derivanti dai macro (${Math.round(macroKcal)}). Verifica.`, 'warning', 5000);
+    showToast(
+      `Le calorie inserite (${calories}) sono inferiori a quelle derivanti dai macro (${Math.round(macroKcal)}). Verifica.`,
+      'warning',
+      5000,
+    );
   }
 
   if (foodId && foodId !== 'new') {
@@ -284,9 +340,13 @@ function handleSave(foodId: string | null): boolean {
     }
     // Fix R3 (T4): se il recipe editor era aperto (sub-search ingrediente), refresha anche quello
     if (getState()._editingRecipeId !== null) {
-      import('../views/recipe-editor').then(({ refreshRecipeEditor }) => {
-        refreshRecipeEditor();
-      }).catch(() => { /* noop */ });
+      import('../views/recipe-editor')
+        .then(({ refreshRecipeEditor }) => {
+          refreshRecipeEditor();
+        })
+        .catch(() => {
+          /* noop */
+        });
     }
   }
   // NOTA: non chiamiamo closeFoodEditor() qui — ci pensa onClose callback del modal.

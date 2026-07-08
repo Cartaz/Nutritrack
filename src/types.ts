@@ -25,12 +25,12 @@ export const MEAL_ORDER: readonly MealType[] = ['breakfast', 'lunch', 'dinner', 
 /** Valori nutrizionali riferiti a 100g/ml */
 export interface NutritionPer100 {
   calories: number; // kcal
-  protein: number;  // g
-  carbs: number;    // g
-  fat: number;      // g
-  fiber?: number;   // g
-  sugar?: number;   // g
-  salt?: number;    // g
+  protein: number; // g
+  carbs: number; // g
+  fat: number; // g
+  fiber?: number; // g
+  sugar?: number; // g
+  salt?: number; // g
 }
 
 /** Sorgente ammissibile per un FoodItem */
@@ -40,8 +40,8 @@ export type FoodSource = (typeof ALLOWED_FOOD_SOURCES)[number];
 /** Porzione personalizzata creata dall'utente (es. "1 fetta" = 30g) */
 export interface CustomPortion {
   id: string;
-  label: string;   // es. "1 fetta", "1 tazza", "1 cucchiaio"
-  grams: number;   // grammi/ml della porzione
+  label: string; // es. "1 fetta", "1 tazza", "1 cucchiaio"
+  grams: number; // grammi/ml della porzione
 }
 
 /** Ingrediente / cibo salvabile (custom o da Open Food Facts) */
@@ -51,22 +51,22 @@ export interface FoodItem {
   brand?: string;
   barcode?: string;
   source: FoodSource;
-  servingSize: number;     // grammi/ml per porzione di default
-  servingLabel?: string;   // es. "1 fetta", "1 tazza"
+  servingSize: number; // grammi/ml per porzione di default
+  servingLabel?: string; // es. "1 fetta", "1 tazza"
   customPortions?: CustomPortion[]; // porzioni personalizzate create dall'utente
   nutrition: NutritionPer100;
-  image?: string;          // URL thumbnail
+  image?: string; // URL thumbnail
   createdAt: number;
 }
 
 /** Riga del diario: riferimento a FoodItem + quantità */
 export interface DiaryEntry {
   id: string;
-  date: string;       // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   meal: MealType;
-  foodId?: string;    // riferimento a FoodItem salvato
+  foodId?: string; // riferimento a FoodItem salvato
   foodSnapshot: FoodItem; // snapshot al momento dell'aggiunta
-  quantity: number;   // numero di porzioni
+  quantity: number; // numero di porzioni
   gramsOverride?: number; // peso in grammi (bilancia)
   createdAt: number;
 }
@@ -139,7 +139,7 @@ export const MAX_WEEKLY_KG_RATE = 0.5;
 export const KCAL_PER_KG_BODYWEIGHT = 7700;
 
 export interface UserSettings {
-  calorieGoal: number;     // kcal/giorno
+  calorieGoal: number; // kcal/giorno
   macroSplit: MacroSplit;
   name?: string;
   theme: Theme;
@@ -171,11 +171,36 @@ export interface MacroPreset {
 }
 
 export const MACRO_PRESETS: readonly MacroPreset[] = [
-  { id: 'balanced',     name: 'Bilanciato',    description: '30/40/30 - equilibrio classico',  split: { proteinPct: 30, carbsPct: 40, fatPct: 30 } },
-  { id: 'high_protein', name: 'Alto proteico', description: '40/30/30 - taglio / massa magra', split: { proteinPct: 40, carbsPct: 30, fatPct: 30 } },
-  { id: 'low_carb',     name: 'Low carb',      description: '35/20/45 - basso carboidrato',    split: { proteinPct: 35, carbsPct: 20, fatPct: 45 } },
-  { id: 'keto',         name: 'Keto',          description: '25/5/70 - chetogenica',           split: { proteinPct: 25, carbsPct: 5,  fatPct: 70 } },
-  { id: 'mediterranean',name: 'Mediterranea',  description: '20/50/30 - stile mediterraneo',   split: { proteinPct: 20, carbsPct: 50, fatPct: 30 } },
+  {
+    id: 'balanced',
+    name: 'Bilanciato',
+    description: '30/40/30 - equilibrio classico',
+    split: { proteinPct: 30, carbsPct: 40, fatPct: 30 },
+  },
+  {
+    id: 'high_protein',
+    name: 'Alto proteico',
+    description: '40/30/30 - taglio / massa magra',
+    split: { proteinPct: 40, carbsPct: 30, fatPct: 30 },
+  },
+  {
+    id: 'low_carb',
+    name: 'Low carb',
+    description: '35/20/45 - basso carboidrato',
+    split: { proteinPct: 35, carbsPct: 20, fatPct: 45 },
+  },
+  {
+    id: 'keto',
+    name: 'Keto',
+    description: '25/5/70 - chetogenica',
+    split: { proteinPct: 25, carbsPct: 5, fatPct: 70 },
+  },
+  {
+    id: 'mediterranean',
+    name: 'Mediterranea',
+    description: '20/50/30 - stile mediterraneo',
+    split: { proteinPct: 20, carbsPct: 50, fatPct: 30 },
+  },
 ] as const;
 
 /** Costanti kcal/g per i macro */
@@ -189,13 +214,13 @@ export const KCAL_PER_GRAM = {
 
 export interface OffNutriments {
   'energy-kcal_100g'?: number;
-  energy_100g?: number;        // kJ
-  proteins_100g?: number;
-  carbohydrates_100g?: number;
-  fat_100g?: number;
-  fiber_100g?: number;
-  sugars_100g?: number;
-  salt_100g?: number;
+  'energy_100g'?: number; // kJ
+  'proteins_100g'?: number;
+  'carbohydrates_100g'?: number;
+  'fat_100g'?: number;
+  'fiber_100g'?: number;
+  'sugars_100g'?: number;
+  'salt_100g'?: number;
 }
 
 export interface OffProduct {
@@ -245,8 +270,7 @@ export type WorkerRequest =
   | { type: 'dayTotals'; reqId: number; entries: DiaryEntry[] };
 
 export type WorkerResponse =
-  | { type: 'stats'; reqId: number; result: StatsResult }
-  | { type: 'dayTotals'; reqId: number; result: DayTotals };
+  { type: 'stats'; reqId: number; result: StatsResult } | { type: 'dayTotals'; reqId: number; result: DayTotals };
 
 // ============ App state ============
 
@@ -259,7 +283,7 @@ export interface AppState {
   recipes: Recipe[];
   favoriteFoodIds: string[];
   currentView: ViewName;
-  currentDate: string;        // YYYY-MM-DD (dashboard)
+  currentDate: string; // YYYY-MM-DD (dashboard)
   _storageDisabled: boolean;
   _searchOpen: boolean;
   _searchMeal: MealType;

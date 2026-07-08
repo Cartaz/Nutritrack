@@ -13,7 +13,10 @@ export { resetRecipesSig as resetRecipesSignature };
 let _recipesBound = false;
 let _recipesQuery = '';
 
-const _filterRecipes = debounce(() => { setRecipesRenderSig(''); emitChange(); }, 80);
+const _filterRecipes = debounce(() => {
+  setRecipesRenderSig('');
+  emitChange();
+}, 80);
 
 export function renderRecipes(main: HTMLElement): void {
   const state = getState();
@@ -23,9 +26,12 @@ export function renderRecipes(main: HTMLElement): void {
   // Prima: edit grams di un ingrediente senza aggiungere/rimuovere → card stale
   const renderSig = JSON.stringify({
     q: _recipesQuery,
-    recipes: state.recipes.map((r) =>
-      `${r.id}:${r.name}:${r.description ?? ''}:${r.servings}:${r.ingredients.map((i) => `${i.foodSnapshot.id}:${i.grams}`).join(',')}`
-    ).join('|'),
+    recipes: state.recipes
+      .map(
+        (r) =>
+          `${r.id}:${r.name}:${r.description ?? ''}:${r.servings}:${r.ingredients.map((i) => `${i.foodSnapshot.id}:${i.grams}`).join(',')}`,
+      )
+      .join('|'),
   });
   if (renderSig === getRecipesRenderSig()) return;
   setRecipesRenderSig(renderSig);
@@ -35,8 +41,9 @@ export function renderRecipes(main: HTMLElement): void {
     return r.name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q);
   });
 
-  const listHtml = state.recipes.length === 0
-    ? `
+  const listHtml =
+    state.recipes.length === 0
+      ? `
       <section class="card empty-state">
         <div class="empty-icon" aria-hidden="true">👨‍🍳</div>
         <h3>Nessuna ricetta</h3>
@@ -44,9 +51,9 @@ export function renderRecipes(main: HTMLElement): void {
         <button type="button" class="btn btn-primary" data-action="newRecipe"><span aria-hidden="true">＋</span> Crea ricetta</button>
       </section>
     `
-    : filtered.length === 0
-      ? `<section class="card empty-state muted">Nessuna ricetta trovata per "${escapeHtml(_recipesQuery)}"</section>`
-      : `<div class="recipes-grid">${filtered.map((r) => recipeCard(r)).join('')}</div>`;
+      : filtered.length === 0
+        ? `<section class="card empty-state muted">Nessuna ricetta trovata per "${escapeHtml(_recipesQuery)}"</section>`
+        : `<div class="recipes-grid">${filtered.map((r) => recipeCard(r)).join('')}</div>`;
 
   // Fix R2 (T4): preserva focus e selection della search box attraverso il re-render
   const activeEl = document.activeElement;
@@ -77,7 +84,11 @@ export function renderRecipes(main: HTMLElement): void {
     if (newInput) {
       newInput.focus();
       if (searchSelectionStart !== null && searchSelectionEnd !== null) {
-        try { newInput.setSelectionRange(searchSelectionStart, searchSelectionEnd); } catch { /* noop */ }
+        try {
+          newInput.setSelectionRange(searchSelectionStart, searchSelectionEnd);
+        } catch {
+          /* noop */
+        }
       }
     }
   }
@@ -122,9 +133,9 @@ function calcPerServing(r: Recipe): { calories: number; protein: number; carbs: 
   const t = sumNutrition(nutritions);
   return {
     calories: r.servings > 0 ? round(t.calories / r.servings, 1) : 0,
-    protein:  r.servings > 0 ? round(t.protein  / r.servings, 1) : 0,
-    carbs:    r.servings > 0 ? round(t.carbs    / r.servings, 1) : 0,
-    fat:      r.servings > 0 ? round(t.fat      / r.servings, 1) : 0,
+    protein: r.servings > 0 ? round(t.protein / r.servings, 1) : 0,
+    carbs: r.servings > 0 ? round(t.carbs / r.servings, 1) : 0,
+    fat: r.servings > 0 ? round(t.fat / r.servings, 1) : 0,
   };
 }
 

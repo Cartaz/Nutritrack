@@ -111,6 +111,22 @@ npm run build
 
 # Preview build locale
 npm run preview
+
+# Test unitari (Vitest, jsdom)
+npm test                # one-shot
+npm run test:watch      # watch mode
+npm run test:coverage   # con coverage report (v8)
+
+# Lint (ESLint 9 flat config + typescript-eslint)
+npm run lint
+npm run lint:fix
+
+# Formattazione (Prettier 3)
+npm run format          # scrivi
+npm run format:check    # verifica solo (usato in CI)
+
+# Pipeline completa CI locale (typecheck + lint + format + test + build)
+npm run ci
 ```
 
 ## Deploy
@@ -135,15 +151,18 @@ Se deployi su sottopercorso, imposta `VITE_BASE_PATH=/tuo-percorso/` prima del b
 ## Installazione come app (PWA)
 
 ### iOS (Safari)
+
 1. Apri l'URL dell'app in Safari
 2. Tocca **Condividi → Aggiungi a Home Screen**
 3. L'app appare con icona e si apre in modalità standalone (senza barre browser)
 
 ### Android (Chrome)
+
 1. Apri l'URL
 2. Tocca **⋮ → Installa app** o rispondi "Sì" al banner di installazione
 
 ### Desktop (Chrome/Edge)
+
 1. Apri l'URL
 2. Clicca l'icona **Installa** nella barra degli indirizzi
 
@@ -155,6 +174,15 @@ Se deployi su sottopercorso, imposta `VITE_BASE_PATH=/tuo-percorso/` prima del b
 - **Modalità privata**: detection IIFE all'avvio, modal informativo, graceful degradation a modalità in-memory
 - **Multi-tab sync**: via `storage` event, skip se modal aperto per non sovrascrivere form
 - **Export/Import**: backup JSON completo con validazione `normalizeXxx` su ogni entità importata
+
+## Qualità del codice
+
+- **TypeScript 5 strict** con `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `noImplicitOverride`, `forceConsistentCasingInFileNames`
+- **ESLint 9** (flat config) con `typescript-eslint` 8 — regole semantiche (eqeqeq, no-var, no-unused-vars), regole di formato delegate a Prettier
+- **Prettier 3** — singleQuote, trailingComma all, printWidth 120, semicolon, lf
+- **Vitest 2.1** con environment jsdom e coverage v8 — 193 test su `lib/nutrition.ts`, `lib/normalize.ts`, `lib/storage.ts`, `lib/utils.ts`. Soglie minime di coverage (60% statements, 50% branches)
+- **CI GitHub Actions** — pipeline: typecheck → lint → format:check → test → build → verifica PWA assets
+
 
 ## Privacy
 

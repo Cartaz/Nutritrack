@@ -51,9 +51,13 @@ function dismiss(id: number): void {
 
 function iconFor(t: ToastType): string {
   switch (t) {
-    case 'success': return '✓';
-    case 'error':   return '✕';
-    case 'warning': return '!';
-    case 'info':    return 'i';
+    case 'success':
+      return '✓';
+    case 'error':
+      return '✕';
+    case 'warning':
+      return '!';
+    case 'info':
+      return 'i';
   }
 }

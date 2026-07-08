@@ -33,7 +33,7 @@ export class ApiError extends Error {
  *  Fix B-8-1: deadline globale cumulativa previene 40s di attesa se tutte le istanze hangano. */
 export async function apiGetJson<T>(
   buildUrl: (base: string) => string,
-  opts: { timeoutMs?: number; signal?: AbortSignal } = {}
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? API_TIMEOUT_MS;
 
@@ -64,7 +64,8 @@ export async function apiGetJson<T>(
       const remaining = globalDeadline - Date.now();
       if (remaining < 500) {
         // Deadline globale quasi scaduto: esci
-        lastError = lastError ?? new ApiError('Tutte le istanze OFF non disponibili (deadline globale)', 'TimeoutError');
+        lastError =
+          lastError ?? new ApiError('Tutte le istanze OFF non disponibili (deadline globale)', 'TimeoutError');
         break;
       }
       const instanceTimeout = Math.min(timeoutMs, remaining);
@@ -77,7 +78,7 @@ export async function apiGetJson<T>(
       try {
         const res = await fetch(url, {
           headers: {
-            Accept: 'application/json',
+            'Accept': 'application/json',
             // Fix B-8-6: User-Agent identificativo (best practice OFF)
             'User-Agent': OFF_USER_AGENT,
           },
@@ -157,7 +158,7 @@ export interface SearchOffOpts {
 /** Cerca prodotti su Open Food Facts con fallback multi-istanza */
 export async function searchOff(
   query: string,
-  opts: SearchOffOpts = {}
+  opts: SearchOffOpts = {},
 ): Promise<{ products: OffProduct[]; count: number; page: number; pageSize: number }> {
   const page = opts.page ?? 1;
   const pageSize = opts.pageSize ?? OFF_PAGE_SIZE;
@@ -177,10 +178,9 @@ export async function searchOff(
   }
 
   // Fix B-8-13: guard contro data null
-  const data = (await apiGetJson<OffSearchResponse | null>(
-    (base) => `${base}/cgi/search.pl?${params.toString()}`,
-    { signal: opts.signal }
-  )) as OffSearchResponse | null;
+  const data = (await apiGetJson<OffSearchResponse | null>((base) => `${base}/cgi/search.pl?${params.toString()}`, {
+    signal: opts.signal,
+  })) as OffSearchResponse | null;
 
   if (!data || typeof data !== 'object') {
     return { products: [], count: 0, page: 1, pageSize };
@@ -210,7 +210,7 @@ export async function getOffByBarcode(barcode: string, signal?: AbortSignal): Pr
   try {
     const data = await apiGetJson<{ product?: OffProduct } | null>(
       (base) => `${base}/api/v2/product/${encodeURIComponent(barcode)}.json`,
-      { signal }
+      { signal },
     );
     if (!data || typeof data !== 'object') return null;
     return data.product ?? null;

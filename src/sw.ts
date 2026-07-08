@@ -34,14 +34,14 @@ const navigationRoute = new NavigationRoute(
       return await networkFirst.handle(params);
     } catch {
       // Fallback a index.html precached
-      const cached = await caches.match('/index.html') || await caches.match('./index.html');
+      const cached = (await caches.match('/index.html')) || (await caches.match('./index.html'));
       return cached ?? Response.error();
     }
   },
   {
     // non intercettare richieste API o asset statici
     denylist: [/^\/api\//, /\.(?:js|css|png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/],
-  }
+  },
 );
 registerRoute(navigationRoute);
 
@@ -56,7 +56,7 @@ registerRoute(
       new ExpirationPlugin({ maxAgeSeconds: 60 * 60 * 24 * 30, maxEntries: 300 }),
     ],
   }),
-  'GET'
+  'GET',
 );
 
 // Open Food Facts API (NON immagine): NetworkFirst con timeout 10s, cache 1 ora max 100 entries
@@ -70,7 +70,7 @@ registerRoute(
       new ExpirationPlugin({ maxAgeSeconds: 60 * 60, maxEntries: 100 }),
     ],
   }),
-  'GET'
+  'GET',
 );
 
 // Immagini generiche remote: CacheFirst 7 giorni
@@ -83,12 +83,12 @@ registerRoute(
       new ExpirationPlugin({ maxAgeSeconds: 60 * 60 * 24 * 7, maxEntries: 200 }),
     ],
   }),
-  'GET'
+  'GET',
 );
 
 // Catch handler: offline fallback
 setCatchHandler(async () => {
-  const cached = await caches.match('/index.html') || await caches.match('./index.html');
+  const cached = (await caches.match('/index.html')) || (await caches.match('./index.html'));
   if (cached) return cached;
   return new Response('Offline', { status: 503, statusText: 'Offline' });
 });

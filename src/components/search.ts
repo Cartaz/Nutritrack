@@ -55,7 +55,11 @@ const _searchState: SearchDialogState = {
 
 function resetSearchState(): void {
   if (_searchState.abortController) {
-    try { _searchState.abortController.abort(); } catch { /* noop */ }
+    try {
+      _searchState.abortController.abort();
+    } catch {
+      /* noop */
+    }
   }
   // Fix BUG #1 (T5): cancella il timer del debounce per evitare che parta una fetch a modal chiuso
   runSearch.cancel();
@@ -84,7 +88,11 @@ const runSearch = debounce(async (query: string) => {
     return;
   }
   if (_searchState.abortController) {
-    try { _searchState.abortController.abort(); } catch { /* noop */ }
+    try {
+      _searchState.abortController.abort();
+    } catch {
+      /* noop */
+    }
   }
   const ctrl = new AbortController();
   _searchState.abortController = ctrl;
@@ -110,7 +118,11 @@ const runSearch = debounce(async (query: string) => {
       // Fix B-8-2 (T8): match corretto per timeout (prima era exact match 'Timeout' che non matchava mai)
       showToast('Ricerca troppo lenta. Riprova.', 'error');
     } else if (msg && (msg.includes('non disponibile') || msg.includes('non JSON') || msg.includes('non valida'))) {
-      showToast('Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.', 'error', 5000);
+      showToast(
+        'Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.',
+        'error',
+        5000,
+      );
     } else {
       showToast('Errore nella ricerca. Verifica la connessione e riprova.', 'error');
     }
@@ -131,7 +143,11 @@ let _boundSearch = false;
 /** Fix B7: abortisce qualsiasi ricerca OFF in corso + reset loading */
 function abortInFlightSearch(): void {
   if (_searchState.abortController) {
-    try { _searchState.abortController.abort(); } catch { /* noop */ }
+    try {
+      _searchState.abortController.abort();
+    } catch {
+      /* noop */
+    }
     _searchState.abortController = null;
   }
   _searchState.loading = false;
@@ -142,23 +158,27 @@ export function bindSearchEvents(): void {
   _boundSearch = true;
 
   // Fix B7: ESC handler dedicato per il search dialog (prima di modal.ts ESC generico)
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    if (!getState()._searchOpen) return;
-    // Solo se il search è il modal top (ultimo nel DOM)
-    const overlays = document.querySelectorAll('.modal-overlay');
-    if (overlays.length === 0) return;
-    const top = overlays[overlays.length - 1] as HTMLElement;
-    if (top.dataset.modalId !== 'search-dialog') return;
-    e.stopPropagation();
-    e.preventDefault();
-    // Fix BUG #7 (T5): se ci sono modifiche non salvate, chiedi conferma
-    if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
-      if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
-    }
-    closeFoodSearch();
-    resetSearchState();
-  }, true); // capture phase per intercettare PRIMA di modal.ts
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Escape') return;
+      if (!getState()._searchOpen) return;
+      // Solo se il search è il modal top (ultimo nel DOM)
+      const overlays = document.querySelectorAll('.modal-overlay');
+      if (overlays.length === 0) return;
+      const top = overlays[overlays.length - 1] as HTMLElement;
+      if (top.dataset.modalId !== 'search-dialog') return;
+      e.stopPropagation();
+      e.preventDefault();
+      // Fix BUG #7 (T5): se ci sono modifiche non salvate, chiedi conferma
+      if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
+        if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
+      }
+      closeFoodSearch();
+      resetSearchState();
+    },
+    true,
+  ); // capture phase per intercettare PRIMA di modal.ts
 
   document.addEventListener('click', (e) => {
     if (!getState()._searchOpen) return;
@@ -191,7 +211,11 @@ export function bindSearchEvents(): void {
           _searchState.pendingCustomPortions = [];
           emitChange();
           // Fix BUG #4 (T5): se torniamo su tab search con query valida, rilancia la search
-          if (tab === 'search' && _searchState.query.trim().length >= SEARCH_MIN_QUERY && _searchState.results.length === 0) {
+          if (
+            tab === 'search' &&
+            _searchState.query.trim().length >= SEARCH_MIN_QUERY &&
+            _searchState.results.length === 0
+          ) {
             _searchState.loading = true;
             emitChange();
             runSearch(_searchState.query);
@@ -274,8 +298,12 @@ export function bindSearchEvents(): void {
         // P0 #2: apri il modal scanner camera. La callback onDetected recupera il prodotto OFF.
         if (isBarcodeScannerOpen()) return;
         openBarcodeScanner({
-          onDetected: (barcode) => { void handleBarcodeDetected(barcode); },
-          onError: () => { /* toast/messaggio già gestito nel modal */ },
+          onDetected: (barcode) => {
+            void handleBarcodeDetected(barcode);
+          },
+          onError: () => {
+            /* toast/messaggio già gestito nel modal */
+          },
         });
         return;
       }
@@ -430,7 +458,11 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
       _searchState.loading = false;
       _searchState.results = [];
       emitChange();
-      showToast(`Nessun prodotto trovato per il codice ${barcode}. Puoi cercare per nome o creare un ingrediente custom.`, 'info', 4500);
+      showToast(
+        `Nessun prodotto trovato per il codice ${barcode}. Puoi cercare per nome o creare un ingrediente custom.`,
+        'info',
+        4500,
+      );
       return;
     }
     const food = buildFoodFromOff(product);
@@ -680,9 +712,10 @@ export function updateSearchContent(overlay: HTMLElement): void {
 function renderSelectedFooter(selectedFood: FoodItem): string {
   // Fix BUG #10 (T5): gestisci gramsOverride non numerico (NaN) → fallback a servingSize
   const gramsParsed = Number(_searchState.gramsOverride);
-  const selectedGrams = _searchState.gramsOverride && Number.isFinite(gramsParsed) && gramsParsed > 0
-    ? gramsParsed
-    : selectedFood.servingSize;
+  const selectedGrams =
+    _searchState.gramsOverride && Number.isFinite(gramsParsed) && gramsParsed > 0
+      ? gramsParsed
+      : selectedFood.servingSize;
   const selectedNutrition = {
     calories: Math.round((selectedFood.nutrition.calories * selectedGrams) / 100),
     protein: Math.round((selectedFood.nutrition.protein * selectedGrams) / 100),
@@ -690,23 +723,25 @@ function renderSelectedFooter(selectedFood: FoodItem): string {
     fat: Math.round((selectedFood.nutrition.fat * selectedGrams) / 100),
   };
   // Combina le porzioni personalizzate salvate con quelle pending
-  const allPortions: CustomPortion[] = [
-    ...(selectedFood.customPortions || []),
-    ..._searchState.pendingCustomPortions,
-  ];
-  const portionsHtml = allPortions.length > 0
-    ? `
+  const allPortions: CustomPortion[] = [...(selectedFood.customPortions || []), ..._searchState.pendingCustomPortions];
+  const portionsHtml =
+    allPortions.length > 0
+      ? `
       <div class="portion-chips">
-        ${allPortions.map((p) => `
+        ${allPortions
+          .map(
+            (p) => `
           <button type="button" class="portion-chip${Number(_searchState.gramsOverride) === p.grams ? ' active' : ''}" data-search-action="usePortion" data-grams="${p.grams}">
             <span class="portion-chip-label">${escapeHtml(p.label)}</span>
             <span class="portion-chip-grams">${p.grams}g</span>
             <span class="portion-chip-del" data-search-action="deleteCustomPortion" data-food-id="${escapeAttr(selectedFood.id)}" data-portion-id="${escapeAttr(p.id)}" role="button" aria-label="Elimina porzione">✕</span>
           </button>
-        `).join('')}
+        `,
+          )
+          .join('')}
       </div>
     `
-    : '';
+      : '';
 
   const createPortionHtml = _searchState.creatingPortion
     ? `

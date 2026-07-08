@@ -1,7 +1,14 @@
 // Vista Settings: calorie goal, macro split, TDEE calculator, export/import, reset, about.
 
 import { getState, setCalorieGoal, setMacroSplit, updateSettings, openResetConfirm, emitChange } from '../lib/store';
-import { calcMacroGrams, calcBMR, calcTDEE, normalizeMacroSplit, kcalFromMacros, calcGoalAdjustedCalories } from '../lib/nutrition';
+import {
+  calcMacroGrams,
+  calcBMR,
+  calcTDEE,
+  normalizeMacroSplit,
+  kcalFromMacros,
+  calcGoalAdjustedCalories,
+} from '../lib/nutrition';
 import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
 import { handleExport, handleImport } from '../components/exportImport';
 import { showToast } from '../components/toast';
@@ -9,14 +16,21 @@ import { applyTheme } from '../components/renderer';
 import { MACRO_PRESETS, ACTIVITY_LABELS, WEIGHT_GOAL_LABELS, MAX_WEEKLY_KG_RATE } from '../types';
 import type { MacroSplit, Theme, Sex, ActivityLevel, WeightGoalType } from '../types';
 // Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
-import { getSettingsRenderSig, setSettingsRenderSig, resetSettingsSignature as resetSettingsSig, registerViewReset } from './signatures';
+import {
+  getSettingsRenderSig,
+  setSettingsRenderSig,
+  resetSettingsSignature as resetSettingsSig,
+  registerViewReset,
+} from './signatures';
 
 let _settingsBound = false;
 let _pendingMacroSplit: MacroSplit | null = null;
 
 // Fix CI: registra il reset di _pendingMacroSplit nel registry del modulo signatures
 // (così resetAllViewSignatures lo resetta senza che signatures.ts importi settings.ts)
-registerViewReset(() => { _pendingMacroSplit = null; });
+registerViewReset(() => {
+  _pendingMacroSplit = null;
+});
 
 /** Reset signature cache + _pendingMacroSplit (chiamato dal renderer al cambio vista).
  *  Fix B6.4 (T6): resetta anche _pendingMacroSplit per evitare valori stale dopo resetAll. */
@@ -143,9 +157,7 @@ function updateCalorieGoalLive(
   const totalSign = totalDelta > 0 ? '+' : '';
   const direction = delta < 0 ? 'deficit' : 'surplus';
   const verb = goalType === 'lose' ? 'perdere' : 'aumentare';
-  const targetDate = weeks > 0
-    ? new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000)
-    : null;
+  const targetDate = weeks > 0 ? new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000) : null;
   const dateStr = targetDate
     ? targetDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })
     : '';
@@ -153,11 +165,12 @@ function updateCalorieGoalLive(
     <p class="preview-label">Anteprima obiettivo</p>
     <p class="preview-values">Obiettivo: <strong>${newKcal} kcal/giorno</strong></p>
     <p class="preview-check">Variazione: <strong>${sign}${delta} kg/settimana</strong> · ${direction} ${adjSign}${adj} kcal/giorno</p>
-    ${weeks > 0
-      ? `<p class="preview-check">Tempo stimato: <strong>${weeks} settimane</strong> (~${Math.round(weeks / 4.345)} mesi) per ${verb} <strong>${totalSign}${totalDelta} kg</strong>${dateStr ? ` · target entro <strong>${dateStr}</strong>` : ''}</p>`
-      : totalDelta === 0
-        ? `<p class="hint-text">Sei già al peso target.</p>`
-        : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
+    ${
+      weeks > 0
+        ? `<p class="preview-check">Tempo stimato: <strong>${weeks} settimane</strong> (~${Math.round(weeks / 4.345)} mesi) per ${verb} <strong>${totalSign}${totalDelta} kg</strong>${dateStr ? ` · target entro <strong>${dateStr}</strong>` : ''}</p>`
+        : totalDelta === 0
+          ? `<p class="hint-text">Sei già al peso target.</p>`
+          : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
     }
     ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
   `;
@@ -166,7 +179,14 @@ function updateCalorieGoalLive(
 /** Costruisce il messaggio toast contestuale per calcTdee. */
 function buildGoalToast(
   goalType: WeightGoalType,
-  goal: { kcal: number; weeklyDeltaKg: number; dailyAdjustment: number; weeksToTarget: number; totalDeltaKg: number; kcalClamped: boolean },
+  goal: {
+    kcal: number;
+    weeklyDeltaKg: number;
+    dailyAdjustment: number;
+    weeksToTarget: number;
+    totalDeltaKg: number;
+    kcalClamped: boolean;
+  },
 ): string {
   if (goalType === 'maintain') {
     return `Obiettivo calorie aggiornato a ${goal.kcal} kcal/giorno (mantenimento)`;
@@ -233,9 +253,7 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
   const totalSign = totalDelta > 0 ? '+' : '';
   const direction = delta < 0 ? 'deficit' : 'surplus';
   const verb = goalType === 'lose' ? 'perdere' : 'aumentare';
-  const targetDate = weeks > 0
-    ? new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000)
-    : null;
+  const targetDate = weeks > 0 ? new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000) : null;
   const dateStr = targetDate
     ? targetDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })
     : '';
@@ -243,11 +261,12 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
     <p class="preview-label">Anteprima obiettivo</p>
     <p class="preview-values">TDEE base: <strong>${tdee} kcal</strong> · Obiettivo: <strong>${goal.kcal} kcal/giorno</strong></p>
     <p class="preview-check">Variazione: <strong>${sign}${delta} kg/settimana</strong> · ${direction} ${adjSign}${adj} kcal/giorno</p>
-    ${weeks > 0
-      ? `<p class="preview-check">Tempo stimato: <strong>${weeks} settimane</strong> (~${Math.round(weeks / 4.345)} mesi) per ${verb} <strong>${totalSign}${totalDelta} kg</strong>${dateStr ? ` · target entro <strong>${dateStr}</strong>` : ''}</p>`
-      : totalDelta === 0
-        ? `<p class="hint-text">Sei già al peso target.</p>`
-        : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
+    ${
+      weeks > 0
+        ? `<p class="preview-check">Tempo stimato: <strong>${weeks} settimane</strong> (~${Math.round(weeks / 4.345)} mesi) per ${verb} <strong>${totalSign}${totalDelta} kg</strong>${dateStr ? ` · target entro <strong>${dateStr}</strong>` : ''}</p>`
+        : totalDelta === 0
+          ? `<p class="hint-text">Sei già al peso target.</p>`
+          : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
     }
     ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
   `;
@@ -296,13 +315,7 @@ export function renderSettings(main: HTMLElement): void {
     if (!s.activityLevel) return 0;
     return calcTDEE(calcBMR(w, h, a, s.sex), s.activityLevel);
   })();
-  const goalPreview = calcGoalAdjustedCalories(
-    tdeePreview,
-    s.weightKg,
-    s.targetWeightKg,
-    s.weeklyRateKg,
-    goalType,
-  );
+  const goalPreview = calcGoalAdjustedCalories(tdeePreview, s.weightKg, s.targetWeightKg, s.weeklyRateKg, goalType);
 
   main.innerHTML = `
     <div class="settings-view">
@@ -332,9 +345,9 @@ export function renderSettings(main: HTMLElement): void {
         </div>
         <div class="separator"></div>
         <div class="macro-sliders">
-          ${macroSlider('Proteine',    split.proteinPct, macroGrams.protein, 'var(--color-protein)', 'proteinPct')}
-          ${macroSlider('Carboidrati', split.carbsPct,   macroGrams.carbs,   'var(--color-carbs)',   'carbsPct')}
-          ${macroSlider('Grassi',      split.fatPct,     macroGrams.fat,     'var(--color-fat)',     'fatPct')}
+          ${macroSlider('Proteine', split.proteinPct, macroGrams.protein, 'var(--color-protein)', 'proteinPct')}
+          ${macroSlider('Carboidrati', split.carbsPct, macroGrams.carbs, 'var(--color-carbs)', 'carbsPct')}
+          ${macroSlider('Grassi', split.fatPct, macroGrams.fat, 'var(--color-fat)', 'fatPct')}
         </div>
         ${Math.abs(splitSum - 100) > 0.5 ? `<p class="warning-text">Lo split non somma a 100%. Verrà normalizzato automaticamente al salvataggio.</p>` : ''}
         <div class="macro-preview">
@@ -369,15 +382,21 @@ export function renderSettings(main: HTMLElement): void {
         <div class="goal-section">
           <p class="setting-label">Obiettivo di peso</p>
           <div class="goal-type-row" role="tablist" aria-label="Obiettivo di peso">
-            ${(Object.keys(WEIGHT_GOAL_LABELS) as WeightGoalType[]).map((g) => `
+            ${(Object.keys(WEIGHT_GOAL_LABELS) as WeightGoalType[])
+              .map(
+                (g) => `
               <button type="button"
                 class="btn ${goalType === g ? 'btn-primary' : 'btn-outline'} btn-sm goal-type-btn"
                 data-action="setGoalType" data-goal-type="${g}"
                 role="tab" aria-selected="${goalType === g}">${escapeHtml(WEIGHT_GOAL_LABELS[g])}</button>
-            `).join('')}
+            `,
+              )
+              .join('')}
           </div>
 
-          ${goalType !== 'maintain' ? `
+          ${
+            goalType !== 'maintain'
+              ? `
             <div class="tdee-grid goal-inputs">
               <label class="field"><span>Peso target (kg)</span><input id="tdee-target-weight" type="number" inputmode="decimal" min="30" max="500" step="0.1" value="${s.targetWeightKg ?? ''}" placeholder="es. 65" /></label>
               <label class="field"><span>Peso attuale (kg)</span><input id="tdee-current-weight" type="number" inputmode="decimal" min="30" max="500" step="0.1" value="${s.weightKg ?? ''}" placeholder="es. 70" /></label>
@@ -391,10 +410,14 @@ export function renderSettings(main: HTMLElement): void {
               <div class="slider-range"><span>0.10 (lento)</span><span>${MAX_WEEKLY_KG_RATE.toFixed(2)} (max sicuro)</span></div>
             </div>
             <p class="hint-text">Scegli quanto velocemente perdere/aumentare peso. Il sistema calcolerà automaticamente le settimane necessarie. Massimo ${MAX_WEEKLY_KG_RATE} kg/settimana (linea guida WHO/ACSM).</p>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
 
-        ${goalType !== 'maintain' && tdeePreview > 0 ? `
+        ${
+          goalType !== 'maintain' && tdeePreview > 0
+            ? `
           <div class="goal-preview">
             <p class="preview-label">Anteprima obiettivo</p>
             ${(() => {
@@ -408,31 +431,34 @@ export function renderSettings(main: HTMLElement): void {
               const direction = delta < 0 ? 'deficit' : 'surplus';
               const verb = goalType === 'lose' ? 'perdere' : 'aumentare';
               // Data stimata di raggiungimento (oggi + weeks*7 giorni)
-              const targetDate = weeks > 0
-                ? new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000)
-                : null;
+              const targetDate = weeks > 0 ? new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000) : null;
               const dateStr = targetDate
                 ? targetDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })
                 : '';
               return `
                 <p class="preview-values">TDEE base: <strong>${tdeePreview} kcal</strong> · Obiettivo: <strong>${goalPreview.kcal} kcal/giorno</strong></p>
                 <p class="preview-check">Variazione: <strong>${sign}${delta} kg/settimana</strong> · ${direction} ${adjSign}${adj} kcal/giorno</p>
-                ${weeks > 0
-                  ? `<p class="preview-check">Tempo stimato: <strong>${weeks} settimane</strong> (~${Math.round(weeks / 4.345)} mesi) per ${verb} <strong>${totalSign}${totalDelta} kg</strong>${dateStr ? ` · target entro <strong>${dateStr}</strong>` : ''}</p>`
-                  : totalDelta === 0
-                    ? `<p class="hint-text">Sei già al peso target.</p>`
-                    : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
+                ${
+                  weeks > 0
+                    ? `<p class="preview-check">Tempo stimato: <strong>${weeks} settimane</strong> (~${Math.round(weeks / 4.345)} mesi) per ${verb} <strong>${totalSign}${totalDelta} kg</strong>${dateStr ? ` · target entro <strong>${dateStr}</strong>` : ''}</p>`
+                    : totalDelta === 0
+                      ? `<p class="hint-text">Sei già al peso target.</p>`
+                      : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
                 }
                 ${goalPreview.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
               `;
             })()}
           </div>
-        ` : goalType === 'maintain' && tdeePreview > 0 ? `
+        `
+            : goalType === 'maintain' && tdeePreview > 0
+              ? `
           <div class="goal-preview">
             <p class="preview-label">Anteprima obiettivo</p>
             <p class="preview-values">TDEE: <strong>${tdeePreview} kcal/giorno</strong> (mantenimento)</p>
           </div>
-        ` : ''}
+        `
+              : ''
+        }
 
         <button type="button" class="btn btn-primary btn-block" data-action="calcTdee">Calcola e imposta come obiettivo</button>
       </section>
@@ -441,9 +467,13 @@ export function renderSettings(main: HTMLElement): void {
         <h2 class="setting-title">Tema</h2>
         <p class="setting-subtitle">Scegli l'aspetto dell'app</p>
         <div class="theme-row">
-          ${(['system', 'light', 'dark'] as Theme[]).map((t) => `
+          ${(['system', 'light', 'dark'] as Theme[])
+            .map(
+              (t) => `
             <button type="button" class="btn ${s.theme === t ? 'btn-primary' : 'btn-outline'}" data-action="setTheme" data-theme="${t}">${t === 'system' ? 'Sistema' : t === 'light' ? 'Chiaro' : 'Scuro'}</button>
-          `).join('')}
+          `,
+            )
+            .join('')}
         </div>
       </section>
 
@@ -472,7 +502,13 @@ export function renderSettings(main: HTMLElement): void {
   bindSettingsEvents(main);
 }
 
-function macroSlider(label: string, pct: number, grams: number, color: string, key: 'proteinPct' | 'carbsPct' | 'fatPct'): string {
+function macroSlider(
+  label: string,
+  pct: number,
+  grams: number,
+  color: string,
+  key: 'proteinPct' | 'carbsPct' | 'fatPct',
+): string {
   return `
     <div class="macro-slider-row">
       <div class="macro-slider-head">
@@ -755,7 +791,10 @@ function bindSettingsEvents(main: HTMLElement): void {
       if (raw === '') return; // permesso (campo opzionale fino al calc)
       const parsed = Number(raw);
       if (!Number.isFinite(parsed) || parsed <= 0) {
-        showToast(`Valore non valido per ${t.id === 'tdee-weight' ? 'peso' : t.id === 'tdee-height' ? 'altezza' : 'età'}`, 'error');
+        showToast(
+          `Valore non valido per ${t.id === 'tdee-weight' ? 'peso' : t.id === 'tdee-height' ? 'altezza' : 'età'}`,
+          'error',
+        );
       }
       return;
     }

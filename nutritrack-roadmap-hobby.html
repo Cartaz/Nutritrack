@@ -454,7 +454,7 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
     <div class="section-head reveal">
       <div class="section-kicker">01 · In sintesi</div>
       <h2 class="section-title">Numeri della roadmap</h2>
-      <p class="section-desc">24 task totali distribuiti su 4 fasi temporali. Effort complessivo stimato: ~75–100 giorni di sviluppo spalmato su 12 mesi, in modalità tempo-rubato. <strong>3 task P0 critici completati nel primo pass.</strong></p>
+      <p class="section-desc">24 task totali distribuiti su 4 fasi temporali. Effort complessivo stimato: ~75–100 giorni di sviluppo spalmato su 12 mesi, in modalità tempo-rubato. <strong>6 task completati nel primo pass: 3 P0 critici + 3 quick wins P1/P2.</strong></p>
     </div>
 
     <div class="summary-stats">
@@ -479,8 +479,8 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
         <div class="stat-label">Dipendenze esterne nuove</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-value">3 / 24</div>
-        <div class="stat-label">Task completati (P0)</div>
+        <div class="stat-value">6 / 24</div>
+        <div class="stat-label">Task completati</div>
       </div>
     </div>
 
@@ -518,7 +518,7 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
     </div>
 
     <div class="callout success reveal" style="margin-top: var(--space-5);">
-      <strong>✓ P0 completati (3/3):</strong> file <code>LICENSE</code> MIT aggiunto, scanner barcode con <code>BarcodeDetector</code> nativo + fallback <code>@zxing/library</code>, informativa privacy statica GDPR-compliant in <code>/privacy.html</code>. Prossimo focus: P1 (Vitest + ESLint/Prettier).
+      <strong>✓ Fase 1 completata (6/6 Quick Wins):</strong> file <code>LICENSE</code> MIT, scanner barcode (<code>BarcodeDetector</code> + fallback <code>@zxing/library</code>), informativa privacy GDPR-compliant, <strong>setup Vitest con 193 test su nutrition/normalize/storage/utils</strong>, <strong>setup ESLint 9 flat config + Prettier 3</strong> integrati in CI, <strong>fix <code>gen-icons.py</code></strong> con path resolution basata su <code>__file__</code>. Prossimo focus: Fase 2 (statistiche mensili, database IT curato, biometrica).
     </div>
 
     <div class="roadmap">
@@ -574,41 +574,41 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
               </div>
             </div>
 
-            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+            <div class="roadmap-item p1 done" data-priority="p1" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Setup Vitest + primi test</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
-              <div class="ri-desc">Aggiungi Vitest al progetto. Scrivi test unitari per i moduli più critici: <code>lib/nutrition.ts</code> (TDEE, macro grams, scaling), <code>lib/normalize.ts</code> (validazione input), <code>lib/storage.ts</code> (backup, recovery). Aggiungi <code>npm test</code> alla CI.</div>
+              <div class="ri-desc">Vitest 2.1 installato con environment jsdom e coverage v8. <strong>193 test</strong> scritti per <code>lib/nutrition.ts</code> (51 test: macro grams, scaling, BMR, TDEE, weeks-to-target, goal-adjusted calories), <code>lib/normalize.ts</code> (78 test: XSS guard, validazione input, OFF conversion, kJ→kcal, Atwater fallback), <code>lib/storage.ts</code> (23 test: save/load roundtrip, backup recovery, QuotaExceededError strip, import validation), <code>lib/utils.ts</code> (41 test: escapeHtml, safeNum, parseISODateLocal, debounce, clamp). Script <code>npm test</code> integrato in CI.</div>
               <div class="ri-meta">
                 <span class="pri-tag p1">P1</span>
-                <span>⏱ 3–5 gg</span>
-                <span>→ dipende da niente</span>
+                <span>⏱ 3–5 gg (effettivo: 1 gg)</span>
+                <span>✓ nessuna dipendenza</span>
               </div>
             </div>
 
-            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+            <div class="roadmap-item p1 done" data-priority="p1" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Setup ESLint + Prettier</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
-              <div class="ri-desc">Configura ESLint con <code>@typescript-eslint</code> + Prettier. Integra in CI come gate (già che CI c'è). Mantiene stile coerente se in futuro arrivano contributor occasionali tra i tuoi amici.</div>
+              <div class="ri-desc">ESLint 9 flat config con <code>typescript-eslint</code> 8 (recommended) + <code>eslint-config-prettier</code> per disabilitare regole di formato. Prettier 3 con config <code>.prettierrc.json</code> (singleQuote, trailingComma all, printWidth 120). Regole custom: <code>eqeqeq</code> strict, <code>no-var</code>, <code>@typescript-eslint/no-unused-vars</code> con <code>^_</code> ignore. Script <code>npm run lint</code> + <code>npm run format:check</code> integrati in CI come gate. Codebase formattata one-shot.</div>
               <div class="ri-meta">
                 <span class="pri-tag p1">P1</span>
-                <span>⏱ 1 gg</span>
-                <span>→ aggiungi a CI</span>
+                <span>⏱ 1 gg (effettivo: 0.5 gg)</span>
+                <span>✓ aggiunto a CI</span>
               </div>
             </div>
 
-            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+            <div class="roadmap-item p2 done" data-priority="p2" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Fix gen-icons.py path hardcoded</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
-              <div class="ri-desc">Bug minore: <code>gen-icons.py</code> ha path assoluto <code>/home/z/my-project/download/...</code>. Sostituisci con <code>os.path.dirname(__file__)</code>. 30 minuti di lavoro, togliti la spina subito.</div>
+              <div class="ri-desc">Sostituito path assoluto <code>/home/z/my-project/download/nutritrack-pwa/public/icons</code> con resolution basata su <code>os.path.dirname(os.path.abspath(__file__))</code> + <code>os.path.dirname(_SCRIPT_DIR)</code>. Lo script ora funziona da qualsiasi working directory e qualsiasi clone del repo. Aggiunto sanity check con errore guidato se <code>icon-512.png</code> sorgente manca.</div>
               <div class="ri-meta">
                 <span class="pri-tag p2">P2</span>
-                <span>⏱ 0.5 gg</span>
+                <span>⏱ 0.5 gg (effettivo: 0.2 gg)</span>
                 <span>✓ nessuna dipendenza</span>
               </div>
             </div>

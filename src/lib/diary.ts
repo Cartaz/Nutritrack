@@ -63,7 +63,12 @@ export function removeDiaryEntry(id: string): void {
  *  Fix 2.1 (T2): se currentQty è già al minimo, no-op silenzioso → mostra toast.
  *  Fix 2.2 (T2): NON resettare gramsOverride se era settato (preserve gram-weight mode).
  *  Fix 2.3 (T2): step adattivo a servingSize per cibi piccoli. */
-export function changeEntryQuantity(id: string, delta: number, currentQty: number, currentGramsOverride?: number): void {
+export function changeEntryQuantity(
+  id: string,
+  delta: number,
+  currentQty: number,
+  currentGramsOverride?: number,
+): void {
   const MIN_QTY = 0.5;
   // Se l'entry è in modalità grammi (gramsOverride settato), i bottoni +/− non dovrebbero apparire.
   // Ma se la funzione è chiamata comunque, scala i grammi proporzionalmente invece di azzerare gramsOverride.
@@ -123,7 +128,10 @@ export function addRecipeToDiary(meal: MealType, recipeId: string, servings: num
   if (failed > 0 && added === 0) {
     showToast(`Impossibile aggiungere ${recipe.name} (limite giornaliero raggiunto)`, 'error');
   } else if (failed > 0) {
-    showToast(`${recipe.name}: ${added}/${recipe.ingredients.length} ingredienti aggiunti a ${MEAL_LABELS[meal]} (limite raggiunto)`, 'warning');
+    showToast(
+      `${recipe.name}: ${added}/${recipe.ingredients.length} ingredienti aggiunti a ${MEAL_LABELS[meal]} (limite raggiunto)`,
+      'warning',
+    );
   } else {
     showToast(`${recipe.name} (${servings} porz.) aggiunto a ${MEAL_LABELS[meal]}`, 'success');
   }

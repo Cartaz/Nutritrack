@@ -1,7 +1,17 @@
 // Renderer principale: render() con RAF + code-splitting viste via dynamic import + event delegation globale.
 // Pattern 2 + 3 dello standard.
 
-import { getState, emitChange, switchView, closeAddRecipeToMeal, closeDeleteFoodConfirm, closeDeleteRecipeConfirm, closeResetConfirm, getStoreState, resetAll } from '../lib/store';
+import {
+  getState,
+  emitChange,
+  switchView,
+  closeAddRecipeToMeal,
+  closeDeleteFoodConfirm,
+  closeDeleteRecipeConfirm,
+  closeResetConfirm,
+  getStoreState,
+  resetAll,
+} from '../lib/store';
 import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
 import { bindSearchEvents, renderSearchShell, updateSearchContent } from './search';
@@ -162,13 +172,20 @@ function renderSearchOverlay(): void {
 function renderConfirmDeleteFood(): void {
   const id = getStoreState()._confirmDeleteFoodId;
   const existing = document.querySelector('[data-modal-id="confirm-delete-food"]');
-  if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
+  if (!id && existing) {
+    existing.remove();
+    closeModalCleanup();
+    return;
+  }
   if (!id || existing) return;
   const food = getStoreState().foods.find((f: FoodItem) => f.id === id);
-  if (!food) { cancelDeleteFood(); return; }
+  if (!food) {
+    cancelDeleteFood();
+    return;
+  }
   showModal({
     modalId: 'confirm-delete-food',
-    title: 'Eliminare l\'alimento?',
+    title: "Eliminare l'alimento?",
     bodyHtml: `<p>Stai per eliminare <strong>${escapeHtml(food.name)}</strong>. Le voci del diario che lo utilizzano manterranno uno snapshot dei dati nutrizionali, quindi non verranno perse.</p>`,
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
@@ -185,10 +202,17 @@ function renderConfirmDeleteFood(): void {
 function renderConfirmDeleteRecipe(): void {
   const id = getStoreState()._confirmDeleteRecipeId;
   const existing = document.querySelector('[data-modal-id="confirm-delete-recipe"]');
-  if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
+  if (!id && existing) {
+    existing.remove();
+    closeModalCleanup();
+    return;
+  }
   if (!id || existing) return;
   const recipe = getStoreState().recipes.find((r: Recipe) => r.id === id);
-  if (!recipe) { cancelDeleteRecipe(); return; }
+  if (!recipe) {
+    cancelDeleteRecipe();
+    return;
+  }
   showModal({
     modalId: 'confirm-delete-recipe',
     title: 'Eliminare la ricetta?',
@@ -208,7 +232,11 @@ function renderConfirmDeleteRecipe(): void {
 function renderConfirmReset(): void {
   const open = getStoreState()._confirmReset;
   const existing = document.querySelector('[data-modal-id="confirm-reset"]');
-  if (!open && existing) { existing.remove(); closeModalCleanup(); return; }
+  if (!open && existing) {
+    existing.remove();
+    closeModalCleanup();
+    return;
+  }
   if (!open || existing) return;
   showModal({
     modalId: 'confirm-reset',
@@ -237,7 +265,10 @@ async function renderFoodEditor(): Promise<void> {
   const existing = document.querySelector('[data-modal-id="food-editor"]');
   if (id === null) {
     // Modal chiuso: rimuovi se esiste (la cleanup del state avviene via onClose callback)
-    if (existing) { existing.remove(); closeModalCleanup(); }
+    if (existing) {
+      existing.remove();
+      closeModalCleanup();
+    }
     return;
   }
   // id è 'new' o un food id esistente: se il modal esiste già, skip
@@ -254,7 +285,10 @@ async function renderRecipeEditor(): Promise<void> {
   const id = getStoreState()._editingRecipeId;
   const existing = document.querySelector('[data-modal-id="recipe-editor"]');
   if (id === null) {
-    if (existing) { existing.remove(); closeModalCleanup(); }
+    if (existing) {
+      existing.remove();
+      closeModalCleanup();
+    }
     return;
   }
   if (existing) return;
@@ -269,7 +303,11 @@ async function renderRecipeEditor(): Promise<void> {
 async function renderRecipeViewer(): Promise<void> {
   const id = getStoreState()._viewingRecipeId;
   const existing = document.querySelector('[data-modal-id="recipe-viewer"]');
-  if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
+  if (!id && existing) {
+    existing.remove();
+    closeModalCleanup();
+    return;
+  }
   if (!id || existing) return;
   const { renderRecipeViewerModal } = await import('../views/recipe-viewer');
   // Fix B16: re-check dopo await
@@ -282,7 +320,11 @@ async function renderRecipeViewer(): Promise<void> {
 async function renderEntryEditor(): Promise<void> {
   const id = getStoreState()._editingEntryId;
   const existing = document.querySelector('[data-modal-id="entry-editor"]');
-  if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
+  if (!id && existing) {
+    existing.remove();
+    closeModalCleanup();
+    return;
+  }
   if (!id || existing) return;
   const { renderEntryEditorModal } = await import('../views/entry-editor');
   // Re-check dopo await
@@ -296,15 +338,25 @@ function renderRecipeMealPicker(): void {
   const s = getStoreState();
   const id = s._addRecipeToMealPickerId;
   const existing = document.querySelector('[data-modal-id="recipe-meal-picker"]');
-  if (!id && existing) { existing.remove(); closeModalCleanup(); return; }
+  if (!id && existing) {
+    existing.remove();
+    closeModalCleanup();
+    return;
+  }
   if (!id || existing) return;
   const recipe = s.recipes.find((r: Recipe) => r.id === id);
-  if (!recipe) { closeAddRecipeToMeal(); return; }
+  if (!recipe) {
+    closeAddRecipeToMeal();
+    return;
+  }
   // Fix R4 (T4): mostra la data corrente del dashboard (non hardcoded "per oggi")
   // Fix C1 (CRITICAL): la data passata ad addRecipeToDiary è ora state.currentDate (vedi diary.ts)
   const dateLabel = formatDateIT(s.currentDate);
   const buttons = (['breakfast', 'lunch', 'dinner', 'snack'] as const)
-    .map((m) => `<button type="button" class="btn btn-outline btn-block" data-action="addRecipeMeal" data-recipe-id="${escapeAttr(recipe.id)}" data-meal="${m}">${escapeHtml(MEAL_LABELS[m])}</button>`)
+    .map(
+      (m) =>
+        `<button type="button" class="btn btn-outline btn-block" data-action="addRecipeMeal" data-recipe-id="${escapeAttr(recipe.id)}" data-meal="${m}">${escapeHtml(MEAL_LABELS[m])}</button>`,
+    )
     .join('');
   // Fix R4 (T4): aggiungi selettore porzioni (servings) di default 1
   const servingsInput = `

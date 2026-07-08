@@ -30,10 +30,7 @@ let _idCounter = 0;
 export function safeId(prefix = ''): string {
   _idCounter = (_idCounter + 1) % 0x10000;
   return (
-    prefix +
-    Date.now().toString(36) +
-    _idCounter.toString(36).padStart(3, '0') +
-    Math.random().toString(36).slice(2, 8)
+    prefix + Date.now().toString(36) + _idCounter.toString(36).padStart(3, '0') + Math.random().toString(36).slice(2, 8)
   );
 }
 
@@ -115,10 +112,7 @@ export interface Debounced<A extends unknown[]> {
   cancel(): void;
 }
 
-export function debounce<A extends unknown[]>(
-  fn: (...args: A) => void,
-  ms: number
-): Debounced<A> {
+export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number): Debounced<A> {
   let t: ReturnType<typeof setTimeout> | null = null;
   const debounced = (...args: A) => {
     if (t) clearTimeout(t);

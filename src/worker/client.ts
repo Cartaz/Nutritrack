@@ -27,7 +27,11 @@ function getWorker(): Worker | null {
       _workerSupported = false;
       const w = _worker;
       if (w) {
-        try { w.terminate(); } catch { /* ignore */ }
+        try {
+          w.terminate();
+        } catch {
+          /* ignore */
+        }
       }
       _worker = null;
     };
@@ -44,9 +48,13 @@ function resetIdleTimeout(): void {
   if (_idleTimeoutId) clearTimeout(_idleTimeoutId);
   _idleTimeoutId = setTimeout(() => {
     if (_worker) {
-      try { _worker.terminate(); } catch { /* ignore */ }
+      try {
+        _worker.terminate();
+      } catch {
+        /* ignore */
+      }
       _worker = null;
-      console.log('[worker] idle timeout, terminato per risparmiare memoria');
+      console.info('[worker] idle timeout, terminato per risparmiare memoria');
     }
     _idleTimeoutId = null;
   }, IDLE_TIMEOUT_MS);
@@ -69,7 +77,14 @@ function computeStatsFallback(entries: DiaryEntry[], dates: string[]): StatsResu
       return scaleNutrition(e.foodSnapshot.nutrition, grams);
     });
     const sum = sumNutrition(nutritions);
-    return { date: d, calories: sum.calories, protein: sum.protein, carbs: sum.carbs, fat: sum.fat, count: list.length };
+    return {
+      date: d,
+      calories: sum.calories,
+      protein: sum.protein,
+      carbs: sum.carbs,
+      fat: sum.fat,
+      count: list.length,
+    };
   });
   const tracked = days.filter((d) => d.count > 0);
   const n = tracked.length || 1;

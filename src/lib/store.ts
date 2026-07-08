@@ -234,9 +234,7 @@ export function addRecipe(input: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> 
 }
 
 export function updateRecipe(id: string, patch: Partial<Recipe>): void {
-  state.recipes = state.recipes.map((r) =>
-    r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r
-  );
+  state.recipes = state.recipes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r));
   emitChange();
 }
 

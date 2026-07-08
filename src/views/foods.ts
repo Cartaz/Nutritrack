@@ -13,7 +13,10 @@ export { resetFoodsSig as resetFoodsSignature };
 let _foodsBound = false;
 let _foodsQuery = '';
 
-const _filterFoods = debounce(() => { setFoodsRenderSig(''); emitChange(); }, 80);
+const _filterFoods = debounce(() => {
+  setFoodsRenderSig('');
+  emitChange();
+}, 80);
 
 export function renderFoods(main: HTMLElement): void {
   const state = getState();
@@ -27,9 +30,12 @@ export function renderFoods(main: HTMLElement): void {
   // Prima: solo id:name:brand:calories → card stale dopo edit di protein/servingSize (calorie invariate)
   const renderSig = JSON.stringify({
     q: _foodsQuery,
-    foods: state.foods.map((f) =>
-      `${f.id}:${f.name}:${f.brand ?? ''}:${f.nutrition.calories}:${f.nutrition.protein}:${f.nutrition.carbs}:${f.nutrition.fat}:${f.servingSize}:${f.servingLabel ?? ''}:${(f.customPortions || []).map((p) => p.id).join(',')}`
-    ).join('|'),
+    foods: state.foods
+      .map(
+        (f) =>
+          `${f.id}:${f.name}:${f.brand ?? ''}:${f.nutrition.calories}:${f.nutrition.protein}:${f.nutrition.carbs}:${f.nutrition.fat}:${f.servingSize}:${f.servingLabel ?? ''}:${(f.customPortions || []).map((p) => p.id).join(',')}`,
+      )
+      .join('|'),
     favs: state.favoriteFoodIds.slice().sort().join(','),
   });
   if (renderSig === getFoodsRenderSig()) return;
@@ -43,15 +49,17 @@ export function renderFoods(main: HTMLElement): void {
   });
 
   // Fix BUG #8 (T3): nascondi search box nell'empty state (nessun food salvato)
-  const searchBoxHtml = state.foods.length > 0
-    ? `<div class="search-input-wrap">
+  const searchBoxHtml =
+    state.foods.length > 0
+      ? `<div class="search-input-wrap">
         <span class="search-icon" aria-hidden="true">🔍</span>
         <input id="foods-search" type="search" placeholder="Cerca tra i tuoi alimenti…" value="${escapeAttr(_foodsQuery)}" autocomplete="off" />
       </div>`
-    : '';
+      : '';
 
-  const listHtml = state.foods.length === 0
-    ? `
+  const listHtml =
+    state.foods.length === 0
+      ? `
       <section class="card empty-state">
         <div class="empty-icon" aria-hidden="true">🍴</div>
         <h3>Nessun alimento salvato</h3>
@@ -59,9 +67,9 @@ export function renderFoods(main: HTMLElement): void {
         <button type="button" class="btn btn-primary" data-action="newFood"><span aria-hidden="true">＋</span> Crea alimento custom</button>
       </section>
     `
-    : sorted.length === 0
-      ? `<section class="card empty-state muted">Nessun alimento trovato per "${escapeHtml(_foodsQuery)}"</section>`
-      : `<div class="foods-list">${sorted.map((f) => foodCard(f, state.favoriteFoodIds.includes(f.id))).join('')}</div>`;
+      : sorted.length === 0
+        ? `<section class="card empty-state muted">Nessun alimento trovato per "${escapeHtml(_foodsQuery)}"</section>`
+        : `<div class="foods-list">${sorted.map((f) => foodCard(f, state.favoriteFoodIds.includes(f.id))).join('')}</div>`;
 
   // Fix BUG #2 (T3): preserva focus e selection della search box attraverso il re-render
   const activeEl = document.activeElement;
@@ -89,7 +97,11 @@ export function renderFoods(main: HTMLElement): void {
     if (newInput) {
       newInput.focus();
       if (searchSelectionStart !== null && searchSelectionEnd !== null) {
-        try { newInput.setSelectionRange(searchSelectionStart, searchSelectionEnd); } catch { /* noop */ }
+        try {
+          newInput.setSelectionRange(searchSelectionStart, searchSelectionEnd);
+        } catch {
+          /* noop */
+        }
       }
     }
   }

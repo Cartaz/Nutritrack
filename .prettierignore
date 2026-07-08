@@ -1,0 +1,15 @@
+# File generati / build
+dist/
+dev-dist/
+coverage/
+node_modules/
+
+# Lockfile (formatting non rilevante, lascia a npm)
+package-lock.json
+
+# Icone binarie
+public/icons/*.png
+public/icons/*.ico
+
+# Auto-generated da vite-plugin-pwa (se presente)
+src/vite-env.d.ts

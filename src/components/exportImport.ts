@@ -34,13 +34,21 @@ export function handleExport(): void {
 export function handleImport(file: File): void {
   // Fix B6.15: size guard per evitare freeze UI
   if (file.size > MAX_IMPORT_BYTES) {
-    showToast(`File troppo grande (${Math.round(file.size / 1024 / 1024)}MB). Massimo ${MAX_IMPORT_BYTES / 1024 / 1024}MB.`, 'error', 6000);
+    showToast(
+      `File troppo grande (${Math.round(file.size / 1024 / 1024)}MB). Massimo ${MAX_IMPORT_BYTES / 1024 / 1024}MB.`,
+      'error',
+      6000,
+    );
     return;
   }
 
   // Fix B6.11: chiedi conferma prima di sovrascrivere dati esistenti
   // (importDataJson fa replace completo dello state + localStorage)
-  if (!confirm('L\'importazione sostituirà tutti i dati attuali (alimenti, ricette, diario, impostazioni). Vuoi continuare?')) {
+  if (
+    !confirm(
+      "L'importazione sostituirà tutti i dati attuali (alimenti, ricette, diario, impostazioni). Vuoi continuare?",
+    )
+  ) {
     return;
   }
 
@@ -50,7 +58,11 @@ export function handleImport(file: File): void {
     if (result.ok) {
       // Fix B6.9: messaggio distinto per count=0 (es. file con solo settings)
       if (result.count === 0) {
-        showToast('Import completato, ma nessun alimento/ricetta/entry trovato nel file (solo impostazioni?)', 'info', 4000);
+        showToast(
+          'Import completato, ma nessun alimento/ricetta/entry trovato nel file (solo impostazioni?)',
+          'info',
+          4000,
+        );
       } else {
         let msg = `Backup importato (${result.count} elementi)`;
         // Fix 7.8: mostra scarti se reconcileAll ha filtrato entità malformate

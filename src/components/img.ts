@@ -3,12 +3,7 @@
 
 import { safeImageUrl, escapeAttr } from '../lib/utils';
 
-export function imgTag(
-  src: unknown,
-  alt: string,
-  cls = 'thumb',
-  fallbackEmoji = '🥫'
-): string {
+export function imgTag(src: unknown, alt: string, cls = 'thumb', fallbackEmoji = '🥫'): string {
   const safe = safeImageUrl(src);
   if (!safe) {
     return `<div class="${escapeAttr(cls)} thumb-placeholder" aria-hidden="true">${escapeAttr(fallbackEmoji)}</div>`;

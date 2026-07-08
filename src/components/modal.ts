@@ -17,8 +17,8 @@ export interface ModalAction {
 
 interface ModalCallbacks {
   // Fix R10 (T4): onConfirm riceve l'elemento cliccato (per distinguere azioni multiple con action='confirm' e id diversi)
-  onConfirm?: (clickedEl?: HTMLElement) => boolean | void;  // ritorna false per bloccare chiusura
-  onClose?: () => void;              // chiamato quando il modal viene chiuso (qualsiasi path)
+  onConfirm?: (clickedEl?: HTMLElement) => boolean | void; // ritorna false per bloccare chiusura
+  onClose?: () => void; // chiamato quando il modal viene chiuso (qualsiasi path)
   sticky?: boolean;
 }
 
@@ -30,10 +30,13 @@ const _closing = new WeakSet<HTMLElement>();
 let _previouslyFocused: HTMLElement | null = null;
 
 // Fix 2.7 (T2): focus trap — Tab/Shift+Tab al primo/ultimo elemento focusable del modal rimane nel modal
-const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function getFocusableElements(overlay: HTMLElement): HTMLElement[] {
-  return Array.from(overlay.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((el) => el.offsetParent !== null || el === document.activeElement);
+  return Array.from(overlay.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => el.offsetParent !== null || el === document.activeElement,
+  );
 }
 
 function initModal(): void {
@@ -117,7 +120,11 @@ function closeModal(el: HTMLElement): void {
     }
     // Fix B6: onClose callback per cleanup state
     if (cb?.onClose) {
-      try { cb.onClose(); } catch (e) { console.error('[modal] onClose error', e); }
+      try {
+        cb.onClose();
+      } catch (e) {
+        console.error('[modal] onClose error', e);
+      }
     }
     // Fix race condition: cancella i callback SOLO se non sono stati
     // già sostituiti da un nuovo showModal con lo stesso modalId
@@ -127,7 +134,11 @@ function closeModal(el: HTMLElement): void {
     _closing.delete(el);
     // Fix 2.7 (T2): ripristina focus all'elemento focalizzato prima dell'apertura del modal
     if (_previouslyFocused && typeof _previouslyFocused.focus === 'function') {
-      try { _previouslyFocused.focus(); } catch { /* noop */ }
+      try {
+        _previouslyFocused.focus();
+      } catch {
+        /* noop */
+      }
       _previouslyFocused = null;
     }
   }, 200);

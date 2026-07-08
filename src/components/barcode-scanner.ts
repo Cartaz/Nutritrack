@@ -89,15 +89,27 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   const cleanup = (): void => {
     if (stopped) return;
     stopped = true;
-    try { abortCtrl.abort(); } catch { /* noop */ }
+    try {
+      abortCtrl.abort();
+    } catch {
+      /* noop */
+    }
     if (stream) {
-      stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* noop */ } });
+      stream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {
+          /* noop */
+        }
+      });
       stream = null;
     }
     if (video.srcObject) {
       try {
         (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
       video.srcObject = null;
     }
     overlay.classList.remove('modal-show');
@@ -206,7 +218,11 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
         statusEl.classList.add('scanner-status-success');
         // Feedback aptico se supportato
         if (typeof navigator.vibrate === 'function') {
-          try { navigator.vibrate(80); } catch { /* noop */ }
+          try {
+            navigator.vibrate(80);
+          } catch {
+            /* noop */
+          }
         }
         // Delay per dare feedback visivo prima di chiudere
         setTimeout(() => {
@@ -243,7 +259,8 @@ function showUnsupportedToast(): void {
   showModal({
     modalId: 'barcode-unsupported',
     title: 'Scanner non disponibile',
-    bodyHtml: '<p>Il tuo browser non supporta l\'accesso alla fotocamera oppure non dispone di una camera. Puoi comunque cercare i prodotti per nome.</p>',
+    bodyHtml:
+      "<p>Il tuo browser non supporta l'accesso alla fotocamera oppure non dispone di una camera. Puoi comunque cercare i prodotti per nome.</p>",
     actions: [{ label: 'OK', action: 'close', variant: 'primary' }],
   });
 }

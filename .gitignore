@@ -34,3 +34,6 @@ dist-ssr
 
 # PWA
 dev-dist
+
+# Test coverage
+coverage
