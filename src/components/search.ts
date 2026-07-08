@@ -329,9 +329,18 @@ function confirmAdd(): void {
     showToast('Seleziona un alimento', 'info');
     return;
   }
-  const grams = _searchState.gramsOverride ? Number(_searchState.gramsOverride) : 0;
-  if (!grams || grams <= 0) {
-    showToast('Inserisci i grammi', 'info');
+  const gramsRaw = _searchState.gramsOverride.trim();
+  if (gramsRaw === '') {
+    showToast('Inserisci i grammi', 'error');
+    return;
+  }
+  const grams = Number(gramsRaw);
+  if (!Number.isFinite(grams)) {
+    showToast(`Grammi: valore non valido ("${gramsRaw}")`, 'error');
+    return;
+  }
+  if (grams <= 0) {
+    showToast('I grammi devono essere maggiori di 0', 'error');
     return;
   }
   // Se ci sono porzioni personalizzate pending (food non ancora salvato), allegale al food

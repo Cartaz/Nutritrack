@@ -287,7 +287,16 @@ function bindSettingsEvents(main: HTMLElement): void {
   main.addEventListener('input', (e) => {
     const target = e.target as HTMLElement;
     if (target.id === 'calorie-input') {
-      const v = Math.max(500, Number((target as HTMLInputElement).value) || 0);
+      const raw = (target as HTMLInputElement).value;
+      const parsed = Number(raw);
+      // Se l'utente sta digitando (input event), accetta stringhe vuote o numeri
+      // parziali; clamp solo se è un numero finito valido. Rifiuta silenziosamente
+      // NaN (non aggiornare il goal) — la validazione finale avviene su change.
+      if (raw.trim() === '' || !Number.isFinite(parsed)) {
+        updateMacroDisplayLive();
+        return;
+      }
+      const v = Math.max(500, Math.min(10000, parsed));
       setCalorieGoal(v);
       // Update mirato: aggiorna il calorie slider e i grammi macro senza re-render
       const slider = main.querySelector<HTMLInputElement>('#calorie-slider');
@@ -315,9 +324,33 @@ function bindSettingsEvents(main: HTMLElement): void {
     }
   });
 
+  // Validazione finale al blur (change event) del calorie input: se il valore
+  // non è un numero valido, mostra errore e ripristina il goal corrente
   main.addEventListener('change', (e) => {
-    if ((e.target as HTMLElement).id === 'import-file') {
-      const input = e.target as HTMLInputElement;
+    const t = e.target as HTMLElement;
+    if (t.id === 'calorie-input') {
+      const input = t as HTMLInputElement;
+      const raw = input.value.trim();
+      if (raw === '') {
+        showToast('Inserisci un valore per le calorie', 'error');
+        input.value = String(getState().settings.calorieGoal);
+        return;
+      }
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) {
+        showToast(`Calorie: valore non valido ("${raw}")`, 'error');
+        input.value = String(getState().settings.calorieGoal);
+        return;
+      }
+      if (parsed < 500 || parsed > 10000) {
+        showToast('Le calorie devono essere tra 500 e 10000', 'error');
+        input.value = String(getState().settings.calorieGoal);
+        return;
+      }
+      return;
+    }
+    if (t.id === 'import-file') {
+      const input = t as HTMLInputElement;
       const file = input.files?.[0];
       if (file) handleImport(file);
       input.value = '';

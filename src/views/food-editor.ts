@@ -176,20 +176,66 @@ function handleSave(foodId: string | null): boolean {
     showToast('Inserisci il nome dell\'alimento', 'error');
     return false;
   }
+
+  // Helper di validazione: parse strict, rifiuta stringhe non numeriche
+  // (es. "abc", "1.2.3", "" → errore). Permette 0 e decimali positivi.
+  const parseNum = (raw: string, fieldLabel: string, required: boolean): number | undefined => {
+    const trimmed = raw.trim();
+    if (!required) {
+      if (trimmed === '') return undefined;
+    } else if (trimmed === '') {
+      showToast(`Inserisci un valore per ${fieldLabel}`, 'error');
+      return NaN; // sentinel per "errore validazione"
+    }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) {
+      showToast(`${fieldLabel}: valore non valido ("${trimmed}")`, 'error');
+      return NaN;
+    }
+    if (n < 0) {
+      showToast(`${fieldLabel}: il valore non può essere negativo`, 'error');
+      return NaN;
+    }
+    return n;
+  };
+
+  const calories = parseNum(_foodEditorState.calories, 'Calorie', true);
+  if (calories === undefined || Number.isNaN(calories)) return false;
+  const protein = parseNum(_foodEditorState.protein, 'Proteine', true);
+  if (protein === undefined || Number.isNaN(protein)) return false;
+  const carbs = parseNum(_foodEditorState.carbs, 'Carboidrati', true);
+  if (carbs === undefined || Number.isNaN(carbs)) return false;
+  const fat = parseNum(_foodEditorState.fat, 'Grassi', true);
+  if (fat === undefined || Number.isNaN(fat)) return false;
+  const servingSize = parseNum(_foodEditorState.servingSize, 'Porzione default', true);
+  if (servingSize === undefined || Number.isNaN(servingSize)) return false;
+  if (servingSize === 0) {
+    showToast('Porzione default: il valore deve essere maggiore di 0', 'error');
+    return false;
+  }
+
+  // Campi opzionali: undefined se vuoti, errore se non parsabili
+  const fiber = parseNum(_foodEditorState.fiber, 'Fibre', false);
+  if (fiber !== undefined && Number.isNaN(fiber)) return false;
+  const sugar = parseNum(_foodEditorState.sugar, 'Zuccheri', false);
+  if (sugar !== undefined && Number.isNaN(sugar)) return false;
+  const salt = parseNum(_foodEditorState.salt, 'Sale', false);
+  if (salt !== undefined && Number.isNaN(salt)) return false;
+
   const nutrition: NutritionPer100 = {
-    calories: Number(_foodEditorState.calories) || 0,
-    protein: Number(_foodEditorState.protein) || 0,
-    carbs: Number(_foodEditorState.carbs) || 0,
-    fat: Number(_foodEditorState.fat) || 0,
-    fiber: _foodEditorState.fiber ? Number(_foodEditorState.fiber) : undefined,
-    sugar: _foodEditorState.sugar ? Number(_foodEditorState.sugar) : undefined,
-    salt: _foodEditorState.salt ? Number(_foodEditorState.salt) : undefined,
+    calories,
+    protein,
+    carbs,
+    fat,
+    fiber,
+    sugar,
+    salt,
   };
   const payload = {
     name: _foodEditorState.name.trim(),
     brand: _foodEditorState.brand.trim() || undefined,
     source: 'custom' as const,
-    servingSize: Number(_foodEditorState.servingSize) || 100,
+    servingSize,
     servingLabel: _foodEditorState.servingLabel.trim() || undefined,
     nutrition,
   };

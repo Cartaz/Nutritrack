@@ -428,7 +428,15 @@ function bindRecipeEditorModalEvents(): void {
     }
     if (t.dataset.reAction === 'ing-grams') {
       const id = t.dataset.ingId;
-      const v = Math.max(0, Number((t as HTMLInputElement).value) || 0);
+      const raw = (t as HTMLInputElement).value;
+      const parsed = Number(raw);
+      // Se l'utente sta digitando un valore non numerico (es. "abc"), non
+      // aggiornare grams — lascia il valore precedente. La validazione
+      // finale avviene in handleSave.
+      if (raw.trim() !== '' && !Number.isFinite(parsed)) {
+        return;
+      }
+      const v = Math.max(0, parsed);
       _recipeEditorState.ingredients = _recipeEditorState.ingredients.map((i) => (i.id === id ? { ...i, grams: v } : i));
       // Update mirato: aggiorna solo il meta della riga + i totali, senza re-render
       // (preserva il focus sull'input dei grammi durante la digitazione)
@@ -538,10 +546,34 @@ function handleSave(recipeId: string | null): boolean {
     showToast('Aggiungi almeno un ingrediente', 'error');
     return false;
   }
-  const servings = Number(_recipeEditorState.servings) || 1;
+  // Validazione servings: parse strict, rifiuta NaN/negativi/zero
+  const servingsTrimmed = _recipeEditorState.servings.trim();
+  if (servingsTrimmed === '') {
+    showToast('Inserisci il numero di porzioni', 'error');
+    return false;
+  }
+  const servings = Number(servingsTrimmed);
+  if (!Number.isFinite(servings)) {
+    showToast(`Numero di porzioni non valido ("${servingsTrimmed}")`, 'error');
+    return false;
+  }
   if (servings < 1) {
     showToast('Il numero di porzioni deve essere almeno 1', 'error');
     return false;
+  }
+  // Validazione grammi di ogni ingrediente: parse strict, rifiuta NaN/negativi/zero
+  // (lo stato interno contiene già numbers grazie all'input handler, ma verifichiamo
+  // comunque per difesa — l'utente potrebbe aver digitato "abc" e l'handler lo ha
+  // convertito silenziosamente a 0)
+  for (const ing of _recipeEditorState.ingredients) {
+    if (!Number.isFinite(ing.grams)) {
+      showToast(`"${ing.foodSnapshot.name}": grammi non validi`, 'error');
+      return false;
+    }
+    if (ing.grams <= 0) {
+      showToast(`"${ing.foodSnapshot.name}": i grammi devono essere maggiori di 0`, 'error');
+      return false;
+    }
   }
   const payload = {
     name: _recipeEditorState.name.trim(),
