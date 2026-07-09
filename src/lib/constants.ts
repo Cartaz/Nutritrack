@@ -42,6 +42,19 @@ export const SEARCH_DEBOUNCE_MS = 500;
  *  volta sola dopo questo delay. Mostra toast "Riprovo la ricerca...". */
 export const SEARCH_AUTO_RETRY_DELAY_MS = 800;
 
+/** Suffissi italiani da provare quando una query parziale ritorna 0 risultati.
+ *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`
+ *  ritorna 0 risultati). Quindi se l'utente cerca "melanzan" (incompleto)
+ *  riceve 0 risultati, anche se "melanzane" ne ha 417.
+ *
+ *  Ordinati per frequenza nei nomi dei prodotti alimentari italiani:
+ *    'e' = plurale femminile (melanzane, patate, mele — il più comune)
+ *    'i' = plurale maschile (pomodori, biscotti, salumi)
+ *    'a' = singolare femminile (pasta, carota, cipolla)
+ *    'o' = singolare maschile (pomodoro, formaggio, olio)
+ */
+export const PARTIAL_MATCH_SUFFIXES = ['e', 'i', 'a', 'o'] as const;
+
 /** Lunghezza minima query per avviare ricerca OFF */
 export const SEARCH_MIN_QUERY = 2;
 

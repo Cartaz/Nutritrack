@@ -9,9 +9,16 @@
 // - navigator.onLine === false → OfflineError prima di fetch
 // - AbortSignal esterno già aborted → AbortError prima di fetch
 // - Successo al primo tentativo → nessun retry
+//
+// Verifica la logica di suffix expansion per query parziali (issue #2):
+// - Query completa con risultati → nessun suffix expansion
+// - Query parziale con 0 risultati → prova suffissi 'e','i','a','o'
+// - Query già terminante con suffisso → nessun expansion
+// - Page > 1 → nessun expansion (usa già effectiveQuery)
+// - Errore transitorio su un suffisso → ignora e continua con gli altri
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiGetJson, ApiError, isTransientError } from '../src/lib/api';
+import { apiGetJson, ApiError, isTransientError, searchOffWithPartialMatch } from '../src/lib/api';
 
 // Mock globale di fetch
 const fetchMock = vi.fn();
@@ -306,5 +313,138 @@ describe('apiGetJson - timeout behavior', () => {
     const result = await promise;
     expect(result).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('searchOffWithPartialMatch - suffix expansion', () => {
+  /** Helper: mocka una risposta OFF search con N prodotti fittizi */
+  function mockOffResponse(count: number, productName = 'product') {
+    const products = Array.from({ length: count }, (_, i) => ({
+      _id: `id-${productName}-${i}`,
+      product_name: `${productName} ${i}`,
+      _keywords: [productName],
+    }));
+    return mockResponse(200, { count, page: 1, page_size: 30, products });
+  }
+
+  /** Helper: risposta vuota (0 prodotti) */
+  function mockOffEmpty() {
+    return mockResponse(200, { count: 0, page: 1, page_size: 30, products: [] });
+  }
+
+  it('query completa con risultati: nessun suffix expansion', async () => {
+    // "pasta" ritorna 100 risultati → nessun bisogno di suffix expansion
+    fetchMock.mockResolvedValueOnce(mockOffResponse(100, 'pasta'));
+
+    const result = await searchOffWithPartialMatch('pasta');
+
+    expect(result.products).toHaveLength(100);
+    expect(result.effectiveQuery).toBe('pasta');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('query parziale con 0 risultati: prova suffissi e usa quello con più risultati', async () => {
+    // "melanzan" ritorna 0, "melanzane" ritorna 417, altri suffissi meno
+    fetchMock
+      .mockResolvedValueOnce(mockOffEmpty()) // melanzan
+      .mockResolvedValueOnce(mockOffResponse(417, 'melanzane')) // melanzane
+      .mockResolvedValueOnce(mockOffResponse(5, 'melanzani')) // melanzani
+      .mockResolvedValueOnce(mockOffResponse(18, 'melanzana')) // melanzana
+      .mockResolvedValueOnce(mockOffResponse(0, 'melanzano')); // melanzano (0)
+
+    const result = await searchOffWithPartialMatch('melanzan');
+
+    expect(result.products).toHaveLength(417);
+    expect(result.effectiveQuery).toBe('melanzane');
+    // 1 (originale) + 4 (suffissi) = 5 chiamate
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('tutti i suffissi ritornano 0: ritorna risultato vuoto con effectiveQuery originale', async () => {
+    fetchMock.mockResolvedValue(mockOffEmpty());
+
+    const result = await searchOffWithPartialMatch('xyzqwerty');
+
+    expect(result.products).toHaveLength(0);
+    expect(result.effectiveQuery).toBe('xyzqwerty');
+    // 1 (originale) + 4 (suffissi) = 5
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('query già terminante con suffisso: nessun expansion', async () => {
+    // "melanzane" termina con 'e' → non serve suffix expansion
+    fetchMock.mockResolvedValueOnce(mockOffResponse(417, 'melanzane'));
+
+    const result = await searchOffWithPartialMatch('melanzane');
+
+    expect(result.products).toHaveLength(417);
+    expect(result.effectiveQuery).toBe('melanzane');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('page > 1: nessun suffix expansion (usa già effectiveQuery)', async () => {
+    fetchMock.mockResolvedValueOnce(mockOffResponse(30, 'melanzane'));
+
+    const result = await searchOffWithPartialMatch('melanzan', { page: 2 });
+
+    expect(result.products).toHaveLength(30);
+    expect(result.effectiveQuery).toBe('melanzan');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('errore transitorio su un suffisso: ignora e continua con gli altri', async () => {
+    // "melanzan" ritorna 0
+    // "melanzane" ritorna 417
+    // "melanzani" ritorna 404 (propagato subito, no retry) → ignorato dal catch
+    // "melanzana" ritorna 18
+    // "melanzano" ritorna 0
+    fetchMock
+      .mockResolvedValueOnce(mockOffEmpty()) // melanzan
+      .mockResolvedValueOnce(mockOffResponse(417, 'melanzane')) // melanzane
+      .mockResolvedValueOnce(mockResponse(404, { status: 0 }, 'application/json')) // melanzani (404)
+      .mockResolvedValueOnce(mockOffResponse(18, 'melanzana')) // melanzana
+      .mockResolvedValueOnce(mockOffEmpty()); // melanzano
+
+    const result = await searchOffWithPartialMatch('melanzan');
+
+    expect(result.products).toHaveLength(417);
+    expect(result.effectiveQuery).toBe('melanzane');
+    // Almeno 5 chiamate (può essere di più a causa dei retry interni per 404 su altre istanze)
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('errore su query originale: propaga (non maschera con suffix expansion)', async () => {
+    // La query originale fallisce con 404 (4xx propagato subito, no retry)
+    // → searchOffWithPartialMatch propaga l'errore, NON tenta suffix expansion
+    fetchMock.mockResolvedValue(mockResponse(404, { status: 0 }, 'application/json'));
+
+    await expect(searchOffWithPartialMatch('melanzan')).rejects.toThrow();
+    // fetch è stata chiamata (almeno una volta per l'istanza 1, poi propaga)
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('AbortSignal esterno: propaga AbortError', async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+
+    await expect(searchOffWithPartialMatch('melanzan', { signal: ctrl.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('suffix expansion con suffisso "i" vincitore', async () => {
+    // Scenario: "biscott" + "i" = 200 risultati (biscotti), "e" = 50 (biscotte)
+    fetchMock
+      .mockResolvedValueOnce(mockOffEmpty()) // biscott
+      .mockResolvedValueOnce(mockOffResponse(50, 'biscotte')) // biscotte
+      .mockResolvedValueOnce(mockOffResponse(200, 'biscotti')) // biscotti
+      .mockResolvedValueOnce(mockOffResponse(10, 'biscotta')) // biscotta
+      .mockResolvedValueOnce(mockOffResponse(5, 'biscotto')); // biscotto
+
+    const result = await searchOffWithPartialMatch('biscott');
+
+    expect(result.products).toHaveLength(200);
+    expect(result.effectiveQuery).toBe('biscotti');
   });
 });

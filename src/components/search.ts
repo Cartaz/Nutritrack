@@ -8,7 +8,7 @@
 // MAI toccato dopo la creazione per non perdere focus e cursore (causa del bug flickering).
 
 import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
-import { searchOff, getOffByBarcode } from '../lib/api';
+import { searchOff, searchOffWithPartialMatch, getOffByBarcode } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
 import { getState, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
@@ -17,7 +17,7 @@ import { showToast } from './toast';
 import { imgTag } from './img';
 import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY, SEARCH_AUTO_RETRY_DELAY_MS } from '../lib/constants';
-import type { FoodItem, CustomPortion } from '../types';
+import type { FoodItem, CustomPortion, OffProduct } from '../types';
 import { MEAL_ICONS, MEAL_LABELS } from '../types';
 
 // ============ Internal dialog state (NON in store globale) ============
@@ -43,6 +43,10 @@ interface SearchDialogState {
   // Fix OFF-RETRY (issue #1): flag che indica se l'auto-retry UI-level è già stato
   // tentato per la query corrente. Evita retry infiniti su errori persistenti.
   autoRetryDone: boolean;
+  // Fix PARTIAL-MATCH: query che ha effettivamente prodotto i risultati (può differire
+  // da `query` se è stato applicato il suffix expansion, es. "melanzan" → "melanzane").
+  // Usata per la paginazione (page > 1) per garantire coerenza dei risultati.
+  effectiveQuery: string;
 }
 
 const _searchState: SearchDialogState = {
@@ -60,6 +64,7 @@ const _searchState: SearchDialogState = {
   page: 1,
   totalCount: 0,
   autoRetryDone: false,
+  effectiveQuery: '',
 };
 
 function resetSearchState(): void {
@@ -88,6 +93,8 @@ function resetSearchState(): void {
   _searchState.totalCount = 0;
   // Fix OFF-RETRY: resetta il flag auto-retry
   _searchState.autoRetryDone = false;
+  // Fix PARTIAL-MATCH: resetta la query efficace
+  _searchState.effectiveQuery = '';
 }
 
 // ============ Debounced search ============
@@ -115,11 +122,34 @@ const runSearch = debounce(async (query: string, page: number = 1) => {
   _searchState.abortController = ctrl;
   try {
     // Fix B-8-5 (T8): italianOnly=true di default (app italiana, prodotti italiani più rilevanti)
-    const data = await searchOff(query.trim(), { signal: ctrl.signal, italianOnly: true, page });
+    // Fix PARTIAL-MATCH: su page 1 usa searchOffWithPartialMatch per supportare query
+    // parziali (es. "melanzan" → "melanzane" via suffix expansion). Su page > 1 usa
+    // searchOff con effectiveQuery per coerenza della paginazione.
+    const trimmedQuery = query.trim();
+    let products: OffProduct[];
+    let count: number;
+    if (page === 1) {
+      const data = await searchOffWithPartialMatch(trimmedQuery, {
+        signal: ctrl.signal,
+        italianOnly: true,
+        page,
+      });
+      _searchState.effectiveQuery = data.effectiveQuery;
+      products = data.products;
+      count = data.count;
+    } else {
+      const data = await searchOff(_searchState.effectiveQuery || trimmedQuery, {
+        signal: ctrl.signal,
+        italianOnly: true,
+        page,
+      });
+      products = data.products;
+      count = data.count;
+    }
     if (ctrl.signal.aborted) return;
     if (!getState()._searchOpen) return; // modal chiuso durante fetch
     const items: FoodItem[] = [];
-    for (const p of data.products) {
+    for (const p of products) {
       const f = buildFoodFromOff(p);
       if (f) items.push(f);
     }
@@ -133,7 +163,7 @@ const runSearch = debounce(async (query: string, page: number = 1) => {
       _searchState.results = [..._searchState.results, ...newItems];
     }
     _searchState.page = page;
-    _searchState.totalCount = data.count;
+    _searchState.totalCount = count;
   } catch (e) {
     if (ctrl.signal.aborted) return;
     if (!getState()._searchOpen) return;
@@ -457,6 +487,8 @@ export function bindSearchEvents(): void {
       _searchState.pendingCustomPortions = [];
       // Fix OFF-RETRY (issue #1): nuova query → resetta il flag auto-retry
       _searchState.autoRetryDone = false;
+      // Fix PARTIAL-MATCH: nuova query → resetta la query efficace
+      _searchState.effectiveQuery = '';
       if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
         // Fix B7: abortisce ricerca in corso + reset loading (niente spinner permanente)
         abortInFlightSearch();
@@ -541,6 +573,8 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
   _searchState.pendingCustomPortions = [];
   // Fix OFF-RETRY: resetta il flag auto-retry (nuova scansione)
   _searchState.autoRetryDone = false;
+  // Fix PARTIAL-MATCH: resetta la query efficace (nuova scansione)
+  _searchState.effectiveQuery = '';
   // Aggiorna il value dell'input per dare feedback visivo (l'input è già stato creato)
   const inputEl = document.querySelector<HTMLInputElement>('#search-input');
   if (inputEl) inputEl.value = barcode;

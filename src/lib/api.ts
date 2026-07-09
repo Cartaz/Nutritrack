@@ -25,6 +25,7 @@ import {
   API_RETRY_DELAY_MS,
   OFF_INSTANCES,
   OFF_PAGE_SIZE,
+  PARTIAL_MATCH_SUFFIXES,
 } from './constants';
 
 // Fix MEDIUM bug: OFF_USER_AGENT rimosso perché `User-Agent` è un forbidden header nei browser
@@ -304,6 +305,90 @@ export async function searchOff(
     count: normalizeNum(data.count, 0),
     page: normalizeNum(data.page, 1),
     pageSize: normalizeNum(data.page_size, pageSize),
+  };
+}
+
+// ============ Partial match (suffix expansion) ============
+
+/** Risultato di searchOffWithPartialMatch: include `effectiveQuery` che il caller
+ *  deve usare per la paginazione (page > 1) per garantire coerenza dei risultati. */
+export interface SearchOffResult {
+  products: OffProduct[];
+  count: number;
+  page: number;
+  pageSize: number;
+  /** Query che ha effettivamente prodotto i risultati (può differire da quella
+   *  originale se è stato applicato il suffix expansion). */
+  effectiveQuery: string;
+}
+
+/** Verifica se una query termina già con uno dei suffissi italiani comuni.
+ *  In tal caso, il suffix expansion non serve (la query è già "completa"). */
+function endsWithItalianSuffix(query: string): boolean {
+  if (query.length === 0) return false;
+  const lastChar = query.slice(-1).toLowerCase();
+  return (PARTIAL_MATCH_SUFFIXES as readonly string[]).includes(lastChar);
+}
+
+/** Cerca prodotti su OFF con suffix expansion automatico per query parziali.
+ *
+ *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`
+ *  ritorna 0 risultati). Quindi "melanzan" ritorna 0 prodotti anche se
+ *  "melanzane" ne ha 417.
+ *
+ *  Strategia:
+ *  1. Prova la query originale. Se ritorna risultati, li usa.
+ *  2. Se 0 risultati E la query non termina già con un suffisso italiano,
+ *     prova in parallelo la query + ogni suffisso di PARTIAL_MATCH_SUFFIXES.
+ *  3. Ritorna il risultato con più prodotti (o il primo non-vuoto in caso
+ *     di parità). Se tutti falliscono, ritorna il risultato originale (vuoto).
+ *
+ *  Il caller deve usare `effectiveQuery` dal risultato per le pagine successive
+ *  (paginazione coerente). Su page > 1, la funzione NON ripete il suffix
+ *  expansion: usa direttamente la query passata (che dovrebbe essere
+ *  `effectiveQuery` della page 1).
+ *
+ *  @param query Query utente (già trimmata)
+ *  @param opts  Opzioni di ricerca (signal, page, pageSize, italianOnly)
+ *  @returns     Risultato con effectiveQuery per paginazione */
+export async function searchOffWithPartialMatch(query: string, opts: SearchOffOpts = {}): Promise<SearchOffResult> {
+  const page = opts.page ?? 1;
+
+  // Prova la query originale
+  const original = await searchOff(query, opts);
+
+  // Se ha risultati, oppure siamo su page > 1 (paginazione: usa già effectiveQuery),
+  // oppure la query termina già con un suffisso, ritorna senza expansion
+  if (original.products.length > 0 || page > 1 || endsWithItalianSuffix(query)) {
+    return { ...original, effectiveQuery: query };
+  }
+
+  // Suffix expansion: prova ogni suffisso in parallelo.
+  // catch → null: se un suffisso fallisce (network/timeout), lo ignora e continua.
+  const suffixResults = await Promise.all(
+    PARTIAL_MATCH_SUFFIXES.map((suffix) =>
+      searchOff(query + suffix, opts)
+        .then((r) => ({ suffix, result: r }))
+        .catch(() => null),
+    ),
+  );
+
+  // Trova il risultato con più prodotti
+  let best = original;
+  let bestQuery = query;
+  for (const sr of suffixResults) {
+    if (sr && sr.result.products.length > best.products.length) {
+      best = sr.result;
+      bestQuery = query + sr.suffix;
+    }
+  }
+
+  return {
+    products: best.products,
+    count: best.count,
+    page: best.page,
+    pageSize: best.pageSize,
+    effectiveQuery: bestQuery,
   };
 }
 

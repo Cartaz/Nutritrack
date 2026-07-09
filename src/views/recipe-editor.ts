@@ -5,7 +5,7 @@ import { showToast } from '../components/toast';
 import { showModal, closeModalById } from '../components/modal';
 import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
-import { searchOff } from '../lib/api';
+import { searchOffWithPartialMatch } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
 import { saveOffFood } from '../lib/foods';
 import { imgTag } from '../components/img';
@@ -26,6 +26,8 @@ interface EditorState {
   searchAbort: AbortController | null;
   // Fix OFF-RETRY (issue #1): flag auto-retry per la sub-search ingredienti
   searchAutoRetryDone: boolean;
+  // Fix PARTIAL-MATCH: query efficace (con suffix expansion applicato) per paginazione
+  searchEffectiveQuery: string;
 }
 
 const _recipeEditorState: EditorState = {
@@ -40,6 +42,7 @@ const _recipeEditorState: EditorState = {
   searchResults: [],
   searchAbort: null,
   searchAutoRetryDone: false,
+  searchEffectiveQuery: '',
 };
 
 let _recipeEditorBound = false;
@@ -57,6 +60,7 @@ function resetRecipeEditorState(): void {
     searchResults: [],
     searchAbort: null,
     searchAutoRetryDone: false,
+    searchEffectiveQuery: '',
   });
 }
 
@@ -434,9 +438,12 @@ const runSubSearch = debounce(async (query: string) => {
   const ctrl = new AbortController();
   _recipeEditorState.searchAbort = ctrl;
   try {
-    const data = await searchOff(query.trim(), { signal: ctrl.signal });
+    // Fix PARTIAL-MATCH: usa searchOffWithPartialMatch per supportare query parziali
+    // (es. "melanzan" → "melanzane" via suffix expansion)
+    const data = await searchOffWithPartialMatch(query.trim(), { signal: ctrl.signal });
     if (ctrl.signal.aborted) return;
     _recipeEditorState.searchResults = data.products.map(buildFoodFromOff).filter((f): f is FoodItem => f !== null);
+    _recipeEditorState.searchEffectiveQuery = data.effectiveQuery;
     // Fix OFF-RETRY: successo → resetta il flag auto-retry per la prossima query
     _recipeEditorState.searchAutoRetryDone = false;
   } catch (e) {
@@ -527,6 +534,8 @@ function bindRecipeEditorModalEvents(): void {
       _recipeEditorState.searchQuery = (t as HTMLInputElement).value;
       // Fix OFF-RETRY: nuova query → resetta il flag auto-retry
       _recipeEditorState.searchAutoRetryDone = false;
+      // Fix PARTIAL-MATCH: nuova query → resetta la query efficace
+      _recipeEditorState.searchEffectiveQuery = '';
       if (_recipeEditorState.searchQuery.trim().length < SEARCH_MIN_QUERY) {
         _recipeEditorState.searchResults = [];
         _recipeEditorState.searchLoading = false;
