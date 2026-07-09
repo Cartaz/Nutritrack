@@ -14,11 +14,33 @@ export const BACKUP_KEY = `${APP_NAME}_data_backup`;
 /** Soglia di utilizzo localStorage oltre la quale avvisare l'utente (4.5MB) */
 export const STORAGE_WARN_BYTES = 4.5 * 1024 * 1024;
 
-/** Timeout default per fetch API (ms) */
-export const API_TIMEOUT_MS = 8_000;
+/** Timeout default per fetch API (ms).
+ *  Allineato al networkTimeoutSeconds del Service Worker (10s) per evitare
+ *  race condition: prima apiGetJson abortiva a 8s mentre il SW NetworkFirst
+ *  aspettava 10s, impedendo il fallback su cache. */
+export const API_TIMEOUT_MS = 10_000;
+
+/** Deadline globale cumulativo per tutte le istanze OFF + retry (ms).
+ *  Bumpato da 15s a 20s per permettere al retry con backoff di completare
+ *  almeno 2 tentativi sulla prima istanza. */
+export const API_GLOBAL_DEADLINE_MS = 20_000;
+
+/** Numero di retry per la stessa istanza OFF in caso di errore transitorio
+ *  (network failure, timeout, 5xx, 429). Risolve il caso tipico in cui
+ *  OFF ha un blip transitorio e "riprovare dopo un secondo funziona". */
+export const API_RETRY_PER_INSTANCE = 1;
+
+/** Delay iniziale tra retry della stessa istanza (ms).
+ *  Backoff lineare: attempt N → delay = API_RETRY_DELAY_MS × N. */
+export const API_RETRY_DELAY_MS = 500;
 
 /** Debounce ricerca OFF (ms) */
 export const SEARCH_DEBOUNCE_MS = 500;
+
+/** Auto-retry UI-level della ricerca OFF dopo fallimento transitorio (ms).
+ *  Se la prima ricerca fallisce con NetworkError/TimeoutError, ritenta una
+ *  volta sola dopo questo delay. Mostra toast "Riprovo la ricerca...". */
+export const SEARCH_AUTO_RETRY_DELAY_MS = 800;
 
 /** Lunghezza minima query per avviare ricerca OFF */
 export const SEARCH_MIN_QUERY = 2;

@@ -9,7 +9,7 @@ import { searchOff } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
 import { saveOffFood } from '../lib/foods';
 import { imgTag } from '../components/img';
-import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
+import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY, SEARCH_AUTO_RETRY_DELAY_MS } from '../lib/constants';
 import type { FoodItem, RecipeIngredient } from '../types';
 
 interface EditorState {
@@ -24,6 +24,8 @@ interface EditorState {
   searchLoading: boolean;
   searchResults: FoodItem[];
   searchAbort: AbortController | null;
+  // Fix OFF-RETRY (issue #1): flag auto-retry per la sub-search ingredienti
+  searchAutoRetryDone: boolean;
 }
 
 const _recipeEditorState: EditorState = {
@@ -37,6 +39,7 @@ const _recipeEditorState: EditorState = {
   searchLoading: false,
   searchResults: [],
   searchAbort: null,
+  searchAutoRetryDone: false,
 };
 
 let _recipeEditorBound = false;
@@ -53,6 +56,7 @@ function resetRecipeEditorState(): void {
     searchLoading: false,
     searchResults: [],
     searchAbort: null,
+    searchAutoRetryDone: false,
   });
 }
 
@@ -433,10 +437,44 @@ const runSubSearch = debounce(async (query: string) => {
     const data = await searchOff(query.trim(), { signal: ctrl.signal });
     if (ctrl.signal.aborted) return;
     _recipeEditorState.searchResults = data.products.map(buildFoodFromOff).filter((f): f is FoodItem => f !== null);
+    // Fix OFF-RETRY: successo → resetta il flag auto-retry per la prossima query
+    _recipeEditorState.searchAutoRetryDone = false;
   } catch (e) {
     if (ctrl.signal.aborted) return;
-    const msg = e instanceof Error ? e.message : String(e);
-    showToast(msg.includes('non disponibile') ? 'OFF non disponibile. Riprova più tardi.' : 'Errore ricerca', 'error');
+    const errName = e instanceof Error ? e.name : '';
+    const errStatus = (e as { status?: number })?.status;
+
+    // Fix OFF-RETRY (issue #1): auto-retry UI-level per errori transitori.
+    // Stessa logica della search principale: una sola ripetizione silenziosa.
+    const isTransient =
+      errName === 'NetworkError' ||
+      errName === 'TimeoutError' ||
+      errName === 'OfflineError' ||
+      (errStatus !== undefined && (errStatus >= 500 || errStatus === 429));
+    if (isTransient && !_recipeEditorState.searchAutoRetryDone) {
+      _recipeEditorState.searchAutoRetryDone = true;
+      _recipeEditorState.searchLoading = true;
+      updateSubSearchList();
+      setTimeout(() => {
+        // Se il modal è stato chiuso, skip
+        if (!document.querySelector('[data-modal-id="recipe-editor"]')) return;
+        runSubSearch(query);
+      }, SEARCH_AUTO_RETRY_DELAY_MS);
+      return;
+    }
+
+    // Messaggi accurati: distinguono "offline reale" da "OFF irraggiungibile"
+    const msg =
+      errName === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)
+        ? 'Sei offline. Verifica la connessione.'
+        : errName === 'NetworkError'
+          ? 'Open Food Facts non raggiungibile. Riprova tra qualche secondo.'
+          : errName === 'TimeoutError'
+            ? 'Risposta di Open Food Facts troppo lenta. Riprova tra poco.'
+            : e instanceof Error && e.message.includes('non disponibile')
+              ? 'Open Food Facts non disponibile. Riprova tra poco.'
+              : 'Errore nella ricerca ingredienti. Riprova.';
+    showToast(msg, 'error', 5000);
     _recipeEditorState.searchResults = [];
   } finally {
     if (_recipeEditorState.searchAbort === ctrl) _recipeEditorState.searchAbort = null;
@@ -487,6 +525,8 @@ function bindRecipeEditorModalEvents(): void {
     }
     if (t.id === 're-search-input') {
       _recipeEditorState.searchQuery = (t as HTMLInputElement).value;
+      // Fix OFF-RETRY: nuova query → resetta il flag auto-retry
+      _recipeEditorState.searchAutoRetryDone = false;
       if (_recipeEditorState.searchQuery.trim().length < SEARCH_MIN_QUERY) {
         _recipeEditorState.searchResults = [];
         _recipeEditorState.searchLoading = false;

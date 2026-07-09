@@ -16,7 +16,7 @@ import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood
 import { showToast } from './toast';
 import { imgTag } from './img';
 import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';
-import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
+import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY, SEARCH_AUTO_RETRY_DELAY_MS } from '../lib/constants';
 import type { FoodItem, CustomPortion } from '../types';
 import { MEAL_ICONS, MEAL_LABELS } from '../types';
 
@@ -40,6 +40,9 @@ interface SearchDialogState {
   // Fix MEDIUM bug: paginazione OFF — page corrente e totale risultati da OFF (count)
   page: number;
   totalCount: number;
+  // Fix OFF-RETRY (issue #1): flag che indica se l'auto-retry UI-level è già stato
+  // tentato per la query corrente. Evita retry infiniti su errori persistenti.
+  autoRetryDone: boolean;
 }
 
 const _searchState: SearchDialogState = {
@@ -56,6 +59,7 @@ const _searchState: SearchDialogState = {
   abortController: null,
   page: 1,
   totalCount: 0,
+  autoRetryDone: false,
 };
 
 function resetSearchState(): void {
@@ -82,6 +86,8 @@ function resetSearchState(): void {
   // Fix MEDIUM bug: reset paginazione
   _searchState.page = 1;
   _searchState.totalCount = 0;
+  // Fix OFF-RETRY: resetta il flag auto-retry
+  _searchState.autoRetryDone = false;
 }
 
 // ============ Debounced search ============
@@ -133,11 +139,42 @@ const runSearch = debounce(async (query: string, page: number = 1) => {
     if (!getState()._searchOpen) return;
     const err = e as { name?: string; message?: string };
     const msg = err?.message ?? (e instanceof Error ? e.message : String(e));
-    if (err?.name === 'NetworkError' || (msg && msg.toLowerCase().includes('offline'))) {
+    const errName = err?.name ?? '';
+
+    // Fix OFF-RETRY (issue #1): auto-retry UI-level per errori transitori.
+    // Se la prima ricerca fallisce con NetworkError/TimeoutError/ApiError(5xx/429)
+    // e non abbiamo già fatto il retry, aspetta e ritenta una volta sola.
+    // Questo risolve il caso tipico in cui "riprovare dopo un secondo funziona".
+    const errStatus = (e as { status?: number })?.status;
+    const isTransient =
+      errName === 'NetworkError' ||
+      errName === 'TimeoutError' ||
+      errName === 'OfflineError' ||
+      (errStatus !== undefined && (errStatus >= 500 || errStatus === 429));
+    if (isTransient && !_searchState.autoRetryDone && page === 1) {
+      _searchState.autoRetryDone = true;
+      // Non mostrare toast di errore: stiamo per ritentare silenziosamente
+      // (mantieni il loading true per dare feedback visivo)
+      _searchState.loading = true;
+      emitChange();
+      // Retry dopo un breve delay (rispetta chiusura modal)
+      setTimeout(() => {
+        if (!getState()._searchOpen) return;
+        _searchState.loading = true;
+        emitChange();
+        runSearch(query, 1);
+      }, SEARCH_AUTO_RETRY_DELAY_MS);
+      return;
+    }
+
+    // Messaggi di errore accurati: distinguono "offline reale" da "OFF irraggiungibile"
+    if (errName === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
       showToast('Sei offline. Verifica la connessione e riprova.', 'error');
-    } else if (err?.name === 'TimeoutError' || (msg && msg.includes('Timeout'))) {
-      // Fix B-8-2 (T8): match corretto per timeout (prima era exact match 'Timeout' che non matchava mai)
-      showToast('Ricerca troppo lenta. Riprova.', 'error');
+    } else if (errName === 'NetworkError') {
+      // Online ma OFF non raggiungibile: NON dire "Sei offline" (fuorviante)
+      showToast('Open Food Facts non raggiungibile. Riprova tra qualche secondo.', 'error', 5000);
+    } else if (errName === 'TimeoutError') {
+      showToast('Risposta di Open Food Facts troppo lenta. Riprova tra poco.', 'error', 5000);
     } else if (msg && (msg.includes('non disponibile') || msg.includes('non JSON') || msg.includes('non valida'))) {
       showToast(
         'Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.',
@@ -145,7 +182,7 @@ const runSearch = debounce(async (query: string, page: number = 1) => {
         5000,
       );
     } else {
-      showToast('Errore nella ricerca. Verifica la connessione e riprova.', 'error');
+      showToast('Errore nella ricerca. Riprova tra poco.', 'error');
     }
     _searchState.results = [];
     _searchState.page = 1;
@@ -418,6 +455,8 @@ export function bindSearchEvents(): void {
       _searchState.selectedId = null;
       _searchState.gramsOverride = '';
       _searchState.pendingCustomPortions = [];
+      // Fix OFF-RETRY (issue #1): nuova query → resetta il flag auto-retry
+      _searchState.autoRetryDone = false;
       if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
         // Fix B7: abortisce ricerca in corso + reset loading (niente spinner permanente)
         abortInFlightSearch();
@@ -500,6 +539,8 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
   _searchState.selectedId = null;
   _searchState.gramsOverride = '';
   _searchState.pendingCustomPortions = [];
+  // Fix OFF-RETRY: resetta il flag auto-retry (nuova scansione)
+  _searchState.autoRetryDone = false;
   // Aggiorna il value dell'input per dare feedback visivo (l'input è già stato creato)
   const inputEl = document.querySelector<HTMLInputElement>('#search-input');
   if (inputEl) inputEl.value = barcode;
@@ -538,18 +579,42 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
     // Prima tornava null silenziosamente per qualsiasi errore, mostrando il fuorviante
     // "Nessun prodotto trovato" anche quando il servizio era down. Ora distinguiamo.
     if (!getState()._searchOpen) return;
+
+    // Fix OFF-RETRY (issue #1): auto-retry UI-level per errori transitori del barcode.
+    // Stessa logica della search testuale: una sola ripetizione silenziosa.
+    const errName = e instanceof Error ? e.name : '';
+    const errStatus = (e as { status?: number })?.status;
+    const isTransient =
+      errName === 'NetworkError' ||
+      errName === 'TimeoutError' ||
+      errName === 'OfflineError' ||
+      (errStatus !== undefined && (errStatus >= 500 || errStatus === 429));
+    if (isTransient && !_searchState.autoRetryDone) {
+      _searchState.autoRetryDone = true;
+      _searchState.loading = true;
+      emitChange();
+      setTimeout(() => {
+        if (!getState()._searchOpen) return;
+        // handleBarcodeDetected è async ma qui non attendiamo: lo lanciamo e basta
+        void handleBarcodeDetected(barcode);
+      }, SEARCH_AUTO_RETRY_DELAY_MS);
+      return;
+    }
+
     _searchState.loading = false;
     _searchState.results = [];
     emitChange();
-    const errName = e instanceof Error ? e.name : '';
+    // Fix OFF-RETRY: messaggi accurati — distinguono "offline reale" da "OFF irraggiungibile"
     const msg =
-      errName === 'NetworkError'
-        ? 'Servizio OFF non raggiungibile (offline). Verifica la connessione.'
-        : errName === 'TimeoutError'
-          ? 'Servizio OFF lento (timeout). Riprova tra poco.'
-          : e instanceof Error
-            ? `Errore nella ricerca del prodotto: ${e.message}`
-            : 'Servizio Open Food Facts non disponibile. Riprova tra poco.';
+      errName === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)
+        ? 'Sei offline. Verifica la connessione e riprova.'
+        : errName === 'NetworkError'
+          ? 'Open Food Facts non raggiungibile. Riprova tra qualche secondo.'
+          : errName === 'TimeoutError'
+            ? 'Risposta di Open Food Facts troppo lenta. Riprova tra poco.'
+            : e instanceof Error
+              ? `Errore nella ricerca del prodotto: ${e.message}`
+              : 'Servizio Open Food Facts non disponibile. Riprova tra poco.';
     showToast(msg, 'error', 5000);
   }
 }

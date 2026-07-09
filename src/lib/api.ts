@@ -1,7 +1,8 @@
-// API client tipizzato con AbortController + timeout + fallback multi-istanza OFF.
+// API client tipizzato con AbortController + timeout + fallback multi-istanza OFF
+// + retry automatico con backoff per errori transitori.
 // Pattern 9 dello standard: apiGet<T>() con timeout 10s e supporto AbortSignal esterno.
 //
-// Fix B-8-1 (T8): deadline globale 15s (cumulative timeout era 5×8s=40s worst case).
+// Fix B-8-1 (T8): deadline globale 20s (cumulative timeout era 5×8s=40s worst case).
 // Fix B-8-3 (T8): HTTP 429 → continue su prossima istanza (era trattato come 4xx fatal).
 // Fix B-8-4 (T8): dispatch su e.status invece di e.message.startsWith (fragile).
 // Fix B-8-6 (T8): invia OFF_USER_AGENT header.
@@ -10,16 +11,25 @@
 // Fix B-8-10 (T8): pre-check navigator.onLine.
 // Fix B-8-12 (T8): clearTimeout dopo res.json() (body read protetto).
 // Fix B-8-13 (T8): guard contro data null.
+//
+// Fix OFF-RETRY (issue #1): retry automatico con backoff per errori transitori.
+//   Quando OFF ha un blip (5xx, 429, network failure, timeout), riprova la stessa
+//   istanza dopo API_RETRY_DELAY_MS×attempt prima di passare alla successiva.
+//   Risolve il caso tipico in cui "riprovare dopo un secondo funziona".
 
 import type { OffProduct, OffSearchResponse } from '../types';
-import { API_TIMEOUT_MS, OFF_INSTANCES, OFF_PAGE_SIZE } from './constants';
+import {
+  API_TIMEOUT_MS,
+  API_GLOBAL_DEADLINE_MS,
+  API_RETRY_PER_INSTANCE,
+  API_RETRY_DELAY_MS,
+  OFF_INSTANCES,
+  OFF_PAGE_SIZE,
+} from './constants';
 
 // Fix MEDIUM bug: OFF_USER_AGENT rimosso perché `User-Agent` è un forbidden header nei browser
 // (silently stripped per fingerprinting protection). Era dead code. Se in futuro vorremo
 // identificarci presso OFF, dovremo usare un header custom (es. `X-User-Agent`) o un proxy.
-
-/** Deadline globale cumulativo per tutte le istanze OFF (ms). */
-const GLOBAL_DEADLINE_MS = 15_000;
 
 export class ApiError extends Error {
   status?: number;
@@ -31,10 +41,47 @@ export class ApiError extends Error {
   }
 }
 
+/** Sleep non bloccante che rispetta l'AbortSignal esterno.
+ *  Se il signal si abortisce durante l'attesa, la promise rejecta con AbortError. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new ApiError('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new ApiError('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/** Classifica un errore come "transitorio" (meritevole di retry):
+ *  - NetworkError (TypeError di fetch: connection refused, DNS, ecc.)
+ *  - TimeoutError (abort dal timeout interno)
+ *  - HTTP 5xx e 429 (server error / rate limit)
+ *  Non transitori: 4xx (eccetto 429) — errore del client, retry inutile. */
+function isTransientError(e: unknown): boolean {
+  if (e instanceof ApiError) {
+    if (e.name === 'NetworkError' || e.name === 'TimeoutError') return true;
+    if (e.status !== undefined && (e.status >= 500 || e.status === 429)) return true;
+    return false;
+  }
+  const err = e as { name?: string };
+  if (err?.name === 'AbortError' || err?.name === 'TypeError') return true;
+  return false;
+}
+
 /** Fetch con timeout interno + propagazione AbortSignal esterno.
  *  Fix B11: per-istanza AbortController — se la prima istanza hanga (TCP black hole),
  *  il timeout abortisce solo quella istanza e si passa alla successiva, non tutte.
- *  Fix B-8-1: deadline globale cumulativa previene 40s di attesa se tutte le istanze hangano. */
+ *  Fix B-8-1: deadline globale cumulativa previene 40s di attesa se tutte le istanze hangano.
+ *  Fix OFF-RETRY: retry con backoff sulla stessa istanza per errori transitori. */
 export async function apiGetJson<T>(
   buildUrl: (base: string) => string,
   opts: { timeoutMs?: number; signal?: AbortSignal } = {},
@@ -46,13 +93,14 @@ export async function apiGetJson<T>(
     throw new ApiError('Aborted', 'AbortError');
   }
 
-  // Fix B-8-10: pre-check navigator.onLine per feedback immediato
+  // Fix B-8-10: pre-check navigator.onLine per feedback immediato.
+  // Questo è l'unico caso in cui il messaggio "Sei offline" è accurato.
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new ApiError('Sei offline. Verifica la connessione e riprova.', 'NetworkError');
+    throw new ApiError('Sei offline. Verifica la connessione e riprova.', 'OfflineError');
   }
 
   // Fix B-8-1: deadline globale
-  const globalDeadline = Date.now() + GLOBAL_DEADLINE_MS;
+  const globalDeadline = Date.now() + API_GLOBAL_DEADLINE_MS;
 
   // Fix B-8-8: singolo listener su opts.signal che abortisce il controller corrente
   let currentController: AbortController | null = null;
@@ -65,79 +113,128 @@ export async function apiGetJson<T>(
 
   try {
     for (const base of OFF_INSTANCES) {
-      const remaining = globalDeadline - Date.now();
-      if (remaining < 500) {
-        // Deadline globale quasi scaduto: esci
-        lastError =
-          lastError ?? new ApiError('Tutte le istanze OFF non disponibili (deadline globale)', 'TimeoutError');
-        break;
-      }
-      const instanceTimeout = Math.min(timeoutMs, remaining);
-
-      // Fix B11: nuovo AbortController per ogni istanza
-      currentController = new AbortController();
-      const timeoutId = setTimeout(() => currentController?.abort(), instanceTimeout);
-
-      const url = buildUrl(base);
-      try {
-        const res = await fetch(url, {
-          headers: {
-            Accept: 'application/json',
-            // Fix MEDIUM bug: rimosso 'User-Agent' header — è forbidden dai browser (silently stripped).
-            // Era dead code. Vedere nota nel commento in cima al file.
-          },
-          signal: currentController.signal,
-        });
-        // 5xx: prova prossima istanza
-        // Fix B-8-3: 429 (rate limit) → continue su prossima istanza (era fatal)
-        if ((res.status >= 500 && res.status < 600) || res.status === 429) {
-          clearTimeout(timeoutId);
-          lastError = new ApiError(`Server OFF ${base} non disponibile (${res.status})`, 'ApiError', res.status);
-          continue;
+      // Fix OFF-RETRY: loop di retry sulla stessa istanza per errori transitori.
+      // maxAttempts = 1 + API_RETRY_PER_INSTANCE (es. 2 tentativi totali se retry=1).
+      const maxAttempts = 1 + API_RETRY_PER_INSTANCE;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const remaining = globalDeadline - Date.now();
+        if (remaining < 500) {
+          // Deadline globale quasi scaduto: esci
+          lastError =
+            lastError ?? new ApiError('Tutte le istanze OFF non disponibili (deadline globale)', 'TimeoutError');
+          break;
         }
-        // 4xx reale (404, 400): ritorna errore
-        if (!res.ok) {
-          clearTimeout(timeoutId);
+        const instanceTimeout = Math.min(timeoutMs, remaining);
+
+        // Fix B11: nuovo AbortController per ogni tentativo
+        currentController = new AbortController();
+        const timeoutId = setTimeout(() => currentController?.abort(), instanceTimeout);
+
+        const url = buildUrl(base);
+        try {
+          const res = await fetch(url, {
+            headers: {
+              Accept: 'application/json',
+              // Fix MEDIUM bug: rimosso 'User-Agent' header — è forbidden dai browser (silently stripped).
+              // Era dead code. Vedere nota nel commento in cima al file.
+            },
+            signal: currentController.signal,
+          });
+          // 5xx: prova prossima istanza (o retry sulla stessa)
+          // Fix B-8-3: 429 (rate limit) → retry su stessa istanza poi prossima
+          if ((res.status >= 500 && res.status < 600) || res.status === 429) {
+            clearTimeout(timeoutId);
+            lastError = new ApiError(
+              `Server OFF ${base} non disponibile (${res.status})`,
+              'ApiError',
+              res.status,
+            );
+            // Fix OFF-RETRY: se ci sono ancora tentativi disponibili, aspetta e ritenta
+            if (attempt < maxAttempts - 1) {
+              const delay = API_RETRY_DELAY_MS * (attempt + 1);
+              // Rispetta il deadline globale
+              if (Date.now() + delay < globalDeadline) {
+                await sleep(delay, opts.signal);
+                continue;
+              }
+              break;
+            }
+            break; // tentativi esauriti per questa istanza, passa alla prossima
+          }
+          // 4xx reale (404, 400): ritorna errore
+          if (!res.ok) {
+            clearTimeout(timeoutId);
+            const ct = res.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) {
+              lastError = new ApiError(`Risposta non valida da ${base}`, 'ApiError', res.status);
+              // 4xx non-JSON: probabilmente pagina HTML di errore — prova prossima istanza
+              break;
+            }
+            throw new ApiError(`Errore ricerca: ${res.status}`, 'ApiError', res.status);
+          }
           const ct = res.headers.get('content-type') || '';
           if (!ct.includes('application/json')) {
-            lastError = new ApiError(`Risposta non valida da ${base}`, 'ApiError', res.status);
-            continue;
+            clearTimeout(timeoutId);
+            lastError = new ApiError(`Risposta non JSON da ${base}`, 'ApiError');
+            // Non-transitorio (risposta valida ma content-type sbagliato): passa alla prossima
+            break;
           }
-          throw new ApiError(`Errore ricerca: ${res.status}`, 'ApiError', res.status);
-        }
-        const ct = res.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) {
+          // Fix B-8-12: leggi body PRIMA di clearTimeout (body read protetto da timeout)
+          const json = (await res.json()) as T;
           clearTimeout(timeoutId);
-          lastError = new ApiError(`Risposta non JSON da ${base}`, 'ApiError');
-          continue;
-        }
-        // Fix B-8-12: leggi body PRIMA di clearTimeout (body read protetto da timeout)
-        const json = (await res.json()) as T;
-        clearTimeout(timeoutId);
-        return json;
-      } catch (e: unknown) {
-        clearTimeout(timeoutId);
-        // Fix B-8-4: dispatch su status invece di message.startsWith
-        if (e instanceof ApiError && e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429) {
-          throw e;
-        }
-        const err = e as { name?: string };
-        if (err?.name === 'AbortError') {
-          // Fix B11: distingui tra timeout interno (questa istanza) e abort esterno
-          if (opts.signal?.aborted) {
-            // Abort esterno: propaga
-            throw new ApiError('Aborted', 'AbortError');
+          return json;
+        } catch (e: unknown) {
+          clearTimeout(timeoutId);
+          // Fix B-8-4: dispatch su status invece di message.startsWith
+          if (e instanceof ApiError && e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429) {
+            throw e;
           }
-          // Timeout interno su QUESTA istanza: prova la prossima
-          lastError = new ApiError(`Timeout su ${base}`, 'TimeoutError');
-          continue;
+          const err = e as { name?: string };
+          if (err?.name === 'AbortError') {
+            // Fix B11: distingui tra timeout interno (questa istanza) e abort esterno
+            if (opts.signal?.aborted) {
+              // Abort esterno: propaga
+              throw new ApiError('Aborted', 'AbortError');
+            }
+            // Timeout interno su QUESTO tentativo
+            lastError = new ApiError(`Timeout su ${base}`, 'TimeoutError');
+            // Fix OFF-RETRY: se ci sono tentativi disponibili, aspetta e ritenta
+            if (attempt < maxAttempts - 1) {
+              const delay = API_RETRY_DELAY_MS * (attempt + 1);
+              if (Date.now() + delay < globalDeadline) {
+                try {
+                  await sleep(delay, opts.signal);
+                  continue;
+                } catch {
+                  // sleep abortita da signal esterno: propaga
+                  throw new ApiError('Aborted', 'AbortError');
+                }
+              }
+              break;
+            }
+            break; // tentativi esauriti, passa alla prossima istanza
+          }
+          if (err?.name === 'TypeError') {
+            // network failure: retry sulla stessa istanza poi passa alla prossima
+            lastError = new ApiError('Network', 'NetworkError');
+            if (attempt < maxAttempts - 1) {
+              const delay = API_RETRY_DELAY_MS * (attempt + 1);
+              if (Date.now() + delay < globalDeadline) {
+                try {
+                  await sleep(delay, opts.signal);
+                  continue;
+                } catch {
+                  throw new ApiError('Aborted', 'AbortError');
+                }
+              }
+              break;
+            }
+            break;
+          }
+          // Errore non classificato: registralo e passa alla prossima istanza
+          lastError = e instanceof Error ? e : new Error(String(e));
+          break;
         }
-        if (err?.name === 'TypeError') {
-          // network failure: prova prossima istanza
-          lastError = new ApiError('Network', 'NetworkError');
-          continue;
-        }
-        lastError = e instanceof Error ? e : new Error(String(e));
       }
     }
   } finally {
@@ -231,3 +328,6 @@ export async function getOffByBarcode(barcode: string, signal?: AbortSignal): Pr
     throw e;
   }
 }
+
+// Esportato per i test
+export { isTransientError };
