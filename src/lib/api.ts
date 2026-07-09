@@ -144,11 +144,7 @@ export async function apiGetJson<T>(
           // Fix B-8-3: 429 (rate limit) → retry su stessa istanza poi prossima
           if ((res.status >= 500 && res.status < 600) || res.status === 429) {
             clearTimeout(timeoutId);
-            lastError = new ApiError(
-              `Server OFF ${base} non disponibile (${res.status})`,
-              'ApiError',
-              res.status,
-            );
+            lastError = new ApiError(`Server OFF ${base} non disponibile (${res.status})`, 'ApiError', res.status);
             // Fix OFF-RETRY: se ci sono ancora tentativi disponibili, aspetta e ritenta
             if (attempt < maxAttempts - 1) {
               const delay = API_RETRY_DELAY_MS * (attempt + 1);
@@ -186,7 +182,13 @@ export async function apiGetJson<T>(
         } catch (e: unknown) {
           clearTimeout(timeoutId);
           // Fix B-8-4: dispatch su status invece di message.startsWith
-          if (e instanceof ApiError && e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429) {
+          if (
+            e instanceof ApiError &&
+            e.status !== undefined &&
+            e.status >= 400 &&
+            e.status < 500 &&
+            e.status !== 429
+          ) {
             throw e;
           }
           const err = e as { name?: string };

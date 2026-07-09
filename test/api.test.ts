@@ -164,9 +164,9 @@ describe('apiGetJson - retry logic', () => {
     const ctrl = new AbortController();
     ctrl.abort();
 
-    await expect(
-      apiGetJson(() => 'https://example.com/api', { signal: ctrl.signal }),
-    ).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(apiGetJson(() => 'https://example.com/api', { signal: ctrl.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -281,11 +281,7 @@ describe('apiGetJson - timeout behavior', () => {
             reject(new DOMException('Aborted', 'AbortError'));
             return;
           }
-          signal.addEventListener(
-            'abort',
-            () => reject(new DOMException('Aborted', 'AbortError')),
-            { once: true },
-          );
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
         }
       });
 
