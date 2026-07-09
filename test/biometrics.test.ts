@@ -300,7 +300,7 @@ describe('getBiometricForDisplay', () => {
     expect(out.weightKgInferred).toBe(false);
   });
 
-  it('inferisce il peso dall\'ultimo valore noto se manca oggi', () => {
+  it("inferisce il peso dall'ultimo valore noto se manca oggi", () => {
     const bio = {
       '2026-07-08': { weightKg: 80 },
       '2026-07-10': { waterMl: 1000 },

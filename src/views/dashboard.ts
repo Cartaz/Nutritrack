@@ -261,9 +261,7 @@ function getLatestWeightDate(biometrics: ReturnType<typeof getState>['biometrics
 
 /** Mini sparkline SVG del trend peso. Mostra punti grezzi + linea media mobile 7gg.
  *  Se ci sono meno di 2 punti, mostra un hint testuale. */
-function renderWeightSparkline(
-  points: ReturnType<typeof computeWeightMovingAverage>,
-): string {
+function renderWeightSparkline(points: ReturnType<typeof computeWeightMovingAverage>): string {
   if (points.length < 2) {
     return `<p class="bio-spark-empty">Registra il peso per almeno 2 giorni per vedere il trend.</p>`;
   }
@@ -297,7 +295,8 @@ function renderWeightSparkline(
 
   const delta = points[points.length - 1].weightKg - points[0].weightKg;
   const deltaSign = delta > 0 ? '+' : '';
-  const deltaColor = Math.abs(delta) < 0.05 ? 'var(--text-muted)' : delta > 0 ? 'var(--color-danger)' : 'var(--color-primary)';
+  const deltaColor =
+    Math.abs(delta) < 0.05 ? 'var(--text-muted)' : delta > 0 ? 'var(--color-danger)' : 'var(--color-primary)';
 
   return `
     <div class="bio-spark">
@@ -372,9 +371,7 @@ function renderWeekTab(state: ReturnType<typeof getState>): string {
       const dateLabel = parseISODateLocal(d.date).toLocaleDateString('it-IT', { weekday: 'short' });
       const isCurrent = d.date === state.currentDate;
       const overPct =
-        over && state.settings.calorieGoal > 0
-          ? Math.round((d.calories / state.settings.calorieGoal - 1) * 100)
-          : 0;
+        over && state.settings.calorieGoal > 0 ? Math.round((d.calories / state.settings.calorieGoal - 1) * 100) : 0;
       const overBadge = over ? ` <span class="week-bar-over">+${overPct}%</span>` : '';
       return `
         <button type="button" class="week-bar${isCurrent ? ' current' : ''}${over ? ' over' : ''}" data-action="goToDate" data-date="${escapeAttr(d.date)}" title="${escapeAttr(d.date)}: ${Math.round(d.calories)} kcal" aria-label="Vai al ${escapeAttr(formatDateIT(d.date))}: ${Math.round(d.calories)} kcal">
@@ -541,7 +538,10 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
     .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${yFor(p.ma7 ?? p.weightKg).toFixed(1)}`)
     .join(' ');
   const dots = maPoints
-    .map((p, i) => `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(p.weightKg).toFixed(1)}" r="2" fill="var(--color-fat)" />`)
+    .map(
+      (p, i) =>
+        `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(p.weightKg).toFixed(1)}" r="2" fill="var(--color-fat)" />`,
+    )
     .join('');
 
   // Etichette asse Y (min / max)
@@ -556,7 +556,8 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
 
   const delta = points[points.length - 1].weightKg - points[0].weightKg;
   const deltaSign = delta > 0 ? '+' : '';
-  const deltaColor = Math.abs(delta) < 0.05 ? 'var(--text-muted)' : delta > 0 ? 'var(--color-danger)' : 'var(--color-primary)';
+  const deltaColor =
+    Math.abs(delta) < 0.05 ? 'var(--text-muted)' : delta > 0 ? 'var(--color-danger)' : 'var(--color-primary)';
 
   return `
     <div class="stats-weight-chart">

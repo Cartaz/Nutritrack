@@ -920,7 +920,9 @@ body {
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background-color var(--transition), color var(--transition);
+  transition:
+    background-color var(--transition),
+    color var(--transition);
   font-family: inherit;
 }
 .stats-tabs .tab-btn.active {

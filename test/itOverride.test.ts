@@ -117,7 +117,7 @@ describe('integrazione con saveOffFood (dedupe per barcode)', () => {
     expect(getState().foods).toHaveLength(1);
   });
 
-  it('un food salvato con stesso barcode viene trovato prima dell\'override', () => {
+  it("un food salvato con stesso barcode viene trovato prima dell'override", () => {
     // Salva un food custom con il barcode della Coca-Cola ma nome diverso
     // (simula correzione manuale dell'utente)
     setState({
