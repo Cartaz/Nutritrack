@@ -1,6 +1,6 @@
 # NutriTrack PWA
 
-**v1.0.0** — Tracker di calorie e macro personalizzato, **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Costruito seguendo lo **Standard di Creazione PWA**: Vite 5 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI.
+**v1.1.1** — Tracker di calorie e macro personalizzato, **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Costruito seguendo lo **Standard di Creazione PWA**: Vite 5 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI.
 
 ## Cos'è NutriTrack
 
@@ -9,6 +9,71 @@ NutriTrack è un tracker nutrizionale **privacy-first** che funziona interamente
 **Caso d'uso tipico**: apri l'app, aggiungi alimenti al diario (ricercandoli su Open Food Facts o creandoli custom), vedi in tempo reale quante calorie/macro hai consumato rispetto all'obiettivo, e tieni d'occhio la media settimanale. Le ricette ti permettono di raggruppare ingredienti e aggiungerli al diario in un tap. Il calcolatore TDEE (Mifflin-St Jeor) stima il fabbisogno calorico in base a peso/altezza/età/sesso/attività, e l'obiettivo di peso (perdere/mantenere/aumentare) regola automaticamente le calorie con un rateo sicuro (max 0.5 kg/settimana, linea guida WHO/ACSM).
 
 **Funziona offline**, è installabile come app su iOS/Android/desktop, e il barcode scanner usa la fotocamera per cercare prodotti su Open Food Facts. Il codice è open source (MIT), i dati nutrizionali provengono da [Open Food Facts](https://world.openfoodfacts.org) (database collaborativo, licenza ODbL).
+
+---
+
+## 🎉 What's new in v1.1.1
+
+This patch release focuses on **stabilizing and improving the Open Food Facts ingredient search** — the area that generated the most user feedback after v1.1.0. Two fixes:
+
+### OFF search: automatic retry with backoff
+
+Before this release, the ingredient search frequently reported "You are offline" or "Check your connection" even when the user was online and OFF was just having a transient blip. Retrying a second later worked. Now:
+
+- **Linear backoff retry** (500ms × attempt) on the same OFF instance for transient errors: `NetworkError`, `TimeoutError`, HTTP 5xx, 429. Max 1 retry per instance before falling through to the next one.
+- **Silent UI-level auto-retry**: if the first search fails with a transient error, the app retries once automatically after 800ms without showing any error toast. The typical "retry a second later and it works" case is now handled invisibly.
+- **Accurate error messages**: previously `NetworkError` (online but OFF unreachable) was reported as "You are offline" — misleading. Now `OfflineError` (genuinely offline, `navigator.onLine === false`) is distinct from `NetworkError` (online but OFF is down) and `TimeoutError` (OFF is slow).
+- **Service Worker race condition fixed**: `apiGetJson` was aborting at 8s while the SW `NetworkFirst` strategy waited 10s, preventing cache fallback. The timeout is now aligned at 10s and the global deadline at 20s.
+- Applied to text search, barcode scanner, and the recipe ingredient sub-search.
+
+### OFF search: suffix expansion for partial word matches
+
+OFF with `search_simple=1` does not support partial matching or wildcards (`melanzan*` returns 0 results). So searching "melanzan" (incomplete) returned 0 products even though "melanzane" has 417. Now:
+
+- When the original query returns 0 results **and** does not already end with an Italian suffix, the app tries in parallel the query + each suffix in `PARTIAL_MATCH_SUFFIXES` (`'e'`, `'i'`, `'a'`, `'o'` — ordered by frequency in Italian food product names).
+- Returns the result with the most products. If all fail, returns the original empty result.
+- **Resilient**: if one suffix fails with a network error, the others still complete (one failure does not block the rest).
+- **Pagination-safe**: the effective query is stored in `effectiveQuery` and reused for subsequent pages, so "Load more results" does not break.
+
+Examples: `pasta` → no expansion (already has results). `melanzan` → `melanzane` (417 products). `biscott` → `biscotti` (picks the suffix with the most results).
+
+### Test & quality
+
+229 unit tests pass (+30 new for the retry logic and suffix expansion) — typecheck, lint, format, build all green. The CI GitHub Actions pipeline runs the full suite (typecheck → lint → test → build) on every PR and push.
+
+---
+
+## 🎉 What's new in v1.1.0
+
+This release ships the **P0 roadmap items** that turn NutriTrack from "demo with a README" into a properly licensed, installable, privacy-respecting PWA. Three deliverables:
+
+### P0-1: MIT LICENSE file
+
+The README declared the project as MIT-licensed, but the actual `LICENSE` file was missing. Technically, without the file the code was "All rights reserved" — which made the project not legally open source. This release adds the standard SPDX MIT license text and `"license": "MIT"` to `package.json`. Anyone can now legitimately fork, modify, and redistribute NutriTrack under the terms of the MIT license.
+
+### P0-2: Real barcode scanner
+
+The search dialog now has a "Scan" button that opens the device camera and reads EAN/UPC barcodes. Implementation details:
+
+- **Native `BarcodeDetector` API** on Chrome/Android (fast, no extra dependency).
+- **`@zxing/library` fallback** on Safari iOS and browsers without native support (the same library used by mainstream scanner apps).
+- Detected code is forwarded to `getOffByBarcode()` (already present as a stub), which queries Open Food Facts and pre-fills the search dialog with the matching product.
+- If the product is not in OFF, an informative toast is shown and the user can fall back to a manual name search or create a custom ingredient.
+- Camera permissions are requested lazily (only when the user taps "Scan"), with clear error handling for denied/in-use cameras.
+
+### P0-3: Formal privacy policy
+
+A static HTML page at `/privacy.html` documents, in plain language:
+
+- All data lives on the device (localStorage). No backend, no account, no analytics.
+- The only outbound network calls are to `*.openfoodfacts.org` (for ingredient/barcode lookups) — explicitly disclosed.
+- No cookies, no third-party trackers, no service worker fingerprinting beyond what's needed for offline PWA functionality.
+- GDPR-friendly by design: nothing leaves the device that could identify the user.
+- Linked from the app footer and from the README, so it's discoverable both from inside the app and from the GitHub repo.
+
+### Test & quality
+
+199 unit tests pass — typecheck, lint, build all green. The CI GitHub Actions pipeline runs the full suite (typecheck → lint → test → build) on every PR and push.
 
 ---
 
