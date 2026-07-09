@@ -1039,6 +1039,235 @@ body {
   display: block;
 }
 
+/* ============ Meals head row (P2 #1 copy button) ============ */
+.meals-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--space-2) 0 var(--space-1);
+}
+.meals-head-row .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ============ Recent foods card (P2 #2 quick add) ============ */
+.recent-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.recent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.recent-head .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.recent-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.recent-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--transition),
+    border-color var(--transition);
+}
+.recent-chip:hover {
+  background-color: var(--bg-muted);
+}
+.recent-chip:active {
+  transform: scale(0.98);
+}
+.recent-chip:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.recent-chip-info {
+  flex: 1;
+  min-width: 0;
+}
+.recent-chip-name {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-chip-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+}
+.recent-chip-add {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-primary);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-soft);
+}
+
+/* ============ Keyboard help overlay (P2 #3) ============ */
+.modal-help {
+  max-width: 480px;
+}
+.modal-help .modal-body {
+  padding: var(--space-4);
+}
+.kbd-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kbd-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 14px;
+}
+.kbd-list kbd {
+  display: inline-block;
+  min-width: 32px;
+  padding: 4px 8px;
+  font-family: var(--font-mono, 'SF Mono', Menlo, monospace);
+  font-size: 12px;
+  text-align: center;
+  background-color: var(--bg-muted);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 0 var(--border-color);
+}
+.kbd-list span {
+  color: var(--text-secondary);
+}
+
+/* ============ Streak & badges card (P3 #1) ============ */
+.streak-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.streak-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.streak-head .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.streak-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.streak-current {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background-color: var(--bg-muted);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+}
+.streak-flame {
+  font-size: 28px;
+  line-height: 1;
+}
+.streak-label {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.2;
+}
+.streak-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+.badge-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+}
+@media (min-width: 480px) {
+  .badge-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.badge-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+}
+.badge-tile.unlocked {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+}
+.badge-tile.locked {
+  opacity: 0.55;
+}
+.badge-tile-icon {
+  font-size: 22px;
+  line-height: 1;
+  filter: grayscale(1);
+}
+.badge-tile.unlocked .badge-tile-icon {
+  filter: none;
+}
+.badge-tile-info {
+  flex: 1;
+  min-width: 0;
+}
+.badge-tile-name {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.2;
+}
+.badge-tile-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin: 1px 0 0;
+  line-height: 1.3;
+}
+
 /* Meals */
 .meals {
   display: flex;

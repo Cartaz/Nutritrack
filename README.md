@@ -54,9 +54,63 @@ Setters validate aggressively: out-of-range values are rejected with a toast (no
 
 ### Tests & quality
 
-**287 unit tests pass** (+58 new: 39 biometrics, 12 IT override, 7 stats windows) — typecheck, lint, build all green. The CI pipeline (typecheck → lint → test → build) is fully green.
+**287 unit tests pass** (+58 new: 39 biometrics, 12 IT override, 7 stats windows) — typecheck, lint, build all green. The CI pipeline (typecheck → lint → format:check → test → build) is fully green.
 
 Roadmap updated: 3 P1 items of Phase 2 → done. Counter 6/24 → 9/24 completed tasks.
+
+---
+
+## 🎉 Phase 2 complete: P2 + P3 items
+
+The remaining 4 items of Step 02 "Everyday quality of life" are now shipped, completing the entire Phase 2 of the hobbyist roadmap. All local-only, no architectural impact, no new dependencies.
+
+### P2 #1: Copy-to-clipboard for recipes and diary
+
+A new `clipboard.ts` module generates **markdown human-readable** exports of the daily diary and individual recipes, with a "Copy" button in both the dashboard (next to the "Pasti" heading) and the recipe viewer modal. The format includes:
+
+- **Diary**: a header with the date, the daily total (kcal + macros) vs goal, each meal as a section with per-entry items (name, brand, quantity/grams, kcal) and a per-meal subtotal, and the day's biometrics (water/sleep/weight) when present. Meals are emitted in canonical order (breakfast → lunch → dinner → snack) regardless of insertion order.
+- **Recipe**: name, description (blockquote), servings, total + per-serving macros, and the ingredient list with grams and per-ingredient kcal.
+
+`copyToClipboard` uses the modern `navigator.clipboard.writeText` API when available (HTTPS + secure context), with a `document.execCommand('copy')` fallback for older Safari and HTTP contexts. Toast feedback confirms success or reports permission errors.
+
+### P2 #2: Quick add — recent and favorite foods
+
+A new "Aggiunti di recente" card on the dashboard lists the **last 10 foods used in the diary**, deduplicated by foodId (a food used multiple times counts once, with an aggregated `useCount`), ordered by most recent use. Each chip shows the food thumbnail, name, serving size, and kcal per default serving.
+
+A single tap triggers `quickAddRecentFood`, which adds the food to the current date with the default serving size as `gramsOverride`. The meal is chosen intelligently from the current hour (breakfast before 11:00, lunch 11–15, dinner 15–21, snack otherwise) — so the user doesn't have to pick a meal for habitual foods. The card is hidden when the diary is empty (no recents yet).
+
+The recent list derives entirely from the existing diary state (no extra persistence) and always uses the **fresh food snapshot** from `state.foods` when the foodId still exists, falling back to the entry's snapshot if the food was deleted.
+
+### P2 #3: Keyboard shortcuts (desktop)
+
+A new `keyboardShortcuts.ts` module binds a global `keydown` listener (initialized once in `main.ts`). Shortcuts:
+
+| Key   | Action                                                                |
+| ----- | --------------------------------------------------------------------- |
+| `/`   | Open the food search dialog on the current date (meal chosen by hour) |
+| `d`   | Go to dashboard                                                       |
+| `f`   | Go to foods                                                           |
+| `r`   | Go to recipes                                                         |
+| `s`   | Go to settings                                                        |
+| `?`   | Show the keyboard help overlay                                        |
+| `Esc` | Close the help overlay                                                |
+
+Shortcuts are **guarded** to avoid hijacking typing: they are skipped when the focus is in an `<input>`, `<textarea>`, `<select>`, or `contenteditable` element; when any modal is open (the modal's own ESC handler takes over); and when modifier keys (Ctrl/Cmd/Alt) are held (so browser shortcuts like Cmd+S still work). The help overlay is a lightweight custom modal (not the generic modal system, to avoid state interactions) with a close button, overlay-click, and ESC.
+
+### P3 #1: Local gamification (streak + badges)
+
+A new `gamification.ts` module computes:
+
+- **Streak**: the current consecutive-days streak (days with at least 1 diary entry), with a tolerance — if today is empty but yesterday was tracked, the streak from yesterday is still "alive" to give the user until midnight. Also tracks the **longest streak ever** and the last tracked date.
+- **7 badges**: 🌱 First step (first diary entry), 🔥 First week (7-day streak), 💯 Centurione (100 tracked days, non-consecutive), 🍳 Chef alle prime armi (first recipe), 👨‍🍳 Cuoco provetto (10 recipes), 💧 Biometrico (first biometric entry), 🚰 Idratato (2 L water in a day).
+
+A "Il tuo percorso" card at the bottom of the dashboard shows the current streak with a flame icon, the personal record, and a grid of badges — unlocked badges in green with full-color icons, locked badges grayed out with desaturated icons. Everything is derived from existing state (no extra persistence, no backend, no social, no sharing — pure personal motivation).
+
+### Tests & quality (final)
+
+**340 unit tests pass** (+53 new: 11 clipboard, 8 recentFoods, 20 gamification, 14 keyboardShortcuts) — typecheck, lint, format:check, build all green. The test setup now includes stubs for `document.execCommand` and `navigator.clipboard` (jsdom does not implement them).
+
+Roadmap updated: Phase 2 is **100% complete** (7/7 items: 3 P1 + 3 P2 + 1 P3). Counter 9/24 → 13/24 completed tasks.
 
 ---
 

@@ -27,6 +27,10 @@ import {
   WATER_GLASS_ML,
   WATER_GOAL_ML,
 } from '../lib/biometrics';
+import { copyDiaryToClipboard } from '../lib/clipboard';
+import { getRecentFoods, quickAddRecentFood } from '../lib/recentFoods';
+import { computeStreak, getBadgeStatuses, countUnlockedBadges } from '../lib/gamification';
+import { showToast } from '../components/toast';
 // Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
 import {
   getDashRenderSig,
@@ -162,7 +166,15 @@ export function renderDashboard(main: HTMLElement): void {
 
       ${renderBiometricCard(state.currentDate)}
 
+      ${renderRecentFoodsCard(state)}
+
+      <div class="meals-head-row">
+        <h3 class="section-title">Pasti</h3>
+        <button type="button" class="btn btn-outline btn-sm" data-action="copyDiary" aria-label="Copia il diario come testo">📋 Copia</button>
+      </div>
       <div class="meals">${mealCards}</div>
+
+      ${renderStreakCard()}
     </div>
   `;
 
@@ -319,6 +331,94 @@ function renderWeightSparkline(points: ReturnType<typeof computeWeightMovingAver
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+// ============ Recent foods card (P2 #2) ============
+
+/** Renderizza la card "Aggiunti di recente" con quick-add 1-click.
+ *  Nascosta se non ci sono alimenti recenti (diario vuoto). */
+function renderRecentFoodsCard(_state: ReturnType<typeof getState>): string {
+  const recents = getRecentFoods(10);
+  if (recents.length === 0) return '';
+
+  const chips = recents
+    .map((r) => {
+      const f = r.food;
+      const cal = Math.round((f.nutrition.calories * f.servingSize) / 100);
+      return `
+        <button type="button" class="recent-chip" data-action="quickAddRecent" data-food-id="${escapeAttr(f.id)}" title="${escapeAttr(f.name)} · ${f.servingSize}g · ${cal} kcal · usato ${r.useCount}×" aria-label="Aggiungi rapidamente ${escapeAttr(f.name)}">
+          ${imgTag(f.image, f.name, 'thumb', f.source === 'custom' ? '✏️' : '🥫')}
+          <div class="recent-chip-info">
+            <p class="recent-chip-name">${escapeHtml(f.name)}</p>
+            <p class="recent-chip-meta">${f.servingSize}g · ${cal} kcal</p>
+          </div>
+          <span class="recent-chip-add" aria-hidden="true">＋</span>
+        </button>
+      `;
+    })
+    .join('');
+
+  return `
+    <section class="card recent-card" aria-label="Aggiunti di recente">
+      <div class="recent-head">
+        <h3 class="section-title">Aggiunti di recente</h3>
+        <span class="recent-hint">1-tap per aggiungere alla data corrente</span>
+      </div>
+      <div class="recent-list">${chips}</div>
+    </section>
+  `;
+}
+
+// ============ Streak & badges card (P3 #1) ============
+
+/** Renderizza la card gamification: streak corrente + badge sbloccabili.
+ *  Card sempre visibile (anche con streak 0) per motivare l'utente. */
+function renderStreakCard(): string {
+  const state = getState();
+  const streak = computeStreak(state.diary);
+  const badges = getBadgeStatuses(state);
+  const unlockedCount = countUnlockedBadges(state);
+  const totalCount = badges.length;
+
+  const streakFlame = streak.current > 0 ? '🔥' : '💤';
+  const streakLabel =
+    streak.current > 0 ? `${streak.current} ${streak.current === 1 ? 'giorno' : 'giorni'} consecutivi` : 'Inizia oggi!';
+  const streakSub =
+    streak.longest > 0
+      ? `Record personale: ${streak.longest} giorni`
+      : 'Registra almeno 1 alimento per iniziare lo streak';
+
+  const badgesHtml = badges
+    .map((b) => {
+      const cls = b.unlocked ? 'badge-tile unlocked' : 'badge-tile locked';
+      return `
+        <div class="${cls}" title="${escapeAttr(b.name)} — ${escapeAttr(b.description)}">
+          <span class="badge-tile-icon" aria-hidden="true">${b.icon}</span>
+          <div class="badge-tile-info">
+            <p class="badge-tile-name">${escapeHtml(b.name)}</p>
+            <p class="badge-tile-desc">${escapeHtml(b.description)}</p>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    <section class="card streak-card" aria-label="Streak e badge">
+      <div class="streak-head">
+        <h3 class="section-title">Il tuo percorso</h3>
+        <span class="streak-count">${unlockedCount}/${totalCount} badge</span>
+      </div>
+      <div class="streak-current">
+        <span class="streak-flame" aria-hidden="true">${streakFlame}</span>
+        <div>
+          <p class="streak-label">${escapeHtml(streakLabel)}</p>
+          <p class="streak-sub">${escapeHtml(streakSub)}</p>
+        </div>
+      </div>
+      <div class="badge-grid">${badgesHtml}</div>
+    </section>
+  `;
 }
 
 // ============ Stats card con tab Settimana/Mese/Anno (P1 #1) ============
@@ -778,6 +878,23 @@ function bindDashboardEvents(main: HTMLElement): void {
         setStatsTab(tab);
         emitChange();
       }
+      return;
+    }
+    if (action === 'copyDiary') {
+      void copyDiaryToClipboard(state.currentDate);
+      return;
+    }
+    if (action === 'quickAddRecent') {
+      const foodId = target.dataset.foodId || '';
+      if (!foodId) return;
+      // Recupera il food da state.foods (snapshot fresco) — i recenti derivano
+      // dal diario, ma il food potrebbe essere stato eliminato nel frattempo.
+      const food = state.foods.find((f) => f.id === foodId);
+      if (!food) {
+        showToast('Alimento non più disponibile (è stato eliminato?)', 'info', 3500);
+        return;
+      }
+      quickAddRecentFood(food, state.currentDate);
       return;
     }
   });

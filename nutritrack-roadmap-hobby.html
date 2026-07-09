@@ -454,7 +454,7 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
     <div class="section-head reveal">
       <div class="section-kicker">01 · In sintesi</div>
       <h2 class="section-title">Numeri della roadmap</h2>
-      <p class="section-desc">24 task totali distribuiti su 4 fasi temporali. Effort complessivo stimato: ~75–100 giorni di sviluppo spalmato su 12 mesi, in modalità tempo-rubato. <strong>9 task completati: 3 P0 critici + 3 quick wins P1/P2 + 3 P1 Step 02 (qualità della vita quotidiana).</strong></p>
+      <p class="section-desc">24 task totali distribuiti su 4 fasi temporali. Effort complessivo stimato: ~75–100 giorni di sviluppo spalmato su 12 mesi, in modalità tempo-rubato. <strong>13 task completati: 3 P0 critici + 3 quick wins P1/P2 + 7 P1/P2/P3 Step 02 (qualità della vita quotidiana).</strong></p>
     </div>
 
     <div class="summary-stats">
@@ -479,7 +479,7 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
         <div class="stat-label">Dipendenze esterne nuove</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-value">9 / 24</div>
+        <div class="stat-value">13 / 24</div>
         <div class="stat-label">Task completati</div>
       </div>
     </div>
@@ -668,55 +668,55 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
               </div>
             </div>
 
-            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+            <div class="roadmap-item p2 done" data-priority="p2" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Copy-to-clipboard per ricette e diario</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
               <div class="ri-desc">Bottone "Copia come testo" in vista ricetta e diario giornaliero. Formato markdown human-readable. Utile per condividere il piano alimentare con il tuo medico o i tuoi amici su WhatsApp.</div>
               <div class="ri-meta">
                 <span class="pri-tag p2">P2</span>
-                <span>⏱ 1–2 gg</span>
-                <span>✓ niente dipendenze</span>
+                <span>✅ Completato</span>
+                <span>→ clipboard.ts + bottone Copia in dashboard e recipe-viewer (markdown con totali, pasti, biometria)</span>
               </div>
             </div>
 
-            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+            <div class="roadmap-item p2 done" data-priority="p2" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Quick add: alimenti recenti e preferiti</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
               <div class="ri-desc">Sulla dashboard, lista "Aggiunti di recente" con 1-click add (ultimi 10 alimenti usati, con porzione di default). Riduce il tempo di logging quotidiano da 30s a 3s per gli alimenti abituali.</div>
               <div class="ri-meta">
                 <span class="pri-tag p2">P2</span>
-                <span>⏱ 2–3 gg</span>
-                <span>→ estende dashboard</span>
+                <span>✅ Completato</span>
+                <span>→ recentFoods.ts + card "Aggiunti di recente" con 1-tap add (meal intelligente per ora)</span>
               </div>
             </div>
 
-            <div class="roadmap-item p2 todo" data-priority="p2" data-status="todo">
+            <div class="roadmap-item p2 done" data-priority="p2" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Keyboard shortcuts su desktop</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
               <div class="ri-desc">Shortcut: <kbd>/</kbd> focus search, <kbd>d</kbd> dashboard, <kbd>f</kbd> foods, <kbd>r</kbd> recipes, <kbd>s</kbd> settings, <kbd>?</kbd> help overlay. Migliora UX per uso desktop (utile se la usi tu su PC).</div>
               <div class="ri-meta">
                 <span class="pri-tag p2">P2</span>
-                <span>⏱ 1–2 gg</span>
-                <span>✓ niente dipendenze</span>
+                <span>✅ Completato</span>
+                <span>→ keyboardShortcuts.ts + help overlay (guard: typing, modal open, modifier keys)</span>
               </div>
             </div>
 
-            <div class="roadmap-item p3 todo" data-priority="p3" data-status="todo">
+            <div class="roadmap-item p3 done" data-priority="p3" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Gamification locale (streak + badge)</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
               <div class="ri-desc">Streak giornaliero (giorni consecutivi con almeno 1 entry). Badge sbloccabili locali: "Prima settimana", "100 giorni", "Prima ricetta", "10 ricette". Niente social, niente condivisione. Solo motivazione personale.</div>
               <div class="ri-meta">
                 <span class="pri-tag p3">P3</span>
-                <span>⏱ 2–3 gg</span>
-                <span>✓ niente backend</span>
+                <span>✅ Completato</span>
+                <span>→ gamification.ts + card streak/badge (7 badge: first_entry, first_week, 100_days, first_recipe, 10_recipes, biometric, water_goal)</span>
               </div>
             </div>
 

@@ -46,3 +46,26 @@ if (typeof window !== 'undefined' && !window.localStorage) {
     globalThis as { localStorage: Storage }
   ).localStorage;
 }
+
+// jsdom non implementa document.execCommand('copy') — forniamo uno stub
+// che i test possono spyare/moccare. Il path legacy di clipboard.ts lo usa
+// come fallback quando navigator.clipboard non è disponibile.
+if (typeof document !== 'undefined' && typeof document.execCommand !== 'function') {
+  (document as unknown as { execCommand: (cmd: string) => boolean }).execCommand = (cmd: string): boolean => {
+    if (cmd === 'copy') return true;
+    return false;
+  };
+}
+
+// jsdom non implementa navigator.clipboard — forniamo uno stub di default
+// che i test possono sovrascrivere con Object.defineProperty.
+if (typeof navigator !== 'undefined' && !(navigator as { clipboard?: unknown }).clipboard) {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: {
+      writeText: async (): Promise<void> => {
+        /* stub */
+      },
+    },
+    configurable: true,
+  });
+}

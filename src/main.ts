@@ -9,6 +9,7 @@ import { showToast } from './components/toast';
 import { showModal } from './components/modal';
 import { terminateWorker } from './worker/client';
 import { toDateKey } from './lib/utils';
+import { initKeyboardShortcuts } from './lib/keyboardShortcuts';
 
 function init(): void {
   // 1. Storage detection + load
@@ -35,6 +36,8 @@ function init(): void {
 
   // 3. Bind events globali
   bindGlobalEvents();
+  // P2 #3: keyboard shortcuts desktop (idempotente)
+  initKeyboardShortcuts();
 
   // 4. Subscribe per re-render su ogni change
   subscribe(render);
