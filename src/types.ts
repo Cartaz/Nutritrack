@@ -163,6 +163,18 @@ export interface DayDiary {
   [date: string]: DiaryEntry[];
 }
 
+/** Biometria giornaliera: valori opzionali, l'utente registra quello che vuole.
+ * waterMl in millilitri, sleepHours in ore (es. 7.5), weightKg in kg (es. 78.4). */
+export interface BiometricEntry {
+  waterMl?: number;
+  sleepHours?: number;
+  weightKg?: number;
+}
+
+/** Mappa date (YYYY-MM-DD) -> BiometricEntry. Le date senza valori registrati
+ *  non vengono persistite (sanitize in normalize.ts rimuove le entry vuote). */
+export type Biometrics = { [date: string]: BiometricEntry };
+
 export interface MacroPreset {
   id: string;
   name: string;
@@ -282,6 +294,8 @@ export interface AppState {
   diary: DayDiary;
   recipes: Recipe[];
   favoriteFoodIds: string[];
+  /** Biometria giornaliera (acqua/sonno/peso). P1 #3 Step 02. */
+  biometrics: Biometrics;
   currentView: ViewName;
   currentDate: string; // YYYY-MM-DD (dashboard)
   _storageDisabled: boolean;

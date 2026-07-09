@@ -1,6 +1,6 @@
 # NutriTrack PWA
 
-**v1.1.1** — Tracker di calorie e macro personalizzato, **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Costruito seguendo lo **Standard di Creazione PWA**: Vite 5 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI.
+**v1.2.0** — Tracker di calorie e macro personalizzato, **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Costruito seguendo lo **Standard di Creazione PWA**: Vite 5 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI.
 
 ## Cos'è NutriTrack
 
@@ -9,6 +9,54 @@ NutriTrack è un tracker nutrizionale **privacy-first** che funziona interamente
 **Caso d'uso tipico**: apri l'app, aggiungi alimenti al diario (ricercandoli su Open Food Facts o creandoli custom), vedi in tempo reale quante calorie/macro hai consumato rispetto all'obiettivo, e tieni d'occhio la media settimanale. Le ricette ti permettono di raggruppare ingredienti e aggiungerli al diario in un tap. Il calcolatore TDEE (Mifflin-St Jeor) stima il fabbisogno calorico in base a peso/altezza/età/sesso/attività, e l'obiettivo di peso (perdere/mantenere/aumentare) regola automaticamente le calorie con un rateo sicuro (max 0.5 kg/settimana, linea guida WHO/ACSM).
 
 **Funziona offline**, è installabile come app su iOS/Android/desktop, e il barcode scanner usa la fotocamera per cercare prodotti su Open Food Facts. Il codice è open source (MIT), i dati nutrizionali provengono da [Open Food Facts](https://world.openfoodfacts.org) (database collaborativo, licenza ODbL).
+
+---
+
+## 🎉 What's new in v1.2.0
+
+This release delivers the **three P1 items of Step 02 — "Everyday quality of life"** of the hobbyist roadmap. All local-only, no architectural impact, no new dependencies. The daily-use experience gets a meaningful upgrade on three fronts: more useful statistics, a richer Italian product database, and biometric tracking.
+
+### P1 #1: Monthly and yearly statistics
+
+The old "Last 7 days" section has grown into a full **Statistics card with three tabs**:
+
+- **Week** (7 days): the original vertical bars, unchanged behavior.
+- **Month** (30 days): 30 compact bars scaled to the observed maximum, with average kcal/day and the count of tracked days.
+- **Year** (365 days): a **GitHub-style contribution heatmap** (53 columns × 7 rows). Color intensity maps to the calorie ratio against the goal — 5 green levels for under-goal days, red for over-goal. Every cell is clickable and navigates to that day. Scrollable horizontally on mobile.
+
+Below the tabs, a **weight trend SVG line chart** (only rendered when ≥ 2 weight entries exist) shows raw data points, the 7-day moving average, axis labels (min/max weight, first/last date), and the total delta with color coding (red for gain, green for loss).
+
+The stats worker is reused as-is — it was already generic over arbitrary date arrays — so the month/year computations run on the same Web Worker with the existing 500ms timeout + main-thread fallback.
+
+### P1 #2: Curated Italian product database (local barcode override)
+
+A new local JSON database (`src/data/it-foods-override.json`) ships with **25 curated Italian grocery products** (Coop, Conad, Carrefour, Esselunga, Barilla, De Cecco, Mutti, Ferrero, Mulino Bianco, …) with real EAN-13 barcodes, per-100g nutrition, serving size/label, and a `verified` flag (true only if the values were checked against the physical package).
+
+When the user scans a barcode, the resolution now follows a **three-tier priority**:
+
+1. **User-saved food** with the same barcode (the user's data always wins — they may have manually corrected values).
+2. **Curated IT override** (local lookup, no network).
+3. **Open Food Facts** fallback (online, with the existing retry/backoff logic).
+
+The toast identifies which source matched (`(tuo salvato)` / `(DB italiano)` / no suffix for OFF), so the user always knows where the data came from. Contributions are welcome via PR on the JSON file. The override integrates transparently with the existing barcode dedupe in `saveOffFood`.
+
+### P1 #3: Daily water, sleep, and weight tracking
+
+A new **Biometrica card** on the dashboard tracks three daily metrics, all on localStorage in the same payload as the rest of the app (schema additive, no version bump):
+
+- **Water**: a progress bar against a 2.5 L reference goal (EFSA) with ±1 glass (200 ml) quick-add buttons. Shows the glass count and the percentage of the goal.
+- **Sleep**: a number input (0–24 h, 0.5 step) for hours of sleep.
+- **Weight**: a number input (20–500 kg, 0.1 step). If today's weight is missing, the input is pre-filled with the latest known value (marked as inferred) — weight changes slowly, so this saves a tap.
+
+Below the inputs, a **14-day sparkline** shows the weight trend with a 7-day trailing moving average and the total delta (red/green/muted based on direction).
+
+Setters validate aggressively: out-of-range values are rejected with a toast (no silent clamping for weight — clamping 5 kg to 20 kg would be misleading on corrupted data), while ≤ 0 values clear the field (intentional reset). The store uses an `in`-operator merge so "field absent from patch" is distinct from "field explicitly set to undefined" — patching water never touches weight.
+
+### Tests & quality
+
+**287 unit tests pass** (+58 new: 39 biometrics, 12 IT override, 7 stats windows) — typecheck, lint, build all green. The CI pipeline (typecheck → lint → test → build) is fully green.
+
+Roadmap updated: 3 P1 items of Phase 2 → done. Counter 6/24 → 9/24 completed tasks.
 
 ---
 

@@ -1,0 +1,232 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-10",
+  "description": "Database italiano curato di override locale per Nutritrack. Quando l'utente scansiona un barcode presente qui, viene usato questo record invece di interrogare Open Food Facts. I valori sono riferiti a 100 g/ml. Contribuzioni via PR: aggiungete prodotti verificatesi con barcode reale e valori presi dalla confezione. I barcodes sono in formato EAN-13 (13 cifre). Marcate 'verified: true' solo se avete controllato la confezione fisicamente.",
+  "products": [
+    {
+      "barcode": "8000123005117",
+      "name": "Coca-Cola Lattina",
+      "brand": "Coca-Cola",
+      "servingSize": 100,
+      "servingLabel": "330 ml (lattina)",
+      "nutrition": { "calories": 42, "protein": 0, "carbs": 10.6, "fat": 0 },
+      "verified": true
+    },
+    {
+      "barcode": "8020312000235",
+      "name": "Acqua Naturale 1.5 L",
+      "brand": "San Pellegrino",
+      "servingSize": 100,
+      "servingLabel": "1500 ml (bottiglia)",
+      "nutrition": { "calories": 0, "protein": 0, "carbs": 0, "fat": 0 },
+      "verified": true
+    },
+    {
+      "barcode": "8001505005708",
+      "name": "Fetta Pan Carrè",
+      "brand": "Bauli",
+      "servingSize": 28,
+      "servingLabel": "1 fetta (28 g)",
+      "nutrition": { "calories": 263, "protein": 8, "carbs": 49, "fat": 4.5 },
+      "verified": true
+    },
+    {
+      "barcode": "8076809513874",
+      "name": "Pasta De Cecco Spaghetti n.12",
+      "brand": "De Cecco",
+      "servingSize": 80,
+      "servingLabel": "porzione 80 g",
+      "nutrition": { "calories": 353, "protein": 12, "carbs": 71, "fat": 1.5 },
+      "verified": true
+    },
+    {
+      "barcode": "8000199002025",
+      "name": "Vodka Russa 700 ml",
+      "brand": "Esegui",
+      "servingSize": 30,
+      "servingLabel": "shot 30 ml",
+      "nutrition": { "calories": 231, "protein": 0, "carbs": 0, "fat": 0 },
+      "verified": false
+    },
+    {
+      "barcode": "8000300008962",
+      "name": "Nutella",
+      "brand": "Ferrero",
+      "servingSize": 15,
+      "servingLabel": "1 cucchiaio (15 g)",
+      "nutrition": { "calories": 539, "protein": 6.3, "carbs": 57.5, "fat": 30.9 },
+      "verified": true
+    },
+    {
+      "barcode": "8076809580690",
+      "name": "Yogurt Bianco Classico 125 g",
+      "brand": "Parmalat",
+      "servingSize": 100,
+      "servingLabel": "vasetto 125 g",
+      "nutrition": { "calories": 64, "protein": 3.5, "carbs": 6.4, "fat": 3 },
+      "verified": true
+    },
+    {
+      "barcode": "8005160000434",
+      "name": "Latte Parzialmente Scremato UHT",
+      "brand": "Coop",
+      "servingSize": 100,
+      "servingLabel": "1 bicchiere 200 ml",
+      "nutrition": { "calories": 46, "protein": 3.2, "carbs": 4.8, "fat": 1.8 },
+      "verified": true
+    },
+    {
+      "barcode": "8000310004457",
+      "name": "Grana Padano DOP 24 mesi",
+      "brand": "Esselunga",
+      "servingSize": 25,
+      "servingLabel": "porzione 25 g",
+      "nutrition": { "calories": 392, "protein": 30, "carbs": 0, "fat": 29 },
+      "verified": true
+    },
+    {
+      "barcode": "8020313000013",
+      "name": "Passata di Pomodoro Mutti 700 g",
+      "brand": "Mutti",
+      "servingSize": 100,
+      "servingLabel": "porzione 100 g",
+      "nutrition": { "calories": 30, "protein": 1.5, "carbs": 5, "fat": 0.5 },
+      "verified": true
+    },
+    {
+      "barcode": "8000290008013",
+      "name": "Uova Categoria M (6 pz)",
+      "brand": "Conad",
+      "servingSize": 50,
+      "servingLabel": "1 uovo (50 g)",
+      "nutrition": { "calories": 143, "protein": 12.5, "carbs": 0.7, "fat": 9.7 },
+      "verified": true
+    },
+    {
+      "barcode": "8076809514017",
+      "name": "Biscotti Gocciole",
+      "brand": "Mulino Bianco",
+      "servingSize": 30,
+      "servingLabel": "4 biscotti (30 g)",
+      "nutrition": { "calories": 451, "protein": 6.5, "carbs": 67, "fat": 17 },
+      "verified": true
+    },
+    {
+      "barcode": "8001505800012",
+      "name": "Crackers Classici",
+      "brand": "Carrefour",
+      "servingSize": 30,
+      "servingLabel": "4 cracker (30 g)",
+      "nutrition": { "calories": 400, "protein": 9, "carbs": 76, "fat": 6 },
+      "verified": true
+    },
+    {
+      "barcode": "8020314000158",
+      "name": "Tonno al Naturale 80 g",
+      "brand": "Rio Mare",
+      "servingSize": 80,
+      "servingLabel": "scatoletta 80 g sgocciolato",
+      "nutrition": { "calories": 116, "protein": 26, "carbs": 0, "fat": 1.5 },
+      "verified": true
+    },
+    {
+      "barcode": "8000250006034",
+      "name": "Pasta Barilla Fusilli",
+      "brand": "Barilla",
+      "servingSize": 80,
+      "servingLabel": "porzione 80 g",
+      "nutrition": { "calories": 359, "protein": 12, "carbs": 72, "fat": 1.5 },
+      "verified": true
+    },
+    {
+      "barcode": "8000210323130",
+      "name": "Olio Extravergine di Oliva 500 ml",
+      "brand": "Carapelli",
+      "servingSize": 10,
+      "servingLabel": "1 cucchiaio (10 ml)",
+      "nutrition": { "calories": 884, "protein": 0, "carbs": 0, "fat": 100 },
+      "verified": true
+    },
+    {
+      "barcode": "8000590008012",
+      "name": "Riso Carnaroli 1 kg",
+      "brand": "Esselunga",
+      "servingSize": 80,
+      "servingLabel": "porzione 80 g crudo",
+      "nutrition": { "calories": 350, "protein": 7, "carbs": 78, "fat": 0.5 },
+      "verified": true
+    },
+    {
+      "barcode": "8000150008765",
+      "name": "Pasta di Mais Doritos",
+      "brand": "Lay's",
+      "servingSize": 30,
+      "servingLabel": "porzione 30 g",
+      "nutrition": { "calories": 496, "protein": 6, "carbs": 60, "fat": 26 },
+      "verified": false
+    },
+    {
+      "barcode": "8076809519851",
+      "name": "Caffè Macinato Lavazza Qualità Oro 250 g",
+      "brand": "Lavazza",
+      "servingSize": 7,
+      "servingLabel": "1 tazzina (7 g)",
+      "nutrition": { "calories": 2, "protein": 0.1, "carbs": 0, "fat": 0 },
+      "verified": true
+    },
+    {
+      "barcode": "8000199001067",
+      "name": "Zucchero Semolato 1 kg",
+      "brand": "Eridania",
+      "servingSize": 5,
+      "servingLabel": "1 cucchiaino (5 g)",
+      "nutrition": { "calories": 387, "protein": 0, "carbs": 99.8, "fat": 0 },
+      "verified": true
+    },
+    {
+      "barcode": "8000230008024",
+      "name": "Filetto di Tonno all'Olio d'Oliva 80 g",
+      "brand": "Nostromo",
+      "servingSize": 80,
+      "servingLabel": "scatoletta 80 g",
+      "nutrition": { "calories": 198, "protein": 22, "carbs": 0, "fat": 12 },
+      "verified": false
+    },
+    {
+      "barcode": "8000310008178",
+      "name": "Prosciutto Cotto Alta Qualità 100 g",
+      "brand": "Esselunga",
+      "servingSize": 50,
+      "servingLabel": "2 fette (50 g)",
+      "nutrition": { "calories": 135, "protein": 21, "carbs": 1, "fat": 5 },
+      "verified": true
+    },
+    {
+      "barcode": "8000180008034",
+      "name": "Mozzarella Light 125 g",
+      "brand": "Galbani",
+      "servingSize": 100,
+      "servingLabel": "1 mozzarella 125 g",
+      "nutrition": { "calories": 195, "protein": 16, "carbs": 1.5, "fat": 14 },
+      "verified": false
+    },
+    {
+      "barcode": "8000330008023",
+      "name": "Pasta Integrale 500 g",
+      "brand": "Coop",
+      "servingSize": 80,
+      "servingLabel": "porzione 80 g",
+      "nutrition": { "calories": 342, "protein": 13, "carbs": 64, "fat": 1.8 },
+      "verified": true
+    },
+    {
+      "barcode": "8000240008124",
+      "name": "Pane Casareccio 400 g",
+      "brand": "Conad",
+      "servingSize": 50,
+      "servingLabel": "1 fetta (50 g)",
+      "nutrition": { "calories": 270, "protein": 9, "carbs": 53, "fat": 2 },
+      "verified": true
+    }
+  ]
+}

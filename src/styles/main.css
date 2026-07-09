@@ -724,6 +724,319 @@ body {
   font-size: 12px;
 }
 
+/* ============ Biometrica card (P1 #3 Step 02) ============ */
+.biometric-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.bio-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.bio-head .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.bio-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+.bio-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+}
+@media (min-width: 480px) {
+  .bio-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .bio-water {
+    grid-column: 1 / -1;
+  }
+}
+.bio-cell {
+  background-color: var(--bg-muted);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.bio-cell-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.bio-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+.bio-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+.bio-value {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.1;
+}
+.bio-unit {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.bio-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+}
+.bio-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0;
+}
+.bio-water-progress {
+  height: 8px;
+  background-color: var(--bg-input);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.bio-water-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #0ea5e9);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+.bio-water-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+.bio-water-buttons .qty-btn {
+  flex: 1;
+  height: 32px;
+  font-size: 16px;
+}
+.bio-input-row input {
+  width: 100%;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-3);
+  font-size: 14px;
+  font-family: inherit;
+}
+.bio-input-row input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+  border-color: var(--color-primary);
+}
+.bio-spark {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-color);
+}
+.bio-spark-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.bio-spark-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bio-spark-delta {
+  font-size: 13px;
+  font-weight: 600;
+}
+.bio-spark-svg {
+  display: block;
+}
+.bio-spark-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.bio-spark-legend .legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.bio-spark-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--space-2);
+  font-style: italic;
+}
+
+/* ============ Stats card con tab (P1 #1) ============ */
+.stats-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.stats-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.stats-head .section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.stats-tabs {
+  display: flex;
+  gap: var(--space-1);
+  background-color: var(--bg-muted);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+.stats-tabs .tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition);
+  font-family: inherit;
+}
+.stats-tabs .tab-btn.active {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+.stats-body {
+  min-height: 80px;
+}
+
+/* Month bars (P1 #1) */
+.month-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 70px;
+  gap: 2px;
+}
+.month-bar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: var(--radius-sm);
+  min-height: 100%;
+}
+.month-bar:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.month-bar-fill {
+  width: 100%;
+  background-color: var(--color-primary);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  transition: background-color var(--transition);
+}
+.month-bar.over .month-bar-fill {
+  background-color: var(--color-danger);
+}
+.month-bar.current .month-bar-fill {
+  box-shadow: 0 0 0 1.5px var(--color-primary-soft);
+}
+.month-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+}
+
+/* Year heatmap (P1 #1) */
+.year-heatmap-wrap {
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+}
+.year-heatmap {
+  display: block;
+  min-width: 480px;
+}
+.year-heatmap rect {
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+.year-heatmap rect:hover {
+  opacity: 0.8;
+}
+.year-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+  flex-wrap: wrap;
+}
+.year-legend .legend-cell {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+/* Weight trend chart (P1 #1) */
+.stats-weight-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-color);
+}
+.stats-weight-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.stats-weight-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stats-weight-delta {
+  font-size: 13px;
+  font-weight: 600;
+}
+.stats-weight-svg {
+  display: block;
+}
+
 /* Meals */
 .meals {
   display: flex;

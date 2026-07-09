@@ -3,6 +3,8 @@
 
 import type {
   ActivityLevel,
+  BiometricEntry,
+  Biometrics,
   DiaryEntry,
   DayDiary,
   FoodItem,
@@ -276,6 +278,47 @@ export function normalizeRecipe(v: unknown): Recipe | null {
   };
 }
 
+/** Normalizza una singola entry biometrica da input esterno.
+ *  Scarta i campi non finiti o fuori range realistico.
+ *  Range (defense in depth, l'UI valida già):
+ *  - waterMl: [0, 20000] (0..20 L/giorno)
+ *  - sleepHours: [0, 24]
+ *  - weightKg: [20, 500] */
+export function normalizeBiometricEntry(v: unknown): BiometricEntry {
+  if (!isObject(v)) return {};
+  const out: BiometricEntry = {};
+  if (v.waterMl != null) {
+    const n = safeNum(v.waterMl, NaN, 0, 20_000);
+    if (Number.isFinite(n) && n > 0) out.waterMl = n;
+  }
+  if (v.sleepHours != null) {
+    const n = safeNum(v.sleepHours, NaN, 0, 24);
+    if (Number.isFinite(n) && n > 0) out.sleepHours = n;
+  }
+  if (v.weightKg != null) {
+    // Scarta i valori sotto il minimo realistico (NON clampare silenziosamente a 20:
+    // sarebbe fuorviante su dati corrotti). Clampa solo il massimo.
+    const n = safeNum(v.weightKg, NaN);
+    if (Number.isFinite(n) && n >= 20) out.weightKg = Math.min(n, 500);
+  }
+  return out;
+}
+
+/** Normalizza una mappa date -> BiometricEntry.
+ *  - Valida le chiavi data con isValidDateKey (round-trip check).
+ *  - Scarta le entry completamente vuote dopo la normalizzazione. */
+export function normalizeBiometrics(v: unknown): Biometrics {
+  if (!isObject(v)) return {};
+  const out: Biometrics = {};
+  for (const [k, val] of Object.entries(v)) {
+    if (!isValidDateKey(k)) continue;
+    const entry = normalizeBiometricEntry(val);
+    if (entry.waterMl === undefined && entry.sleepHours === undefined && entry.weightKg === undefined) continue;
+    out[k] = entry;
+  }
+  return out;
+}
+
 export function normalizeUserSettings(v: unknown): UserSettings {
   if (!isObject(v)) return { ...DEFAULT_SETTINGS };
   const calorieGoal = safeNum(v.calorieGoal, DEFAULT_SETTINGS.calorieGoal, 500, 10_000);
@@ -315,6 +358,7 @@ export interface NormalizedPayload {
   diary: DayDiary;
   recipes: Recipe[];
   favoriteFoodIds: string[];
+  biometrics: Biometrics;
 }
 
 export function reconcileAll(raw: unknown): NormalizedPayload {
@@ -332,6 +376,7 @@ export function reconcileAll(raw: unknown): NormalizedPayload {
       diary: {},
       recipes: [],
       favoriteFoodIds: [],
+      biometrics: {},
     };
   }
   const foods: FoodItem[] = Array.isArray(raw.foods)
@@ -346,7 +391,8 @@ export function reconcileAll(raw: unknown): NormalizedPayload {
     ? raw.favoriteFoodIds.filter((id): id is string => isString(id) && foodIds.has(id))
     : [];
   const settings = normalizeUserSettings(raw.settings);
-  return { settings, foods, diary, recipes, favoriteFoodIds };
+  const biometrics = normalizeBiometrics(raw.biometrics);
+  return { settings, foods, diary, recipes, favoriteFoodIds, biometrics };
 }
 
 // ============ Open Food Facts -> FoodItem ============

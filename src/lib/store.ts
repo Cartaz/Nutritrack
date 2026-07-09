@@ -12,6 +12,8 @@ import type {
   UserSettings,
   ViewName,
   MacroSplit,
+  Biometrics,
+  BiometricEntry,
 } from '../types';
 import { DEFAULT_SETTINGS } from './nutrition';
 import { safeId, toDateKey } from './utils';
@@ -45,6 +47,7 @@ const state: AppState = {
   diary: {},
   recipes: [],
   favoriteFoodIds: [],
+  biometrics: {},
   currentView: 'dashboard',
   currentDate: toDateKey(new Date()),
   _storageDisabled: false,
@@ -306,6 +309,50 @@ export function getRecipe(id: string): Recipe | undefined {
   return state.recipes.find((r) => r.id === id);
 }
 
+// ============ Biometrics (acqua / sonno / peso) — P1 #3 Step 02 ============
+
+/** Restituisce la biometrica di una data (oggetto vuoto se non registrata). */
+export function getBiometric(date: string): BiometricEntry {
+  return state.biometrics[date] ?? {};
+}
+
+/** Patch parziale della biometrica di una data.
+ *  Solo i campi ESPPLICITAMENTE presenti nel patch vengono toccati (usa `in`).
+ *  Passa `undefined` come valore di un campo presente nel patch per cancellarlo.
+ *  I campi assenti dal patch restano invariati (merge semantica corretta).
+ *  Se dopo il merge la entry risulta vuota, la chiave viene rimossa per non
+ *  lasciare rumore nel payload (coerenza con deleteDiaryEntry). */
+export function setBiometric(date: string, patch: Partial<BiometricEntry>): void {
+  const current = state.biometrics[date] ?? {};
+  const merged: BiometricEntry = { ...current };
+  if ('waterMl' in patch) {
+    if (patch.waterMl === undefined) delete merged.waterMl;
+    else merged.waterMl = patch.waterMl;
+  }
+  if ('sleepHours' in patch) {
+    if (patch.sleepHours === undefined) delete merged.sleepHours;
+    else merged.sleepHours = patch.sleepHours;
+  }
+  if ('weightKg' in patch) {
+    if (patch.weightKg === undefined) delete merged.weightKg;
+    else merged.weightKg = patch.weightKg;
+  }
+  const next: Biometrics = { ...state.biometrics };
+  if (merged.waterMl === undefined && merged.sleepHours === undefined && merged.weightKg === undefined) {
+    delete next[date];
+  } else {
+    next[date] = merged;
+  }
+  state.biometrics = next;
+  emitChange();
+}
+
+/** Sostituisce l'intera mappa biometrics (usato da loadData/reconcile/import). */
+export function setAllBiometrics(b: Biometrics): void {
+  state.biometrics = b;
+  emitChange();
+}
+
 // ============ Search dialog (modal state) ============
 
 export function openFoodSearch(meal: MealType, date: string): void {
@@ -419,6 +466,7 @@ export function resetAll(): void {
   state.diary = {};
   state.recipes = [];
   state.favoriteFoodIds = [];
+  state.biometrics = {};
   state._storageDisabled = false;
   state._searchOpen = false;
   state._editingFoodId = null;

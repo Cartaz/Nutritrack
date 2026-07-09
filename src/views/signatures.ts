@@ -30,10 +30,55 @@ export function setWeekStatsInputSig(v: string): void {
   _weekStatsInputSig = v;
 }
 
+// ============ Dashboard stats estese (P1 #1 — Mese / Anno) ============
+export type StatsTab = 'week' | 'month' | 'year';
+
+let _statsTab: StatsTab = 'week';
+let _monthStats: { days: DayTotals[]; avgCalories: number } | null = null;
+let _monthStatsInputSig = '';
+let _yearStats: { days: DayTotals[]; avgCalories: number } | null = null;
+let _yearStatsInputSig = '';
+
+export function getStatsTab(): StatsTab {
+  return _statsTab;
+}
+export function setStatsTab(v: StatsTab): void {
+  _statsTab = v;
+}
+export function getMonthStats(): { days: DayTotals[]; avgCalories: number } | null {
+  return _monthStats;
+}
+export function setMonthStats(v: { days: DayTotals[]; avgCalories: number } | null): void {
+  _monthStats = v;
+}
+export function getMonthStatsInputSig(): string {
+  return _monthStatsInputSig;
+}
+export function setMonthStatsInputSig(v: string): void {
+  _monthStatsInputSig = v;
+}
+export function getYearStats(): { days: DayTotals[]; avgCalories: number } | null {
+  return _yearStats;
+}
+export function setYearStats(v: { days: DayTotals[]; avgCalories: number } | null): void {
+  _yearStats = v;
+}
+export function getYearStatsInputSig(): string {
+  return _yearStatsInputSig;
+}
+export function setYearStatsInputSig(v: string): void {
+  _yearStatsInputSig = v;
+}
+
 export function resetDashboardSignature(): void {
   _dashRenderSig = '';
   _weekStats = null;
   _weekStatsInputSig = '';
+  // P1 #1: reset stats estese (manteniamo il tab attivo per non perdere la selezione utente)
+  _monthStats = null;
+  _monthStatsInputSig = '';
+  _yearStats = null;
+  _yearStatsInputSig = '';
 }
 
 // ============ Foods ============

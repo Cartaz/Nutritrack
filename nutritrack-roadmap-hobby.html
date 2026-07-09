@@ -454,7 +454,7 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
     <div class="section-head reveal">
       <div class="section-kicker">01 · In sintesi</div>
       <h2 class="section-title">Numeri della roadmap</h2>
-      <p class="section-desc">24 task totali distribuiti su 4 fasi temporali. Effort complessivo stimato: ~75–100 giorni di sviluppo spalmato su 12 mesi, in modalità tempo-rubato. <strong>6 task completati nel primo pass: 3 P0 critici + 3 quick wins P1/P2.</strong></p>
+      <p class="section-desc">24 task totali distribuiti su 4 fasi temporali. Effort complessivo stimato: ~75–100 giorni di sviluppo spalmato su 12 mesi, in modalità tempo-rubato. <strong>9 task completati: 3 P0 critici + 3 quick wins P1/P2 + 3 P1 Step 02 (qualità della vita quotidiana).</strong></p>
     </div>
 
     <div class="summary-stats">
@@ -479,7 +479,7 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
         <div class="stat-label">Dipendenze esterne nuove</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-value">6 / 24</div>
+        <div class="stat-value">9 / 24</div>
         <div class="stat-label">Task completati</div>
       </div>
     </div>
@@ -629,42 +629,42 @@ footer .footer-meta { font-family: var(--font-mono); font-size: 12px; }
           <p style="font-size: 14px; color: var(--c-text-muted); margin-bottom: var(--space-3);">Feature che migliorano l'uso quotidiano dell'app: statistiche più utili, database italiano più ricco, UX più veloce. Sono tutte implementazioni local-only, nessun impatto architetturale.</p>
           <div class="roadmap-items">
 
-            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+            <div class="roadmap-item p1 done" data-priority="p1" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Statistiche mensili e annue</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
               <div class="ri-desc">Estendi <code>stats.worker.ts</code> con vista mese (30 giorni) e anno (heatmap 365 giorni tipo GitHub contrib graph). Aggiungi tab "Mese" e "Anno" nella vista statistiche. Trend peso con line chart SVG.</div>
               <div class="ri-meta">
                 <span class="pri-tag p1">P1</span>
-                <span>⏱ 4–5 gg</span>
-                <span>→ estende stats.worker</span>
+                <span>✅ Completato</span>
+                <span>→ stats-card con tab Settimana/Mese/Anno + heatmap SVG + weight trend SVG</span>
               </div>
             </div>
 
-            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+            <div class="roadmap-item p1 done" data-priority="p1" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Database IT curato</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
               <div class="ri-desc">Layer di override locale: JSON con alimenti italiani comuni (Coop, Conad, Carrefour IT, Esselunga) con barcode e valori corretti. Se l'utente scansiona quel barcode, usa l'override invece di OFF. File versionato in repo, contributi via PR dai tuoi amici.</div>
               <div class="ri-meta">
                 <span class="pri-tag p1">P1</span>
-                <span>⏱ 5–7 gg</span>
-                <span>→ niente backend</span>
+                <span>✅ Completato</span>
+                <span>→ src/data/it-foods-override.json + itOverride.ts (priorità: salvati &gt; IT &gt; OFF)</span>
               </div>
             </div>
 
-            <div class="roadmap-item p1 todo" data-priority="p1" data-status="todo">
+            <div class="roadmap-item p1 done" data-priority="p1" data-status="done">
               <div class="ri-head">
                 <div class="ri-title">Tracking acqua, sonno, peso giornaliero</div>
-                <span class="ri-status todo">Todo</span>
+                <span class="ri-status done">Done</span>
               </div>
               <div class="ri-desc">Aggiungi tab "Biometrica" nel diario: acqua (bicchieri/L), sonno (ore), peso (kg). Calcolo trend peso con media mobile 7gg. Grafici inline SVG. Tutto su localStorage nello stesso payload.</div>
               <div class="ri-meta">
                 <span class="pri-tag p1">P1</span>
-                <span>⏱ 4–5 gg</span>
-                <span>→ estende AppState</span>
+                <span>✅ Completato</span>
+                <span>→ AppState.biometrics + card Biometrica + sparkline + media mobile 7gg</span>
               </div>
             </div>
 

@@ -31,6 +31,7 @@ let _pendingMultiTabUpdate: {
   diary: unknown;
   recipes: unknown;
   favoriteFoodIds: unknown;
+  biometrics: unknown;
 } | null = null;
 let _quotaWarnedThisSession = false;
 let _stripWarnedThisSession = false;
@@ -58,6 +59,7 @@ interface PersistedPayload {
   diary: unknown;
   recipes: unknown;
   favoriteFoodIds: unknown;
+  biometrics: unknown;
 }
 
 function buildPayload(): PersistedPayload {
@@ -69,6 +71,7 @@ function buildPayload(): PersistedPayload {
     diary: s.diary,
     recipes: s.recipes,
     favoriteFoodIds: s.favoriteFoodIds,
+    biometrics: s.biometrics,
   };
 }
 
@@ -234,6 +237,7 @@ export function loadData(): boolean {
     diary: reconciled.diary,
     recipes: reconciled.recipes,
     favoriteFoodIds: reconciled.favoriteFoodIds,
+    biometrics: reconciled.biometrics,
   });
   return true;
 }
@@ -317,6 +321,7 @@ export function initMultiTabSync(): void {
           diary: reconciled.diary,
           recipes: reconciled.recipes,
           favoriteFoodIds: reconciled.favoriteFoodIds,
+          biometrics: reconciled.biometrics,
         };
         return;
       }
@@ -336,6 +341,7 @@ function applyMultiTabUpdate(reconciled: ReturnType<typeof reconcileAll>): void 
     diary: current.diary,
     recipes: current.recipes,
     favoriteFoodIds: current.favoriteFoodIds,
+    biometrics: current.biometrics,
   });
   const newSig = JSON.stringify({
     settings: reconciled.settings,
@@ -343,6 +349,7 @@ function applyMultiTabUpdate(reconciled: ReturnType<typeof reconcileAll>): void 
     diary: reconciled.diary,
     recipes: reconciled.recipes,
     favoriteFoodIds: reconciled.favoriteFoodIds,
+    biometrics: reconciled.biometrics,
   });
   if (currentSig === newSig) return; // no-op, evita echo
   setState({
@@ -351,6 +358,7 @@ function applyMultiTabUpdate(reconciled: ReturnType<typeof reconcileAll>): void 
     diary: reconciled.diary,
     recipes: reconciled.recipes,
     favoriteFoodIds: reconciled.favoriteFoodIds,
+    biometrics: reconciled.biometrics,
   });
   // Fix B8: emitChange() per aggiornare la UI (setState è silenzioso)
   emitChange();
@@ -430,7 +438,7 @@ export function importDataJson(
     return { ok: false, error: 'Formato file non riconosciuto' };
   }
   // Fix C2 (CRITICAL): richiedi almeno una chiave riconosciuta del payload NutriTrack
-  const KNOWN_KEYS = ['version', 'settings', 'foods', 'diary', 'recipes', 'favoriteFoodIds'];
+  const KNOWN_KEYS = ['version', 'settings', 'foods', 'diary', 'recipes', 'favoriteFoodIds', 'biometrics'];
   const hasKnownKey = KNOWN_KEYS.some((k) => k in (parsed as Record<string, unknown>));
   if (!hasKnownKey) {
     return { ok: false, error: 'File non riconosciuto come backup NutriTrack (nessuna chiave valida)' };
@@ -477,6 +485,7 @@ export function importDataJson(
     diary: reconciled.diary,
     recipes: reconciled.recipes,
     favoriteFoodIds: reconciled.favoriteFoodIds,
+    biometrics: reconciled.biometrics,
   });
   // Fix B10: persisti immediatamente su localStorage PRIMA del reload
   // Fix 7.6: propaga errori di saveData

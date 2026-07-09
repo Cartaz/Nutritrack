@@ -10,6 +10,7 @@
 import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
 import { searchOff, searchOffWithPartialMatch, getOffByBarcode } from '../lib/api';
 import { buildFoodFromOff } from '../lib/normalize';
+import { getItOverrideByBarcode } from '../lib/itOverride';
 import { getState, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
 import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood, saveOffFood } from '../lib/foods';
@@ -551,14 +552,17 @@ function currentList(): FoodItem[] {
   return _searchState.results;
 }
 
-// ============ Barcode scan handler (P0 #2) ============
+// ============ Barcode scan handler (P0 #2 + P1 #2 IT override) ============
 
 /** Callback invocata dal barcode-scanner modal quando un codice viene rilevato.
  *  - Forza il tab "search" (la scansione ha senso solo lì)
  *  - Abortisce eventuali ricerche OFF in corso
- *  - Recupera il prodotto via getOffByBarcode (stub già esistente in api.ts)
+ *  - Priorità di risoluzione del barcode (P1 #2):
+ *      1. Food già salvato dell'utente con stesso barcode (i suoi dati vincono)
+ *      2. Database IT curato (override locale, no rete)
+ *      3. Open Food Facts (fallback online con retry)
  *  - Se trovato: lo mostra come unico risultato e lo pre-seleziona (grammi = servingSize)
- *  - Se non trovato: toast di errore e nessuna modifica alla UI */
+ *  - Se non trovato su nessuna sorgente: toast informativo */
 async function handleBarcodeDetected(barcode: string): Promise<void> {
   if (!getState()._searchOpen) return;
   // Forza tab search + abort fetch in corso
@@ -581,6 +585,33 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
   emitChange();
 
   try {
+    // P1 #2 — Priorità 1: food già salvato dall'utente con stesso barcode.
+    // I dati dell'utente vincono sempre (potrebbe averli corretti manualmente).
+    const s = getState();
+    const savedByBarcode = s.foods.find((f) => f.barcode === barcode);
+    if (savedByBarcode) {
+      _searchState.results = [savedByBarcode];
+      _searchState.selectedId = savedByBarcode.id;
+      _searchState.gramsOverride = String(savedByBarcode.servingSize || 100);
+      _searchState.loading = false;
+      emitChange();
+      showToast(`${savedByBarcode.name} (tuo salvato)`, 'success', 2200);
+      return;
+    }
+
+    // P1 #2 — Priorità 2: database IT curato (override locale, no rete).
+    const itFood = getItOverrideByBarcode(barcode);
+    if (itFood) {
+      _searchState.results = [itFood];
+      _searchState.selectedId = itFood.id;
+      _searchState.gramsOverride = String(itFood.servingSize || 100);
+      _searchState.loading = false;
+      emitChange();
+      showToast(`${itFood.name} (DB italiano)`, 'success', 2200);
+      return;
+    }
+
+    // P1 #2 — Priorità 3: fallback su Open Food Facts (online).
     const product = await getOffByBarcode(barcode);
     if (!getState()._searchOpen) return; // modal chiuso durante fetch
     if (!product) {
