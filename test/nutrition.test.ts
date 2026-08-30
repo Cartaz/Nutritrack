@@ -17,11 +17,21 @@ import {
   calcWeeklyDeltaKg,
   weeklyDeltaToDailyKcal,
   calcGoalAdjustedCalories,
+  assessAutomaticCalorieGoal,
+  AUTOMATIC_CALORIE_MIN_KCAL,
+  AUTOMATIC_CALORIE_MAX_KCAL,
   normalizeMacroSplit,
   kcalFromMacros,
   DEFAULT_SETTINGS,
 } from '../src/lib/nutrition';
+import type { EstimatedGoalCalories, GoalCalorieEstimate } from '../src/lib/nutrition';
 import type { MacroSplit, NutritionPer100, Sex, ActivityLevel, WeightGoalType } from '../src/types';
+
+function expectEstimated(result: GoalCalorieEstimate): EstimatedGoalCalories {
+  expect(result.status).toBe('estimated');
+  if (result.status !== 'estimated') throw new Error(`Expected estimated result, got ${result.status}`);
+  return result;
+}
 
 describe('calcMacroGrams', () => {
   it('calcola grammi corretti per 2000 kcal 30/40/30', () => {
@@ -302,19 +312,18 @@ describe('weeklyDeltaToDailyKcal', () => {
 describe('calcGoalAdjustedCalories', () => {
   it('calcola kcal per obiettivo "lose" con deficit', () => {
     // TDEE 2500, lose 0.5 kg/sett → -550 kcal/giorno → 1950
-    const r = calcGoalAdjustedCalories(2500, 80, 75, 0.5, 'lose' as WeightGoalType);
+    const r = expectEstimated(calcGoalAdjustedCalories(2500, 80, 75, 0.5, 'lose' as WeightGoalType));
     expect(r.kcal).toBe(1950);
     expect(r.weeklyDeltaKg).toBe(-0.5);
     expect(r.dailyAdjustment).toBe(-550);
     expect(r.weeksToTarget).toBe(10);
     expect(r.totalDeltaKg).toBe(-5);
     expect(r.rateClamped).toBe(false);
-    expect(r.kcalClamped).toBe(false);
   });
 
   it('calcola kcal per obiettivo "gain" con surplus', () => {
     // TDEE 2500, gain 0.5 kg/sett → +550 kcal/giorno → 3050
-    const r = calcGoalAdjustedCalories(2500, 70, 75, 0.5, 'gain' as WeightGoalType);
+    const r = expectEstimated(calcGoalAdjustedCalories(2500, 70, 75, 0.5, 'gain' as WeightGoalType));
     expect(r.kcal).toBe(3050);
     expect(r.weeklyDeltaKg).toBe(0.5);
     expect(r.dailyAdjustment).toBe(550);
@@ -323,33 +332,67 @@ describe('calcGoalAdjustedCalories', () => {
   });
 
   it('TDEE + adjustment per "maintain" = TDEE', () => {
-    const r = calcGoalAdjustedCalories(2500, 80, 80, 0.5, 'maintain' as WeightGoalType);
+    const r = expectEstimated(calcGoalAdjustedCalories(2500, 80, 80, 0.5, 'maintain' as WeightGoalType));
     expect(r.kcal).toBe(2500);
     expect(r.weeklyDeltaKg).toBe(0);
     expect(r.dailyAdjustment).toBe(0);
   });
 
-  it('clampa rateo > MAX_WEEKLY_KG_RATE', () => {
-    // 1.0 kg/sett → clampato a 0.5
-    const r = calcGoalAdjustedCalories(2500, 80, 75, 1.0, 'lose' as WeightGoalType);
+  it('clampa soltanto il rateo > MAX_WEEKLY_KG_RATE', () => {
+    const r = expectEstimated(calcGoalAdjustedCalories(2500, 80, 75, 1.0, 'lose' as WeightGoalType));
     expect(r.rateClamped).toBe(true);
-    expect(r.weeklyDeltaKg).toBe(-0.5); // clampato
+    expect(r.weeklyDeltaKg).toBe(-0.5);
   });
 
-  it('clampa kcal a range [500, 10000]', () => {
-    // TDEE 100, lose 0.5 → 100 - 550 = -450 → clampato a 500
-    const r = calcGoalAdjustedCalories(100, 80, 75, 0.5, 'lose' as WeightGoalType);
-    expect(r.kcal).toBe(500);
-    expect(r.kcalClamped).toBe(true);
+  it('non clampa una stima calorica fuori range', () => {
+    // TDEE 100, lose 0.5 → 100 - 550 = -450. La formula conserva il risultato matematico.
+    const r = expectEstimated(calcGoalAdjustedCalories(100, 80, 75, 0.5, 'lose' as WeightGoalType));
+    expect(r.kcal).toBe(-450);
   });
 
-  it('ritorna 500 (clamp min) per TDEE non valido, con kcalClamped=true', () => {
-    // Fix MEDIUM bug: prima ritornava kcal=0 (violando il clamp min 500 dichiarato).
-    // Ora ritorna 500 con kcalClamped=true per permettere alla UI di mostrare un warning.
-    const r = calcGoalAdjustedCalories(0, 80, 75, 0.5, 'lose' as WeightGoalType);
-    expect(r.kcal).toBe(500);
-    expect(r.kcalClamped).toBe(true);
-    expect(r.weeklyDeltaKg).toBe(0);
+  it('ritorna un risultato invalid esplicito per TDEE non valido', () => {
+    expect(calcGoalAdjustedCalories(0, 80, 75, 0.5, 'lose' as WeightGoalType)).toEqual({
+      status: 'invalid',
+      reason: 'invalid_tdee',
+    });
+  });
+});
+
+describe('assessAutomaticCalorieGoal', () => {
+  it('accetta una stima nel range automatico', () => {
+    const estimate = calcGoalAdjustedCalories(2500, 80, 75, 0.5, 'lose');
+    const assessment = assessAutomaticCalorieGoal(estimate);
+    expect(assessment.status).toBe('accepted');
+  });
+
+  it('blocca una stima sotto 1000 senza sostituirla con 1000 o 500', () => {
+    const estimate = calcGoalAdjustedCalories(1400, 80, 75, 0.5, 'lose'); // 850 kcal
+    const assessment = assessAutomaticCalorieGoal(estimate);
+    expect(assessment.status).toBe('blocked');
+    if (assessment.status !== 'blocked') throw new Error('Expected blocked assessment');
+    expect(assessment.reason).toBe('below_automatic_minimum');
+    expect(assessment.limitKcal).toBe(AUTOMATIC_CALORIE_MIN_KCAL);
+    expect(assessment.estimate.kcal).toBe(850);
+  });
+
+  it('blocca una stima sopra il limite tecnico senza clamp', () => {
+    const estimate = calcGoalAdjustedCalories(10_500, 80, 80, undefined, 'maintain');
+    const assessment = assessAutomaticCalorieGoal(estimate);
+    expect(assessment.status).toBe('blocked');
+    if (assessment.status !== 'blocked') throw new Error('Expected blocked assessment');
+    expect(assessment.reason).toBe('above_app_limit');
+    expect(assessment.limitKcal).toBe(AUTOMATIC_CALORIE_MAX_KCAL);
+    expect(assessment.estimate.kcal).toBe(10_500);
+  });
+
+  it('propaga il TDEE invalido come invalid, non come target numerico', () => {
+    const assessment = assessAutomaticCalorieGoal(calcGoalAdjustedCalories(NaN, 80, 75, 0.5, 'lose'));
+    expect(assessment).toEqual({ status: 'invalid', reason: 'invalid_tdee' });
+  });
+
+  it('accetta esattamente il limite inferiore', () => {
+    const estimate = calcGoalAdjustedCalories(AUTOMATIC_CALORIE_MIN_KCAL, 80, 80, undefined, 'maintain');
+    expect(assessAutomaticCalorieGoal(estimate).status).toBe('accepted');
   });
 });
 

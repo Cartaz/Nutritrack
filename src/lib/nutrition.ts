@@ -137,49 +137,105 @@ export function weeklyDeltaToDailyKcal(weeklyDeltaKg: number): number {
   return Math.round((weeklyDeltaKg * KCAL_PER_KG_BODYWEIGHT) / 7);
 }
 
-/** Calcola l'obiettivo calorico giornaliero aggiustato per l'obiettivo di peso.
- *  TDEE + adjustment (deficit se perdere, surplus se aumentare, zero se mantenere).
- *  Il clamp [500..10000] è un limite tecnico storico dell'app, non una dichiarazione
- *  di sicurezza clinica. M0.1 della roadmap sostituirà questo contratto con un
- *  risultato esplicito per target non proponibili. */
-export function calcGoalAdjustedCalories(
-  tdee: number,
-  currentWeightKg: number | undefined,
-  targetWeightKg: number | undefined,
-  weeklyRateKg: number | undefined,
-  goalType: WeightGoalType | undefined,
-): {
+export interface EstimatedGoalCalories {
+  status: 'estimated';
   kcal: number;
   weeklyDeltaKg: number;
   dailyAdjustment: number;
   weeksToTarget: number;
   totalDeltaKg: number;
   rateClamped: boolean;
-  kcalClamped: boolean;
-} {
+}
+
+export interface InvalidGoalCalories {
+  status: 'invalid';
+  reason: 'invalid_tdee';
+}
+
+/** Risultato della sola stima matematica. Non incorpora decisioni su cosa l'app possa applicare. */
+export type GoalCalorieEstimate = EstimatedGoalCalories | InvalidGoalCalories;
+
+/**
+ * Limiti di applicazione automatica, separati dalla formula.
+ *
+ * Il limite inferiore segue il comportamento del NIH/NIDDK Body Weight Planner, che rifiuta
+ * target sotto 1000 kcal/giorno invece di clampare il risultato. È una policy prudenziale
+ * del prodotto, non una soglia clinica personalizzata. Fonte mantenuta in
+ * docs/sources/goal-calorie-policy.md.
+ *
+ * Il limite superiore è soltanto il range tecnico attualmente supportato dall'app.
+ */
+export const AUTOMATIC_CALORIE_MIN_KCAL = 1000;
+export const AUTOMATIC_CALORIE_MAX_KCAL = 10_000;
+
+export type AutomaticCalorieGoalAssessment =
+  | { status: 'accepted'; estimate: EstimatedGoalCalories }
+  | {
+      status: 'blocked';
+      reason: 'below_automatic_minimum' | 'above_app_limit';
+      estimate: EstimatedGoalCalories;
+      limitKcal: number;
+    }
+  | { status: 'invalid'; reason: InvalidGoalCalories['reason'] };
+
+/**
+ * Calcola la stima calorica senza clampare il risultato a un valore plausibile.
+ *
+ * Un TDEE invalido produce un risultato discriminato `invalid`, non 0/500/2000 kcal.
+ * Per input validi `kcal` è il risultato matematico arrotondato: può essere fuori dal range
+ * applicabile e deve essere valutato separatamente con assessAutomaticCalorieGoal().
+ */
+export function calcGoalAdjustedCalories(
+  tdee: number,
+  currentWeightKg: number | undefined,
+  targetWeightKg: number | undefined,
+  weeklyRateKg: number | undefined,
+  goalType: WeightGoalType | undefined,
+): GoalCalorieEstimate {
   if (!Number.isFinite(tdee) || tdee <= 0) {
-    return {
-      kcal: 500,
-      weeklyDeltaKg: 0,
-      dailyAdjustment: 0,
-      weeksToTarget: 0,
-      totalDeltaKg: 0,
-      rateClamped: false,
-      kcalClamped: true,
-    };
+    return { status: 'invalid', reason: 'invalid_tdee' };
   }
+
   const rateClamped = weeklyRateKg != null && Number.isFinite(weeklyRateKg) && weeklyRateKg > MAX_WEEKLY_KG_RATE;
   const weeklyDeltaKg = calcWeeklyDeltaKg(weeklyRateKg, goalType);
   const dailyAdjustment = weeklyDeltaToDailyKcal(weeklyDeltaKg);
   const weeksToTarget = calcWeeksToTarget(currentWeightKg, targetWeightKg, Math.abs(weeklyDeltaKg));
   const totalDeltaKg =
     currentWeightKg != null && targetWeightKg != null ? round(targetWeightKg - currentWeightKg, 1) : 0;
-  const raw = tdee + dailyAdjustment;
-  const min = 500;
-  const max = 10000;
-  const kcalClamped = raw < min || raw > max;
-  const kcal = Math.max(min, Math.min(max, Math.round(raw)));
-  return { kcal, weeklyDeltaKg, dailyAdjustment, weeksToTarget, totalDeltaKg, rateClamped, kcalClamped };
+
+  return {
+    status: 'estimated',
+    kcal: Math.round(tdee + dailyAdjustment),
+    weeklyDeltaKg,
+    dailyAdjustment,
+    weeksToTarget,
+    totalDeltaKg,
+    rateClamped,
+  };
+}
+
+/** Decide se NutriTrack può applicare automaticamente una stima già calcolata. */
+export function assessAutomaticCalorieGoal(estimate: GoalCalorieEstimate): AutomaticCalorieGoalAssessment {
+  if (estimate.status === 'invalid') {
+    return { status: 'invalid', reason: estimate.reason };
+  }
+  if (estimate.kcal < AUTOMATIC_CALORIE_MIN_KCAL) {
+    return {
+      status: 'blocked',
+      reason: 'below_automatic_minimum',
+      estimate,
+      limitKcal: AUTOMATIC_CALORIE_MIN_KCAL,
+    };
+  }
+  if (estimate.kcal > AUTOMATIC_CALORIE_MAX_KCAL) {
+    return {
+      status: 'blocked',
+      reason: 'above_app_limit',
+      estimate,
+      limitKcal: AUTOMATIC_CALORIE_MAX_KCAL,
+    };
+  }
+  return { status: 'accepted', estimate };
 }
 
 /** Default settings iniziali (system theme, 2000 kcal, 30/40/30) */
