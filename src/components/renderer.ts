@@ -10,7 +10,6 @@ import {
   closeDeleteRecipeConfirm,
   closeResetConfirm,
   getStoreState,
-  resetAll,
 } from '../lib/store';
 import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
@@ -23,7 +22,7 @@ import { MEAL_LABELS } from '../types';
 import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
 import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
-import { flushPendingMultiTabUpdate } from '../lib/storage';
+import { flushPendingMultiTabUpdate, resetApplicationData } from '../lib/storage';
 // Fix CI: import solo del modulo leggero signatures (NO import delle viste, rompe code-splitting)
 // Le viste sono caricate lazy sotto via dynamic import, mantenedo i chunk separati.
 import { resetAllViewSignatures } from '../views/signatures';
@@ -286,10 +285,13 @@ function renderConfirmReset(): void {
       { label: 'Reset', action: 'confirm', variant: 'danger' },
     ],
     onConfirm: () => {
-      resetAll();
-      closeResetConfirm();
+      const result = resetApplicationData();
+      if (!result.ok) {
+        showToast(result.error, 'error', 6000);
+        return false;
+      }
       showToast('Dati resettati', 'success');
-      closeModalCleanup();
+      return true;
     },
     onClose: () => closeResetConfirm(),
   });

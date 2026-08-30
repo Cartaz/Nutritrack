@@ -1,12 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetStorageInternalForTesting,
   flushPendingMultiTabUpdate,
   initMultiTabSync,
+  resetApplicationData,
   saveData,
 } from '../src/lib/storage';
-import { STORAGE_KEY } from '../src/lib/constants';
-import { getState, setState } from '../src/lib/store';
+import { BACKUP_KEY, STORAGE_KEY } from '../src/lib/constants';
+import { getState, resetAll, setState } from '../src/lib/store';
 
 function resetStore(): void {
   setState({
@@ -45,7 +46,28 @@ function remoteSnapshot(calorieGoal: number, revision: number, originTabId = 're
     ...current,
     revision,
     originTabId,
+    syncKind: 'state',
     settings: { ...settings, calorieGoal },
+  });
+}
+
+function resetSnapshot(revision: number, originTabId = 'remote-reset'): string {
+  const current = storedPayload();
+  return JSON.stringify({
+    ...current,
+    revision,
+    originTabId,
+    syncKind: 'reset',
+    settings: {
+      calorieGoal: 2000,
+      macroSplit: { proteinPct: 30, carbsPct: 40, fatPct: 30 },
+      theme: 'system',
+    },
+    foods: [],
+    diary: {},
+    recipes: [],
+    favoriteFoodIds: [],
+    biometrics: {},
   });
 }
 
@@ -70,6 +92,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   __resetStorageInternalForTesting();
   localStorage.clear();
 });
@@ -131,5 +154,92 @@ describe('revisioned multi-tab synchronization', () => {
     flushPendingMultiTabUpdate();
 
     expect(getState().settings.calorieGoal).toBe(1850);
+  });
+});
+
+describe('reset causal barrier', () => {
+  it('keeps store reset in-memory and leaves persistence ownership to storage', () => {
+    const before = localStorage.getItem(STORAGE_KEY);
+    const removeSpy = vi.spyOn(Storage.prototype, 'removeItem');
+
+    setState({ settings: { ...getState().settings, calorieGoal: 2400 } });
+    resetAll();
+
+    expect(getState().settings.calorieGoal).toBe(2000);
+    expect(removeSpy).not.toHaveBeenCalled();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+  });
+
+  it('persists a reset tombstone and removes the old backup', () => {
+    setState({ settings: { ...getState().settings, calorieGoal: 2300 } });
+    expect(saveData().ok).toBe(true);
+    expect(localStorage.getItem(BACKUP_KEY)).not.toBeNull();
+    const beforeRevision = Number(storedPayload().revision);
+
+    const result = resetApplicationData();
+
+    expect(result).toEqual({ ok: true });
+    expect(getState().settings.calorieGoal).toBe(2000);
+    expect(getState().foods).toEqual([]);
+    expect(localStorage.getItem(BACKUP_KEY)).toBeNull();
+    const persisted = storedPayload();
+    expect(persisted.syncKind).toBe('reset');
+    expect(Number(persisted.revision)).toBeGreaterThan(beforeRevision);
+    expect(persisted.foods).toEqual([]);
+  });
+
+  it('applies a remote reset immediately even while local state is dirty and a modal is open', () => {
+    const baseRevision = Number(storedPayload().revision);
+    setState({
+      settings: { ...getState().settings, calorieGoal: 2400 },
+      _searchOpen: true,
+    });
+
+    dispatchRemote(resetSnapshot(baseRevision + 1));
+
+    expect(getState().settings.calorieGoal).toBe(2000);
+    expect(getState()._searchOpen).toBe(false);
+    expect(getState().foods).toEqual([]);
+  });
+
+  it('lets a reset win a same-revision concurrent state write', () => {
+    const baseRevision = Number(storedPayload().revision);
+    setState({ settings: { ...getState().settings, calorieGoal: 2400 } });
+
+    dispatchRemote(resetSnapshot(baseRevision));
+
+    expect(getState().settings.calorieGoal).toBe(2000);
+    expect(storedPayload().syncKind).toBe('reset');
+  });
+
+  it('applies a physical reset tombstone before saving if the storage event was missed', () => {
+    const baseRevision = Number(storedPayload().revision);
+    const resetRaw = resetSnapshot(baseRevision + 1);
+    localStorage.setItem(STORAGE_KEY, resetRaw);
+    setState({ settings: { ...getState().settings, calorieGoal: 2400 } });
+
+    expect(saveData()).toEqual({ ok: true });
+
+    expect(getState().settings.calorieGoal).toBe(2000);
+    const persisted = storedPayload();
+    expect(persisted.syncKind).toBe('reset');
+    expect(Number(persisted.revision)).toBe(baseRevision + 1);
+  });
+
+  it('rolls back in-memory reset if the reset tombstone cannot be persisted', () => {
+    setState({
+      settings: { ...getState().settings, calorieGoal: 2300 },
+      _confirmReset: true,
+    });
+    expect(saveData().ok).toBe(true);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('write failed');
+    });
+
+    const result = resetApplicationData();
+
+    expect(result.ok).toBe(false);
+    expect(getState().settings.calorieGoal).toBe(2300);
+    expect(getState()._confirmReset).toBe(true);
   });
 });

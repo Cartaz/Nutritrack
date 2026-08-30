@@ -17,28 +17,7 @@ import type {
 } from '../types';
 import { DEFAULT_SETTINGS } from './nutrition';
 import { safeId, toDateKey } from './utils';
-import { MAX_DIARY_ENTRIES_PER_DAY, STORAGE_KEY, BACKUP_KEY } from './constants';
-
-/**
- * Fix HIGH bug (privacy): cancella sia STORAGE_KEY che BACKUP_KEY da localStorage.
- * Implementato qui in store.ts (invece di importare da storage.ts) per evitare
- * circular import: storage.ts importa già da store.ts (getState, setState, ecc.).
- *
- * Prima resetAll() sovrascriveva solo STORAGE_KEY con payload vuoto, ma BACKUP_KEY
- * conservava il payload precedente e loadData() poteva resuscitarlo come fallback.
- */
-function clearAllStoredDataLocal(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-  try {
-    localStorage.removeItem(BACKUP_KEY);
-  } catch {
-    /* ignore */
-  }
-}
+import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
 
 const state: AppState = {
   // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
@@ -455,19 +434,14 @@ export function closeEntryEditor(): void {
 
 // ============ Bulk operations ============
 
+/** Reset esclusivamente in-memory. La persistenza del reset appartiene a storage.ts. */
 export function resetAll(): void {
-  // Fix Bug #7 (T1): resetta anche i flag UI/modal per evitare modal aperti su UI vuota
-  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference
-  // Fix HIGH bug (privacy): cancella anche BACKUP_KEY da localStorage, non solo lo state in-memory.
-  //   Prima saveData() sovrascriveva STORAGE_KEY con payload vuoto, ma BACKUP_KEY conservava
-  //   il payload precedente e loadData() poteva resuscitarlo come fallback.
   state.settings = { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } };
   state.foods = [];
   state.diary = {};
   state.recipes = [];
   state.favoriteFoodIds = [];
   state.biometrics = {};
-  state._storageDisabled = false;
   state._searchOpen = false;
   state._editingFoodId = null;
   state._editingRecipeId = null;
@@ -477,12 +451,6 @@ export function resetAll(): void {
   state._confirmReset = false;
   state._addRecipeToMealPickerId = null;
   state._editingEntryId = null;
-  // Fix HIGH bug: pulisci entrambe le chiavi localStorage per evitare resurrezione dati
-  try {
-    clearAllStoredDataLocal();
-  } catch (e) {
-    console.warn('[store] clearAllStoredDataLocal fallito durante resetAll', e);
-  }
   emitChange();
 }
 

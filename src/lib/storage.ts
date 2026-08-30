@@ -1,12 +1,12 @@
 // Persistenza localStorage con backup, quota handling e multi-tab sync.
 //
 // Ownership: questo modulo possiede formato persistito, revisioni multi-tab, backup,
-// quota handling e riconciliazione degli snapshot ricevuti. Lo store non deve conoscere
-// causalità o metadata di sincronizzazione.
+// quota handling, reset persistente e riconciliazione degli snapshot ricevuti.
+// Lo store non deve conoscere chiavi, causalità o dettagli del browser storage.
 
 import type { AppState, FoodItem, Recipe, DiaryEntry, DayDiary } from '../types';
 import { BACKUP_KEY, STORAGE_KEY, STORAGE_WARN_BYTES, SCHEMA_VERSION } from './constants';
-import { getState, setState, setStorageDisabled, subscribe, emitChange } from './store';
+import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll } from './store';
 import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
 
 interface PersistedState {
@@ -18,9 +18,12 @@ interface PersistedState {
   biometrics: AppState['biometrics'];
 }
 
+type SyncKind = 'state' | 'reset';
+
 interface VersionStamp {
   revision: number;
   originTabId: string;
+  syncKind: SyncKind;
 }
 
 interface PersistedPayload extends PersistedState, VersionStamp {
@@ -35,7 +38,7 @@ interface ParsedPersistedPayload {
 
 type PendingMultiTabUpdate = ParsedPersistedPayload;
 
-const LEGACY_STAMP: VersionStamp = { revision: 0, originTabId: '' };
+const LEGACY_STAMP: VersionStamp = { revision: 0, originTabId: '', syncKind: 'state' };
 
 function createTabId(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
@@ -98,24 +101,27 @@ function buildPayload(state: PersistedState, stamp: VersionStamp): PersistedPayl
     version: SCHEMA_VERSION,
     revision: stamp.revision,
     originTabId: stamp.originTabId,
+    syncKind: stamp.syncKind,
     ...state,
   };
 }
 
 function readStamp(value: unknown): VersionStamp {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...LEGACY_STAMP };
-  const obj = value as { revision?: unknown; originTabId?: unknown };
+  const obj = value as { revision?: unknown; originTabId?: unknown; syncKind?: unknown };
   const revision =
     typeof obj.revision === 'number' && Number.isFinite(obj.revision) && obj.revision >= 0
       ? Math.floor(obj.revision)
       : 0;
   const originTabId = typeof obj.originTabId === 'string' ? obj.originTabId.slice(0, 200) : '';
-  return { revision, originTabId };
+  const syncKind: SyncKind = obj.syncKind === 'reset' ? 'reset' : 'state';
+  return { revision, originTabId, syncKind };
 }
 
-/** Ordine totale per snapshot con la stessa revisione, utile solo in caso di write concorrenti. */
+/** Ordine totale: revisione, poi reset sopra state a parità di revisione, poi origin id. */
 function compareStamps(a: VersionStamp, b: VersionStamp): number {
   if (a.revision !== b.revision) return a.revision < b.revision ? -1 : 1;
+  if (a.syncKind !== b.syncKind) return a.syncKind === 'reset' ? 1 : -1;
   if (a.originTabId === b.originTabId) return 0;
   return a.originTabId < b.originTabId ? -1 : 1;
 }
@@ -148,9 +154,14 @@ function hasUnsyncedLocalState(): boolean {
 }
 
 function isRemoteNewer(remote: ParsedPersistedPayload): boolean {
-  // Backward compatibility: payload pre-revision are revision 0. While this tab is
-  // still at revision 0, preserve the old physical-last-write behavior.
-  if (remote.stamp.revision === 0 && _currentStamp.revision === 0) {
+  // Backward compatibility: payload pre-revision sono revision 0 e non hanno syncKind.
+  // In quel solo caso preserviamo il vecchio physical-last-write behavior.
+  if (
+    remote.stamp.revision === 0 &&
+    _currentStamp.revision === 0 &&
+    remote.stamp.syncKind === 'state' &&
+    _currentStamp.syncKind === 'state'
+  ) {
     return remote.signature !== _lastSyncedStateSignature;
   }
   return compareStamps(remote.stamp, _currentStamp) > 0;
@@ -225,12 +236,18 @@ export type SaveDataResult = { ok: true } | { ok: false; error: string; fatal: b
 
 /**
  * Persiste uno snapshot locale con una revisione strettamente maggiore della base nota.
- * Tutta la complessità di versioning rimane qui: i caller forniscono solo lo stato.
+ * syncKind è interno alla persistenza: i caller normali scrivono sempre state.
  */
-function writeLocalSnapshot(state: PersistedState, previousRaw: string | null, baseRevision: number): SaveDataResult {
+function writeLocalSnapshot(
+  state: PersistedState,
+  previousRaw: string | null,
+  baseRevision: number,
+  syncKind: SyncKind = 'state',
+): SaveDataResult {
   const stamp: VersionStamp = {
     revision: Math.max(0, Math.floor(baseRevision)) + 1,
     originTabId: _tabId,
+    syncKind,
   };
   const payload = buildPayload(state, stamp);
   const serialized = JSON.stringify(payload);
@@ -284,11 +301,41 @@ function writeLocalSnapshot(state: PersistedState, previousRaw: string | null, b
   }
 }
 
+/** Applica immediatamente un reset remoto: un reset è una barriera causale, non un draft concorrente. */
+function applyResetSnapshot(remote: ParsedPersistedPayload): void {
+  resetAll();
+  const state = buildStateSnapshot();
+  markSynced(state, remote.stamp);
+  _pendingMultiTabUpdate = null;
+  window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
+}
+
+/** Applica uno snapshot remoto solo dopo averne verificato la causalità. */
+function applyMultiTabUpdate(remote: ParsedPersistedPayload): void {
+  if (!isRemoteNewer(remote)) return;
+
+  if (remote.stamp.syncKind === 'reset') {
+    applyResetSnapshot(remote);
+    return;
+  }
+
+  const currentSignature = stateSignature(buildStateSnapshot());
+  if (currentSignature === remote.signature) {
+    // Stessi dati, metadata più nuovi: adotta soltanto la nuova versione.
+    markSynced(remote.state, remote.stamp);
+    return;
+  }
+
+  applyStateSnapshot(remote.state);
+  markSynced(remote.state, remote.stamp);
+  emitChange();
+  window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
+}
+
 /**
  * Salva lo stato se differisce dall'ultimo snapshot sincronizzato.
- * La nuova revisione è maggiore sia della revisione vista da questo tab sia di quella
- * attualmente presente in localStorage, così una modifica locale successiva a un evento
- * remoto pending non può essere sovrascritta da quel vecchio evento.
+ * Una tombstone reset più nuova presente fisicamente è una barriera: viene applicata
+ * prima di qualsiasi local write, anche se questo tab ha perso il relativo storage event.
  */
 export function saveData(): SaveDataResult {
   if (!_storageOK) return { ok: false, error: 'storage non disponibile', fatal: false };
@@ -303,6 +350,11 @@ export function saveData(): SaveDataResult {
     // La write successiva produrrà il risultato appropriato.
   }
   const previous = previousRaw ? parsePersistedRaw(previousRaw) : null;
+
+  if (previous?.stamp.syncKind === 'reset' && compareStamps(previous.stamp, _currentStamp) > 0) {
+    applyMultiTabUpdate(previous);
+    return { ok: true };
+  }
 
   // Prima chiamata dopo bootstrap: se localStorage contiene già lo stesso stato,
   // adottane la revisione senza creare una write/backup artificiale.
@@ -410,28 +462,10 @@ function queuePendingRemote(remote: PendingMultiTabUpdate): void {
   }
 }
 
-/** Applica uno snapshot remoto solo dopo averne verificato la causalità. */
-function applyMultiTabUpdate(remote: ParsedPersistedPayload): void {
-  if (!isRemoteNewer(remote)) return;
-
-  const currentSignature = stateSignature(buildStateSnapshot());
-  if (currentSignature === remote.signature) {
-    // Stessi dati, metadata più nuovi: adotta soltanto la nuova versione.
-    markSynced(remote.state, remote.stamp);
-    return;
-  }
-
-  applyStateSnapshot(remote.state);
-  markSynced(remote.state, remote.stamp);
-  emitChange();
-  window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
-}
-
 /**
  * Se due tab hanno prodotto la stessa revisione leggendo contemporaneamente lo stesso
- * predecessore, originTabId fornisce un tie-break deterministico. Se il localStorage
- * fisico contiene il perdente, il vincitore viene riscritto con revision+1 per rendere
- * persistente la convergenza anche dopo un reload.
+ * predecessore, syncKind reset prevale su state e originTabId risolve il restante tie-break.
+ * Se il localStorage fisico contiene il perdente, il vincitore viene riscritto con revision+1.
  */
 function repairStalePhysicalSnapshot(rawRemote: string, remote: ParsedPersistedPayload): void {
   if (compareStamps(remote.stamp, _currentStamp) >= 0) return;
@@ -445,7 +479,13 @@ function repairStalePhysicalSnapshot(rawRemote: string, remote: ParsedPersistedP
 
   const state = buildStateSnapshot();
   if (stateSignature(state) !== _lastSyncedStateSignature) return; // saveData gestirà il locale dirty
-  void writeLocalSnapshot(state, currentRaw, Math.max(_currentStamp.revision, remote.stamp.revision));
+  const previousForBackup = _currentStamp.syncKind === 'reset' ? null : currentRaw;
+  void writeLocalSnapshot(
+    state,
+    previousForBackup,
+    Math.max(_currentStamp.revision, remote.stamp.revision),
+    _currentStamp.syncKind,
+  );
 }
 
 function handleStorageEvent(e: StorageEvent): void {
@@ -458,8 +498,14 @@ function handleStorageEvent(e: StorageEvent): void {
     return;
   }
 
+  // Il reset è una cancellazione globale: non deve essere congelato da modal o draft locali.
+  if (remote.stamp.syncKind === 'reset') {
+    applyMultiTabUpdate(remote);
+    return;
+  }
+
   // Un emit locale può essere ancora in attesa del RAF autosave. Prima di applicare
-  // un remote snapshot a UI libera, commetti sincronicamente quel locale dirty.
+  // un remote snapshot normale a UI libera, commetti sincronicamente quel locale dirty.
   if (!isAnyModalOpen() && hasUnsyncedLocalState()) {
     const saved = saveData();
     if (!saved.ok) {
@@ -523,16 +569,54 @@ export function __resetStorageInternalForTesting(): void {
   _lastSyncedStateSignature = null;
 }
 
-// ============ Export / Import JSON backup ============
+// ============ Reset / Export / Import ============
 
-/** Export utente: solo schema + dati. Revision/origin sono metadata interni alla persistenza. */
+export type ResetApplicationDataResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Cancella tutti i dati utente come singola operazione semantica.
+ * Il backup viene eliminato prima della write; il primario resta come tombstone reset
+ * revisionata e priva di dati utente, così altri tab non possono resuscitare snapshot stale.
+ */
+export function resetApplicationData(): ResetApplicationDataResult {
+  const beforeState: AppState = { ...getState() };
+  let previousRaw: string | null = null;
+
+  try {
+    previousRaw = localStorage.getItem(STORAGE_KEY);
+    localStorage.removeItem(BACKUP_KEY);
+  } catch (e) {
+    console.error('[storage] impossibile preparare il reset persistente', e);
+    return { ok: false, error: 'Impossibile accedere allo storage per completare il reset.' };
+  }
+
+  const previous = previousRaw ? parsePersistedRaw(previousRaw) : null;
+  const baseRevision = Math.max(_currentStamp.revision, previous?.stamp.revision ?? 0);
+
+  resetAll();
+  const result = writeLocalSnapshot(buildStateSnapshot(), null, baseRevision, 'reset');
+  if (!result.ok) {
+    // La UI deve osservare o tutto il vecchio stato o il reset completo, mai un mezzo reset.
+    setState(beforeState);
+    emitChange();
+    return { ok: false, error: result.error };
+  }
+
+  _storageOK = true;
+  _quotaWarnedThisSession = false;
+  _stripWarnedThisSession = false;
+  _pendingMultiTabUpdate = null;
+  if (getState()._storageDisabled) setStorageDisabled(false);
+  return { ok: true };
+}
+
+/** Export utente: solo schema + dati. Revision/origin/syncKind sono metadata interni. */
 export function exportDataJson(): string {
   return JSON.stringify({ version: SCHEMA_VERSION, ...buildStateSnapshot() }, null, 2);
 }
 
-/** Cancella sia la chiave primaria che il backup da localStorage. */
+/** Low-level: rimuove gli snapshot fisici. Il reset utente deve usare resetApplicationData(). */
 export function clearAllStoredData(): void {
-  if (!_storageOK) return;
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
