@@ -8,6 +8,7 @@ import type { AppState, FoodItem, Recipe, DiaryEntry, DayDiary } from '../types'
 import { BACKUP_KEY, STORAGE_KEY, STORAGE_WARN_BYTES, SCHEMA_VERSION } from './constants';
 import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll } from './store';
 import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
+import { migratePersistedDocument, type MigrationFailureReason } from './migrations';
 
 interface PersistedState {
   settings: AppState['settings'];
@@ -37,6 +38,9 @@ interface ParsedPersistedPayload {
 }
 
 type PendingMultiTabUpdate = ParsedPersistedPayload;
+type DecodedPersistedPayload =
+  | { ok: true; document: Record<string, unknown> }
+  | { ok: false; reason: 'invalid_json' | MigrationFailureReason; version?: number };
 
 const LEGACY_STAMP: VersionStamp = { revision: 0, originTabId: '', syncKind: 'state' };
 
@@ -126,18 +130,33 @@ function compareStamps(a: VersionStamp, b: VersionStamp): number {
   return a.originTabId < b.originTabId ? -1 : 1;
 }
 
-function parsePersistedRaw(raw: string): ParsedPersistedPayload | null {
+function decodePersistedRaw(raw: string): DecodedPersistedPayload {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    const state = stateFromReconciled(reconcileAll(parsed));
-    return {
-      state,
-      stamp: readStamp(parsed),
-      signature: stateSignature(state),
-    };
+    parsed = JSON.parse(raw) as unknown;
   } catch {
-    return null;
+    return { ok: false, reason: 'invalid_json' };
   }
+
+  const migrated = migratePersistedDocument(parsed);
+  if (!migrated.ok) {
+    return { ok: false, reason: migrated.reason, version: migrated.version };
+  }
+  return { ok: true, document: migrated.document };
+}
+
+function parsedFromDocument(document: Record<string, unknown>): ParsedPersistedPayload {
+  const state = stateFromReconciled(reconcileAll(document));
+  return {
+    state,
+    stamp: readStamp(document),
+    signature: stateSignature(state),
+  };
+}
+
+function parsePersistedRaw(raw: string): ParsedPersistedPayload | null {
+  const decoded = decodePersistedRaw(raw);
+  return decoded.ok ? parsedFromDocument(decoded.document) : null;
 }
 
 function markSynced(state: PersistedState, stamp: VersionStamp): void {
@@ -349,7 +368,20 @@ export function saveData(): SaveDataResult {
   } catch {
     // La write successiva produrrà il risultato appropriato.
   }
-  const previous = previousRaw ? parsePersistedRaw(previousRaw) : null;
+
+  const decodedPrevious = previousRaw ? decodePersistedRaw(previousRaw) : null;
+  if (
+    decodedPrevious &&
+    !decodedPrevious.ok &&
+    (decodedPrevious.reason === 'future_version' || decodedPrevious.reason === 'missing_migration')
+  ) {
+    return {
+      ok: false,
+      error: 'I dati persistiti usano una versione schema non supportata. Aggiorna NutriTrack prima di salvare.',
+      fatal: false,
+    };
+  }
+  const previous = decodedPrevious?.ok ? parsedFromDocument(decodedPrevious.document) : null;
 
   if (previous?.stamp.syncKind === 'reset' && compareStamps(previous.stamp, _currentStamp) > 0) {
     applyMultiTabUpdate(previous);
@@ -369,7 +401,15 @@ export function saveData(): SaveDataResult {
   return writeLocalSnapshot(state, previousRaw, baseRevision);
 }
 
-/** Carica da localStorage con fallback backup. Payload legacy senza revision metadata restano compatibili. */
+function migrationLoadError(decoded: Exclude<DecodedPersistedPayload, { ok: true }>): void {
+  if (decoded.reason === 'future_version') {
+    console.error(`[storage] schema futuro non supportato: ${decoded.version ?? 'sconosciuto'}`);
+  } else if (decoded.reason === 'missing_migration') {
+    console.error(`[storage] migrazione mancante dalla versione ${decoded.version ?? 'sconosciuta'}`);
+  }
+}
+
+/** Carica da localStorage con fallback backup. Migrazione e normalizzazione sono passaggi separati. */
 export function loadData(): boolean {
   if (!_storageOK) return false;
   let raw: string | null = null;
@@ -380,23 +420,30 @@ export function loadData(): boolean {
   }
   if (!raw) return false;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  let decoded = decodePersistedRaw(raw);
+  if (!decoded.ok && (decoded.reason === 'future_version' || decoded.reason === 'missing_migration')) {
+    migrationLoadError(decoded);
+    return false;
+  }
+
+  if (!decoded.ok) {
     try {
       const backup = localStorage.getItem(BACKUP_KEY);
       if (!backup) return false;
-      parsed = JSON.parse(backup);
-      console.warn('[storage] parsing primario fallito, usato backup');
+      decoded = decodePersistedRaw(backup);
+      if (!decoded.ok) {
+        migrationLoadError(decoded);
+        return false;
+      }
+      console.warn('[storage] primario non valido, usato backup');
     } catch {
       return false;
     }
   }
 
-  const state = stateFromReconciled(reconcileAll(parsed));
+  const state = stateFromReconciled(reconcileAll(decoded.document));
   applyStateSnapshot(state);
-  markSynced(state, readStamp(parsed));
+  markSynced(state, readStamp(decoded.document));
   return true;
 }
 
@@ -634,7 +681,18 @@ export function clearAllStoredData(): void {
   _lastSyncedStateSignature = null;
 }
 
-/** Importa un backup JSON validando struttura e contenuto prima di sostituire lo state. */
+function migrationImportError(reason: MigrationFailureReason, version?: number): string {
+  if (reason === 'future_version') {
+    return `Backup creato con uno schema più recente (${version ?? '?'}). Aggiorna NutriTrack prima di importarlo.`;
+  }
+  if (reason === 'missing_migration') {
+    return `Migrazione dati non disponibile dalla versione ${version ?? '?'}.`;
+  }
+  if (reason === 'invalid_version') return 'Versione schema del backup non valida.';
+  return 'Formato file non riconosciuto come documento NutriTrack.';
+}
+
+/** Importa un backup JSON migrando lo schema e poi normalizzando i valori. */
 export function importDataJson(
   json: string,
 ): { ok: true; count: number; skipped?: number } | { ok: false; error: string } {
@@ -653,18 +711,13 @@ export function importDataJson(
     return { ok: false, error: 'File non riconosciuto come backup NutriTrack (nessuna chiave valida)' };
   }
 
-  const parsedObj = parsed as { version?: unknown };
-  if (
-    parsedObj.version !== undefined &&
-    typeof parsedObj.version === 'number' &&
-    parsedObj.version !== SCHEMA_VERSION
-  ) {
-    console.warn(
-      `[storage] import con versione schema ${parsedObj.version} (attesa ${SCHEMA_VERSION}). Tentativo di migrazione...`,
-    );
+  const migrated = migratePersistedDocument(parsed);
+  if (!migrated.ok) {
+    return { ok: false, error: migrationImportError(migrated.reason, migrated.version) };
   }
+  const document = migrated.document;
 
-  const rawParsed = parsed as {
+  const rawParsed = document as {
     foods?: unknown[];
     recipes?: unknown[];
     diary?: Record<string, unknown[]>;
@@ -679,7 +732,7 @@ export function importDataJson(
   }
   const rawTotal = rawFoodsCount + rawRecipesCount + rawEntriesCount;
 
-  const reconciled = reconcileAll(parsed);
+  const reconciled = reconcileAll(document);
   const importedState = stateFromReconciled(reconciled);
   const count =
     importedState.foods.length +
