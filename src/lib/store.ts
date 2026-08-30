@@ -191,74 +191,75 @@ export function toggleFavorite(id: string): void {
 
 // ============ Diary ============
 
-export function addDiaryEntry(input: Omit<DiaryEntry, 'id' | 'createdAt'>): DiaryEntry | null {
-  const todayList = state.diary[input.date] || [];
-  if (todayList.length >= MAX_DIARY_ENTRIES_PER_DAY) {
-    console.warn('[store] diario pieno per la data', input.date);
-    return null;
+export type DiaryEntryInput = Omit<DiaryEntry, 'id' | 'createdAt'>;
+export type AddDiaryEntriesResult =
+  | { ok: true; entries: DiaryEntry[] }
+  | { ok: false; reason: 'day_full'; date: string };
+
+/**
+ * Inserisce una o più entry come singola transazione di store.
+ * La capacità di tutte le date coinvolte viene verificata prima di generare id o mutare lo state.
+ */
+export function addDiaryEntries(inputs: DiaryEntryInput[]): AddDiaryEntriesResult {
+  if (inputs.length === 0) return { ok: true, entries: [] };
+
+  const incomingPerDate = new Map<string, number>();
+  for (const input of inputs) {
+    incomingPerDate.set(input.date, (incomingPerDate.get(input.date) ?? 0) + 1);
   }
-  const entry: DiaryEntry = {
+  for (const [date, incoming] of incomingPerDate) {
+    const current = state.diary[date]?.length ?? 0;
+    if (current + incoming > MAX_DIARY_ENTRIES_PER_DAY) {
+      return { ok: false, reason: 'day_full', date };
+    }
+  }
+
+  const now = Date.now();
+  const entries = inputs.map((input) => ({
     ...input,
     id: safeId('entry_'),
-    createdAt: Date.now(),
-  };
-  state.diary = {
-    ...state.diary,
-    [entry.date]: [...todayList, entry],
-  };
+    createdAt: now,
+  }));
+  const next: DayDiary = { ...state.diary };
+  for (const entry of entries) {
+    next[entry.date] = [...(next[entry.date] ?? []), entry];
+  }
+  state.diary = next;
   emitChange();
-  return entry;
+  return { ok: true, entries };
 }
 
-export function updateDiaryEntry(id: string, patch: Partial<DiaryEntry>): void {
-  // Fix Bug #6 (T1): se patch.date cambia, sposta l'entry nell'array della nuova data
-  // (prima l'entry restava nell'array originale → worker stats la contava nel giorno sbagliato)
-  // Fix MEDIUM bug: se la destinazione ha già MAX_DIARY_ENTRIES_PER_DAY entries, non spostare
-  // (silently skip il move, mantieni l'entry nella data originale con gli altri campi aggiornati).
-  if (patch.date && patch.date !== getCurrentEntryDate(id)) {
-    const destCount = state.diary[patch.date]?.length ?? 0;
-    if (destCount >= MAX_DIARY_ENTRIES_PER_DAY) {
-      console.warn('[store] diario destinazione pieno per la data', patch.date, '— move skipped');
-      // Rimuovi patch.date per applicare solo gli altri campi nella data originale
-      const { date: _omitted, ...restPatch } = patch;
-      void _omitted;
-      patch = restPatch;
-    }
-  }
-  const newDiary: DayDiary = {};
-  let movedEntry: DiaryEntry | null = null;
-  let movedToDate: string | null = null;
-  for (const [date, entries] of Object.entries(state.diary)) {
-    const filtered: DiaryEntry[] = [];
-    for (const e of entries) {
-      if (e.id === id) {
-        const updated = { ...e, ...patch };
-        if (patch.date && patch.date !== date) {
-          // L'entry sta cambiando data: estraila per inserirla nel nuovo contenitore
-          movedEntry = updated;
-          movedToDate = patch.date;
-          continue;
-        }
-        filtered.push(updated);
-      } else {
-        filtered.push(e);
-      }
-    }
-    newDiary[date] = filtered;
-  }
-  if (movedEntry && movedToDate) {
-    newDiary[movedToDate] = [...(newDiary[movedToDate] || []), movedEntry];
-  }
-  state.diary = newDiary;
-  emitChange();
+export function addDiaryEntry(input: DiaryEntryInput): DiaryEntry | null {
+  const result = addDiaryEntries([input]);
+  return result.ok ? result.entries[0] : null;
 }
 
-/** Helper: ritorna la data corrente di un entry, o undefined se non trovata. */
-function getCurrentEntryDate(id: string): string | undefined {
+function replaceDiaryEntry(id: string, replace: (entry: DiaryEntry) => DiaryEntry): boolean {
+  let found = false;
+  const next: DayDiary = {};
   for (const [date, entries] of Object.entries(state.diary)) {
-    if (entries.some((e) => e.id === id)) return date;
+    next[date] = entries.map((entry) => {
+      if (entry.id !== id) return entry;
+      found = true;
+      return replace(entry);
+    });
   }
-  return undefined;
+  if (!found) return false;
+  state.diary = next;
+  emitChange();
+  return true;
+}
+
+/** Aggiorna soltanto il modo in cui una entry rappresenta la quantità consumata. */
+export function setDiaryEntryAmount(id: string, quantity: number, gramsOverride?: number): boolean {
+  if (!Number.isFinite(quantity) || quantity <= 0) return false;
+  if (gramsOverride != null && (!Number.isFinite(gramsOverride) || gramsOverride <= 0)) return false;
+  return replaceDiaryEntry(id, (entry) => ({ ...entry, quantity, gramsOverride }));
+}
+
+/** Aggiorna lo snapshot storico del food senza esporre un patch generico della DiaryEntry. */
+export function setDiaryEntryFoodSnapshot(id: string, foodSnapshot: FoodItem): boolean {
+  return replaceDiaryEntry(id, (entry) => ({ ...entry, foodSnapshot }));
 }
 
 export function deleteDiaryEntry(id: string): void {
