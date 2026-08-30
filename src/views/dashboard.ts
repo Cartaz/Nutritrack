@@ -24,6 +24,7 @@ import {
   computeWeightTrend,
   computeWeightMovingAverage,
   getBiometricForDisplay,
+  getLatestWeightOnOrBefore,
   WATER_GLASS_ML,
   WATER_GOAL_ML,
 } from '../lib/biometrics';
@@ -202,8 +203,9 @@ function renderBiometricCard(date: string): string {
   const maPoints = computeWeightMovingAverage(recentPoints, 7);
   const sparkline = renderWeightSparkline(maPoints);
 
-  const weightInferredNote = display.weightKgInferred
-    ? `<p class="bio-hint">Peso dall'ultima registrazione (${escapeHtml(formatDateIT(getLatestWeightDate(state.biometrics)))})</p>`
+  const inferredWeightSource = display.weightKgInferred ? getLatestWeightOnOrBefore(state.biometrics, date) : null;
+  const weightInferredNote = inferredWeightSource
+    ? `<p class="bio-hint">Peso dall'ultima registrazione (${escapeHtml(formatDateIT(inferredWeightSource.date))})</p>`
     : '';
 
   return `
@@ -263,12 +265,6 @@ function renderBiometricCard(date: string): string {
       ${sparkline}
     </section>
   `;
-}
-
-/** Helper: ritorna la data dell'ultimo peso registrato (per la nota "inferred"). */
-function getLatestWeightDate(biometrics: ReturnType<typeof getState>['biometrics']): string {
-  const points = computeWeightTrend(biometrics);
-  return points.length > 0 ? points[points.length - 1].date : '';
 }
 
 /** Mini sparkline SVG del trend peso. Mostra punti grezzi + linea media mobile 7gg.
