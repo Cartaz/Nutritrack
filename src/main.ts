@@ -2,7 +2,14 @@
 
 import './styles/main.css';
 import { subscribe, getState, setCurrentDate } from './lib/store';
-import { loadData, enableAutoSave, initMultiTabSync, isStorageAvailable, shouldWarnQuota } from './lib/storage';
+import {
+  loadData,
+  saveData,
+  enableAutoSave,
+  initMultiTabSync,
+  isStorageAvailable,
+  shouldWarnQuota,
+} from './lib/storage';
 import { setStorageDisabled } from './lib/store';
 import { render, bindGlobalEvents, applyInitialTheme } from './components/renderer';
 import { showToast } from './components/toast';
@@ -23,7 +30,11 @@ function init(): void {
       actions: [{ label: 'OK', action: 'close', variant: 'primary' }],
     });
   } else {
-    loadData();
+    const loaded = loadData();
+    // Su un profilo nuovo non esiste ancora una baseline persistita. Crearla prima di
+    // autosave e multi-tab sync rende rilevabile anche una modifica locale avvenuta
+    // nello stesso frame di un successivo storage event remoto.
+    if (!loaded) saveData();
     enableAutoSave();
     initMultiTabSync();
     if (shouldWarnQuota()) {
