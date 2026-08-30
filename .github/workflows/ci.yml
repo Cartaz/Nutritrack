@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,7 +39,20 @@ jobs:
       - name: Unit tests (Vitest)
         run: npm run test
 
+      - name: Compute Pages base path
+        id: basepath
+        shell: bash
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          if [[ "$REPO" == *.github.io ]]; then
+            echo "base=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=/$REPO/" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build (Vite)
+        env:
+          VITE_BASE_PATH: ${{ steps.basepath.outputs.base }}
         run: npm run build
 
       - name: Verify PWA assets
@@ -61,7 +75,7 @@ jobs:
           ls dist/assets/api-*.js > /dev/null
           echo "PWA assets OK"
 
-      - name: Upload build artifact
+      - name: Upload validated build artifact
         uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -76,3 +90,34 @@ jobs:
           path: coverage/
           retention-days: 7
           if-no-files-found: ignore
+
+  deploy:
+    name: Deploy validated build to GitHub Pages
+    needs: quality
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download validated build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
