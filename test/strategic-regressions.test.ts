@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getBiometricForDisplay } from '../src/lib/biometrics';
+import { computeWeightMovingAverage, getBiometricForDisplay } from '../src/lib/biometrics';
 import { detectBarcodeFromVideo } from '../src/lib/barcode';
 import { normalizeMacroSplit } from '../src/lib/nutrition';
 
@@ -38,6 +38,33 @@ describe('strategic audit regressions', () => {
 
       expect(display.weightKg).toBeUndefined();
       expect(display.weightKgInferred).toBe(false);
+    });
+  });
+
+  describe('biometric calendar windows', () => {
+    it('interprets a 7-day moving average as 7 calendar days, not 7 observations', () => {
+      const points = [
+        { date: '2026-07-01', weightKg: 80 },
+        { date: '2026-07-08', weightKg: 78 },
+        { date: '2026-07-15', weightKg: 76 },
+      ];
+
+      const result = computeWeightMovingAverage(points, 7);
+
+      expect(result.map((point) => point.ma7)).toEqual([80, 78, 76]);
+    });
+
+    it('includes measurements up to 6 days before and excludes one exactly 7 days before', () => {
+      const points = [
+        { date: '2026-07-01', weightKg: 82 },
+        { date: '2026-07-02', weightKg: 80 },
+        { date: '2026-07-08', weightKg: 78 },
+      ];
+
+      const result = computeWeightMovingAverage(points, 7);
+
+      // On July 8, July 2 is inside the trailing 7 calendar days; July 1 is outside.
+      expect(result[2].ma7).toBe(79);
     });
   });
 

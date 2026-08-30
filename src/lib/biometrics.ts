@@ -22,6 +22,7 @@ const SLEEP_HOURS_MIN = 0;
 const SLEEP_HOURS_MAX = 24;
 const WEIGHT_KG_MIN = 20;
 const WEIGHT_KG_MAX = 500;
+const MS_PER_DAY = 86_400_000;
 
 // ============ Setters con validazione + toast ============
 
@@ -125,28 +126,54 @@ export function computeWeightTrend(biometrics: Biometrics): WeightPoint[] {
   return points;
 }
 
+/** Converte YYYY-MM-DD in un indice di giorno UTC, indipendente da timezone e DST. */
+function dateKeyToEpochDay(date: string): number | null {
+  if (!isValidDateKey(date)) return null;
+  const [year, month, day] = date.split('-').map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day) / MS_PER_DAY);
+}
+
 /**
- * Media mobile trailing su un numero di RILEVAZIONI, non su giorni di calendario.
- * Giorni senza peso non vengono inseriti come zero e non consumano la finestra.
+ * Media mobile trailing su giorni di calendario.
  *
- * Il nome storico `ma7` resta per compatibilità con la UI corrente; M0.2 della
- * roadmap richiede di rendere esplicita anche nel display la semantica scelta.
+ * Con `windowDays=7`, ogni punto usa le misurazioni comprese tra il giorno del punto
+ * e i 6 giorni precedenti. I giorni senza rilevamento vengono ignorati, non trattati
+ * come zero; una misurazione di 7 giorni prima è invece fuori dalla finestra.
+ *
+ * `points` è atteso in ordine cronologico, come l'output di computeWeightTrend().
  */
 export interface WeightTrendPoint extends WeightPoint {
   ma7: number | null;
 }
 
-export function computeWeightMovingAverage(points: WeightPoint[], window = 7): WeightTrendPoint[] {
+export function computeWeightMovingAverage(points: WeightPoint[], windowDays = 7): WeightTrendPoint[] {
   if (points.length === 0) return [];
-  const w = Math.max(1, window);
+  const days = Number.isFinite(windowDays) ? Math.max(1, Math.floor(windowDays)) : 7;
   const out: WeightTrendPoint[] = [];
+
   for (let i = 0; i < points.length; i++) {
-    const start = Math.max(0, i - w + 1);
-    const slice = points.slice(start, i + 1);
-    const sum = slice.reduce((acc, p) => acc + p.weightKg, 0);
-    const ma = sum / slice.length;
-    out.push({ ...points[i], ma7: round(ma, 1) });
+    const currentDay = dateKeyToEpochDay(points[i].date);
+    if (currentDay == null) {
+      out.push({ ...points[i], ma7: null });
+      continue;
+    }
+
+    const firstIncludedDay = currentDay - days + 1;
+    let sum = 0;
+    let count = 0;
+
+    for (let j = i; j >= 0; j--) {
+      const pointDay = dateKeyToEpochDay(points[j].date);
+      if (pointDay == null) continue;
+      if (pointDay < firstIncludedDay) break;
+      if (pointDay > currentDay) continue;
+      sum += points[j].weightKg;
+      count++;
+    }
+
+    out.push({ ...points[i], ma7: count > 0 ? round(sum / count, 1) : null });
   }
+
   return out;
 }
 
