@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#10b981" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
-  <meta name="description" content="Informativa privacy di NutriTrack — PWA per il tracciamento di calorie e macro. Dati sul dispositivo, nessun tracking, nessun cookie." />
+  <meta name="description" content="Informativa privacy di NutriTrack — PWA per il tracciamento di calorie, macro e dati personali inseriti dall'utente. Dati sul dispositivo, nessun tracking, nessun cookie." />
   <meta name="robots" content="index, follow" />
   <title>Privacy · NutriTrack</title>
   <style>
@@ -196,8 +196,8 @@
 
   <main>
     <h1>Informativa Privacy</h1>
-    <p class="lead">NutriTrack è un'applicazione web (PWA) per il tracciamento personale di calorie, macro e ricette. Questa informativa spiega in modo trasparente quali dati vengono trattati, dove sono conservati e quali terze parti (se presenti) sono coinvolte.</p>
-    <p class="meta">Ultimo aggiornamento: 8 luglio 2026 · Versione informativa: 1.0</p>
+    <p class="lead">NutriTrack è un'applicazione web (PWA) per il tracciamento personale di calorie, macro, ricette e dati giornalieri di benessere e peso. Questa informativa spiega in modo trasparente quali dati vengono trattati, dove sono conservati e quali terze parti (se presenti) sono coinvolte.</p>
+    <p class="meta">Ultimo aggiornamento: 30 agosto 2026 · Versione informativa: 1.1</p>
 
     <div class="tags">
       <span class="tag tag-success">✓ Dati sul dispositivo</span>
@@ -217,8 +217,8 @@
         <div class="summary-item-value">Non richiesti — l'app è usabile anonimamente</div>
       </div>
       <div class="summary-item">
-        <div class="summary-item-label">Terze parti</div>
-        <div class="summary-item-value">Solo Open Food Facts (per la ricerca prodotti)</div>
+        <div class="summary-item-label">Servizio dati prodotti</div>
+        <div class="summary-item-value">Open Food Facts (ricerca testuale e barcode)</div>
       </div>
       <div class="summary-item">
         <div class="summary-item-label">Cookie</div>
@@ -233,26 +233,28 @@
     <p>L'app memorizza localmente, nella chiave <code>nutritrack_data_v1</code> del <code>localStorage</code> del browser, i seguenti dati:</p>
     <ul>
       <li><strong>Impostazioni utente</strong>: obiettivo calorico giornaliero, split macro, tema, eventuali dati per il calcolo del TDEE (peso, altezza, età, sesso, livello di attività, obiettivo di peso). Questi dati servono solo a personalizzare i calcoli lato client.</li>
+      <li><strong>Dati giornalieri di benessere e peso</strong>: quantità d'acqua registrata, ore di sonno e peso corporeo associati alle date inserite dall'utente.</li>
       <li><strong>Alimenti personalizzati</strong>: alimenti creati manualmente o salvati dal database Open Food Facts, includendo nome, brand, valori nutrizionali per 100 g, porzioni personalizzate e (opzionalmente) barcode.</li>
       <li><strong>Ricette</strong>: ricette create dall'utente con ingredienti, grammi e porzioni.</li>
       <li><strong>Diario alimentare</strong>: voci giornaliere (alimento + quantità + pasto) inserite dall'utente.</li>
       <li><strong>Preferiti</strong>: id degli alimenti marcati come preferiti.</li>
     </ul>
     <p>Tutti questi dati sono <strong>inseriti volontariamente dall'utente</strong> e <strong>non lasciano mai il dispositivo</strong> a eccezione delle ricerche su Open Food Facts (vedi sezione 3) e delle esportazioni JSON esplicite effettuate dall'utente stesso (funzione Backup). Una copia di sicurezza (backup) viene mantenuta su una seconda chiave <code>nutritrack_data_backup</code> sempre nel <code>localStorage</code> dello stesso browser, per il recupero in caso di dati corrotti.</p>
-    <p>L'app NON raccoglie: posizione geografica, indirizzi IP, identificativi dispositivo, dati biometrici, contatti, foto (le immagini dei prodotti vengono scaricate da Open Food Facts e mostrate via URL, non salvate nel database locale).</p>
+    <p>NutriTrack non memorizza localmente posizione geografica, indirizzi IP, identificativi del dispositivo, contatti o foto. Le immagini dei prodotti vengono mostrate tramite URL provenienti da Open Food Facts e non vengono salvate nel payload dati locale. Acqua, sonno e peso sono memorizzati soltanto quando l'utente li inserisce esplicitamente.</p>
 
     <h2>3. Comunicazioni verso l'esterno (Open Food Facts)</h2>
-    <p>L'unica comunicazione verso l'esterno avviene quando l'utente effettua una ricerca testuale o scansiona un barcode per cercare un prodotto. In quei casi, NutriTrack invia una richiesta HTTPS ai server di <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a>, un database collaborativo gratuito e open source. Vengono inviati:</p>
+    <p>L'unica comunicazione applicativa verso un servizio dati esterno avviene quando l'utente effettua una ricerca testuale o scansiona un barcode per cercare un prodotto. In quei casi, NutriTrack invia una richiesta HTTPS ai server di <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a>, un database collaborativo gratuito e open source. La richiesta contiene:</p>
     <ul>
       <li>Il termine di ricerca digitato (es. "pasta") <strong>oppure</strong> il codice a barre scansionato (es. <code>8076809510053</code>).</li>
-      <li>Lo <a href="https://en.wikipedia.org/wiki/User_agent" target="_blank" rel="noreferrer">User-Agent</a> HTTP standard del browser, integrato con la stringa identificativa <code>NutriTrack/1.0 (PWA)</code> per consentire a Open Food Facts di identificare l'origine delle richieste (come da loro <a href="https://wiki.openfoodfacts.org/API" target="_blank" rel="noreferrer">best practice</a>).</li>
+      <li>I parametri tecnici necessari alla ricerca, come paginazione, lingua/istanza e campi richiesti dall'API.</li>
     </ul>
+    <p>NutriTrack <strong>non imposta un User-Agent personalizzato</strong>: nei browser l'header <code>User-Agent</code> è gestito dal browser stesso. Come per qualsiasi richiesta HTTPS, il server remoto può ricevere i normali metadati di rete e protocollo necessari alla comunicazione, ad esempio l'indirizzo IP della connessione e gli header standard generati dal browser. NutriTrack non aggiunge a queste richieste un identificativo personale proprio.</p>
     <p>Le richieste sono indirizzate con fallback multi-istanza ai domini <code>it.openfoodfacts.org</code>, <code>world.openfoodfacts.org</code>, <code>fr.openfoodfacts.org</code>, <code>es.openfoodfacts.org</code>, <code>de.openfoodfacts.org</code>. Open Food Facts tratta questi dati secondo la propria <a href="https://world.openfoodfacts.org/privacy" target="_blank" rel="noreferrer">informativa privacy</a>. NutriTrack non ha alcun controllo sui log o sui dati eventualmente trattenuti da Open Food Facts.</p>
-    <p>È possibile usare l'app senza effettuare mai ricerche online: creando alimenti custom manualmente (bottone "Crea ingrediente custom"). In quel caso, nessuna comunicazione verso l'esterno avviene.</p>
+    <p>È possibile usare l'app senza effettuare mai ricerche online: creando alimenti custom manualmente (bottone "Crea ingrediente custom"). In quel caso, NutriTrack non effettua richieste di ricerca verso Open Food Facts.</p>
 
     <h2>4. Cookie e tecnologie di tracciamento</h2>
     <p>NutriTrack <strong>non utilizza cookie</strong> di alcun tipo, né di prima né di terza parte. Non utilizza Web Beacon, fingerprinting, pixel tag o altre tecnologie di tracciamento. Il <code>localStorage</code> è usato esclusivamente per memorizzare i dati dell'utente (vedi sezione 2), non per profilazione o tracciamento.</p>
-    <p>Il Service Worker (funzionalità PWA per il funzionamento offline) cache-only su asset statici (HTML, CSS, JS, icone). Non registra push notification, non effettua background sync verso server, non raccoglie dati di utilizzo.</p>
+    <p>Il Service Worker (funzionalità PWA per il funzionamento offline) usa la cache per gli asset statici (HTML, CSS, JS, icone). Non registra push notification, non effettua background sync verso server e non raccoglie dati di utilizzo.</p>
 
     <h2>5. Barcode scanner e accesso fotocamera</h2>
     <p>La funzione "Scansiona codice a barre" (pulsante 📷 nel dialog di ricerca) richiede l'accesso alla fotocamera del dispositivo. <strong>Il flusso video viene elaborato localmente nel browser</strong> da due possibili backend (in ordine di preferenza):</p>
@@ -263,14 +265,14 @@
     <p>In entrambi i casi: <strong>nessun frame video viene trasmesso o salvato</strong>. Non viene scattata alcuna foto. L'accesso alla camera è limitato alla durata del modal scanner e viene revocato immediatamente alla chiusura (il flusso MediaStream viene fermato). Il permesso può essere revocato in qualsiasi momento dalle impostazioni del browser.</p>
 
     <h2>6. Condivisione e diffusione dei dati</h2>
-    <p>I dati salvati nel <code>localStorage</code> non vengono mai trasmessi a terzi da NutriTrack. L'unica eccezione è la funzione <strong>Esporta backup</strong> (in Impostazioni → Backup), che genera un file JSON scaricabile sul dispositivo: è responsabilità dell'utente decidere cosa farne. La funzione <strong>Importa</strong> legge un file JSON locale scelto esplicitamente dall'utente; il file non viene trasmesso ad alcun server.</p>
+    <p>I dati salvati nel <code>localStorage</code> non vengono trasmessi a terzi da NutriTrack. Le ricerche verso Open Food Facts inviano soltanto i dati descritti nella sezione 3. La funzione <strong>Esporta backup</strong> (in Impostazioni → Backup) genera un file JSON scaricabile sul dispositivo: è responsabilità dell'utente decidere cosa farne. La funzione <strong>Importa</strong> legge un file JSON locale scelto esplicitamente dall'utente; il file non viene trasmesso ad alcun server.</p>
 
     <h2>7. Conservazione e cancellazione</h2>
     <p>I dati restano nel <code>localStorage</code> finché l'utente non decide di rimuoverli. Le modalità disponibili sono:</p>
     <ul>
-      <li><strong>Reset tutti i dati</strong> (Impostazioni → Reset): cancella immediatamente alimenti, ricette, diario, preferiti e impostazioni. L'azione è irreversibile.</li>
-      <li><strong>Cancellazione manuale del browser</strong>: svuotando la cache/cookie del sito, o disinstallando la PWA, tutti i dati locali vengono rimossi.</li>
-      <li><strong>Modalità privata / Incognito</strong>: l'app rileva automaticamente quando il <code>localStorage</code> non è disponibile (modalità privata di Safari, browser con storage disabilitato) e opera in modalità in-memory: i dati esistono solo per la durata della sessione e vengono persi alla chiusura del tab.</li>
+      <li><strong>Reset tutti i dati</strong> (Impostazioni → Reset): cancella immediatamente alimenti, ricette, diario, dati giornalieri di benessere e peso, preferiti e impostazioni. L'azione è irreversibile.</li>
+      <li><strong>Cancellazione manuale del browser</strong>: svuotando i dati del sito dal browser, o disinstallando la PWA insieme ai relativi dati del sito, i dati locali vengono rimossi.</li>
+      <li><strong>Storage non disponibile</strong>: se il <code>localStorage</code> non è disponibile, l'app opera in modalità in-memory e i dati della sessione non vengono persistiti.</li>
     </ul>
 
     <h2>8. Sicurezza dei dati</h2>
@@ -296,7 +298,7 @@
     <h2>12. Contatti</h2>
     <p>Per domande su questa informativa o sul trattamento dei dati, apri una issue su GitHub: <a href="https://github.com/Cartaz/Nutritrack/issues" target="_blank" rel="noreferrer">https://github.com/Cartaz/Nutritrack/issues</a>.</p>
 
-    <p class="footer-note">Informativa generata per NutriTrack — progetto open source, niente backend, niente monetizzazione. Codice sotto licenza <a href="https://github.com/Cartaz/Nutritrack/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT</a>. Dati nutrizionali forniti da <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a> (database collaborativo, licenza ODbL).</p>
+    <p class="footer-note">Informativa per NutriTrack — progetto open source, niente backend applicativo, niente monetizzazione. Codice sotto licenza <a href="https://github.com/Cartaz/Nutritrack/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT</a>. Dati nutrizionali forniti da <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a> (database collaborativo, licenza ODbL).</p>
   </main>
 </body>
 </html>

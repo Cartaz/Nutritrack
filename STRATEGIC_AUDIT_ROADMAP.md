@@ -36,45 +36,48 @@ For every non-trivial change:
 
 # M0 — Immediate correctness and safety
 
+**Status: completed 2026-08-30.**
+
 **Objective:** remove known incorrect behavior before structural refactors.
 
 ### M0.1 Goal-calorie safety semantics
 
-- [ ] Stop treating `500 kcal/day` as a "safe" fallback.
-- [ ] Make invalid TDEE inputs produce an explicit invalid result instead of a plausible-looking target.
-- [ ] Separate mathematical estimate from application safety policy.
-- [ ] Update unit tests and user-facing warnings.
-- [ ] Remove unsupported health-source wording from code/docs unless a precise source is maintained.
+- [x] Stop treating `500 kcal/day` as a "safe" fallback.
+- [x] Make invalid TDEE inputs produce an explicit invalid result instead of a plausible-looking target.
+- [x] Separate mathematical estimate from application safety policy.
+- [x] Update unit tests and user-facing warnings.
+- [x] Remove unsupported health-source wording from code/docs unless a precise source is maintained.
 
 **Done when:** invalid TDEE cannot silently become a normal calorie target.
 
 ### M0.2 Biometric temporal correctness
 
-- [ ] When viewing a historical date, infer weight only from measurements on or before that date.
-- [ ] Add regression coverage for future measurements.
-- [ ] Clarify whether weight moving average means 7 observations or 7 calendar days; rename or change the algorithm accordingly.
+- [x] When viewing a historical date, infer weight only from measurements on or before that date.
+- [x] Add regression coverage for future measurements.
+- [x] Make the 7-day moving average use 7 calendar days rather than 7 recorded observations.
+- [x] Make the historical "last measurement" label use the same temporal query as the inferred value.
 
-**Done when:** historical UI cannot use future biometric information.
+**Done when:** historical UI cannot use future biometric information and the displayed 7-day window has calendar-day semantics.
 
 ### M0.3 Barcode abort contract
 
-- [ ] Ensure native `BarcodeDetector` path resolves `null` on abort.
-- [ ] Add deterministic abort tests.
+- [x] Ensure native `BarcodeDetector` path resolves `null` on abort.
+- [x] Add deterministic abort tests.
 
 **Done when:** every scanner backend has the same cancellation contract and leaves no pending promise after close.
 
 ### M0.4 Macro split invariant
 
-- [ ] Guarantee normalized macro percentages sum to exactly 100 for finite inputs.
-- [ ] Add property-style regression coverage for values slightly above and below 100.
+- [x] Guarantee normalized macro percentages sum to exactly 100 for finite inputs.
+- [x] Add property-style regression coverage for values slightly above and below 100.
 
 **Done when:** `normalizeMacroSplit()` cannot return a total other than 100.
 
 ### M0.5 Privacy/documentation correctness
 
-- [ ] Update privacy policy to disclose local water/sleep/weight storage.
-- [ ] Remove stale claim that NutriTrack sets a custom browser `User-Agent` header.
-- [ ] Reconcile the declared set of outbound data with the current implementation.
+- [x] Update privacy policy to disclose local water/sleep/weight storage.
+- [x] Remove stale claim that NutriTrack sets a custom browser `User-Agent` header.
+- [x] Reconcile the declared set of outbound data with the current implementation.
 
 **Done when:** privacy documentation describes the shipped program rather than an older version.
 
@@ -274,6 +277,6 @@ Every milestone must finish with:
 
 ## Current execution order
 
-`M0.1 → M0.2 → M0.3 → M0.4 → M0.5 → M1.1 → M1.2 → M1.3 → M2 → M3 → M4 → M5 → M6`
+`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 → M4 → M5 → M6`
 
 The order can change only when a later dependency must be pulled forward to fix a correctness or integrity problem cleanly.
