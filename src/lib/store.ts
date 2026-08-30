@@ -193,8 +193,7 @@ export function toggleFavorite(id: string): void {
 
 export type DiaryEntryInput = Omit<DiaryEntry, 'id' | 'createdAt'>;
 export type AddDiaryEntriesResult =
-  | { ok: true; entries: DiaryEntry[] }
-  | { ok: false; reason: 'day_full'; date: string };
+  { ok: true; entries: DiaryEntry[] } | { ok: false; reason: 'day_full'; date: string };
 
 /**
  * Inserisce una o più entry come singola transazione di store.
