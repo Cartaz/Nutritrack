@@ -79,9 +79,7 @@ describe('semantic diary entry mutations', () => {
 
 describe('atomic diary insertion', () => {
   it('does not insert any entry when the whole batch cannot fit', () => {
-    const existing = Array.from({ length: MAX_DIARY_ENTRIES_PER_DAY - 1 }, (_, i) =>
-      entry(`existing-${i}`, i),
-    );
+    const existing = Array.from({ length: MAX_DIARY_ENTRIES_PER_DAY - 1 }, (_, i) => entry(`existing-${i}`, i));
     setState({ diary: { [DATE]: existing } });
 
     const result = addDiaryEntries([
@@ -106,9 +104,7 @@ describe('atomic diary insertion', () => {
   });
 
   it('adds a recipe entirely or not at all when the day is near capacity', () => {
-    const existing = Array.from({ length: MAX_DIARY_ENTRIES_PER_DAY - 1 }, (_, i) =>
-      entry(`existing-${i}`, i),
-    );
+    const existing = Array.from({ length: MAX_DIARY_ENTRIES_PER_DAY - 1 }, (_, i) => entry(`existing-${i}`, i));
     const ingredientA = food('a', 'Ingrediente A');
     const ingredientB = food('b', 'Ingrediente B');
     const recipe: Recipe = {
