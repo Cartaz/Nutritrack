@@ -60,9 +60,7 @@ export function sumNutrition(items: NutritionPer100[]): NutritionPer100 {
     acc.protein += it.protein || 0;
     acc.carbs += it.carbs || 0;
     acc.fat += it.fat || 0;
-    // Fix LOW bug: preserva undefined invece di 0 per fiber/sugar/salt se NESSUN item li ha.
-    // Inconsistenza: scaleNutrition preserva undefined, sumNutrition forzava 0. Display mostrava
-    // "0g fiber" per somma di food senza fiber invece di "—".
+    // Preserva undefined invece di 0 per fiber/sugar/salt se nessun item li ha.
     if (it.fiber != null) {
       acc.fiber = (acc.fiber || 0) + it.fiber;
       hasFiber = true;
@@ -87,23 +85,17 @@ export function sumNutrition(items: NutritionPer100[]): NutritionPer100 {
   };
 }
 
-/** Mifflin-St Jeor BMR.
- *  Fix B6.5 (T6): clamp a 0 per input zero/estremi (defense in depth; l'UI valida già).
- *  Fix MEDIUM bug: ritorna 0 se sex non è 'M' o 'F' (defense in depth per backup legacy senza sex). */
+/** Mifflin-St Jeor BMR. */
 export function calcBMR(weightKg: number, heightCm: number, ageYears: number, sex: Sex): number {
   if (!Number.isFinite(weightKg) || !Number.isFinite(heightCm) || !Number.isFinite(ageYears)) return 0;
   if (weightKg <= 0 || heightCm <= 0 || ageYears <= 0) return 0;
-  // Fix MEDIUM bug: sex undefined (da backup legacy o chiamata diretta con cast) veniva
-  // trattato come 'F' dalla formula `sex === 'M' ? +5 : -161`, causando ~166 kcal/giorno
-  // di differenza per utenti maschi. Ora ritorniamo 0 esplicitamente.
   if (sex !== 'M' && sex !== 'F') return 0;
   const base = 10 * weightKg + 6.25 * heightCm - 5 * ageYears;
   const raw = sex === 'M' ? base + 5 : base - 161;
   return Math.max(0, Math.round(raw));
 }
 
-/** TDEE = BMR * fattore attività.
- *  Fix B6.6 (T6): fallback a sedentario se activity non in mappa (defense in depth). */
+/** TDEE = BMR * fattore attività. */
 export function calcTDEE(bmr: number, activity: ActivityLevel): number {
   const factor = ACTIVITY_FACTORS[activity] ?? ACTIVITY_FACTORS.sedentary;
   if (!Number.isFinite(bmr) || bmr <= 0) return 0;
@@ -112,10 +104,7 @@ export function calcTDEE(bmr: number, activity: ActivityLevel): number {
 
 /** Calcola il numero di settimane necessarie per andare dal peso attuale al peso target
  *  dato un rateo (kg/settimana, valore assoluto positivo). Ritorna 0 se i dati sono mancanti
- *  o invalidi. Sempre arrotondato per eccesso (ceil) — meglio promettere 1 settimana in più
- *  che in meno, dato che il ritmo reale dipende da molti fattori metabolici.
- *  Fix LOW bug: soglia 0.05 kg invece di 0.01 per evitare che 10g di differenza (possibile
- *  rumore floating-point come 80.01 - 80.0 = 0.010000000000005116) faccia restituire 1 settimana. */
+ *  o invalidi. La stima è lineare e non modella adattamenti fisiologici nel tempo. */
 export function calcWeeksToTarget(
   currentWeightKg: number | undefined,
   targetWeightKg: number | undefined,
@@ -125,14 +114,14 @@ export function calcWeeksToTarget(
   if (targetWeightKg == null || !Number.isFinite(targetWeightKg) || targetWeightKg <= 0) return 0;
   if (weeklyRateKg == null || !Number.isFinite(weeklyRateKg) || weeklyRateKg <= 0) return 0;
   const delta = Math.abs(targetWeightKg - currentWeightKg);
-  if (delta < 0.05) return 0; // già al target (soglia aumentata da 0.01 a 0.05)
+  if (delta < 0.05) return 0;
   return Math.ceil(delta / weeklyRateKg);
 }
 
 /** Calcola la variazione di peso settimanale CON SEGNO a partire dal rateo scelto dall'utente
  *  (sempre positivo) e dal tipo di obiettivo. negativo = deficit (perdere),
  *  positivo = surplus (aumentare), zero = mantieni.
- *  Il rateo viene clampato a MAX_WEEKLY_KG_RATE per safety (defense in depth — l'UI fa già clamp). */
+ *  Il rateo viene clampato a MAX_WEEKLY_KG_RATE come limite applicativo. */
 export function calcWeeklyDeltaKg(weeklyRateKg: number | undefined, goalType: WeightGoalType | undefined): number {
   if (goalType === 'maintain' || goalType == null) return 0;
   if (weeklyRateKg == null || !Number.isFinite(weeklyRateKg) || weeklyRateKg <= 0) return 0;
@@ -142,8 +131,7 @@ export function calcWeeklyDeltaKg(weeklyRateKg: number | undefined, goalType: We
 }
 
 /** Converte un rateo di variazione peso (kg/settimana, con segno) in adjustment calorico
- *  giornaliero (kcal/giorno, con segno). Negativo = deficit, positivo = surplus.
- *  Formula: kcal/giorno = (kg/settimana * 7700 kcal/kg) / 7 giorni. */
+ *  giornaliero (kcal/giorno, con segno). È una stima lineare semplificata. */
 export function weeklyDeltaToDailyKcal(weeklyDeltaKg: number): number {
   if (!Number.isFinite(weeklyDeltaKg) || weeklyDeltaKg === 0) return 0;
   return Math.round((weeklyDeltaKg * KCAL_PER_KG_BODYWEIGHT) / 7);
@@ -151,10 +139,9 @@ export function weeklyDeltaToDailyKcal(weeklyDeltaKg: number): number {
 
 /** Calcola l'obiettivo calorico giornaliero aggiustato per l'obiettivo di peso.
  *  TDEE + adjustment (deficit se perdere, surplus se aumentare, zero se mantenere).
- *  Clamp a range sano [500..10000] coerente con normalizeUserSettings.
- *  Ritorna anche le settimane necessarie e i kg totali da perdere/aumentare.
- *  Fix MEDIUM bug: se tdee=0 (invalido), ritorna kcal=DEFAULT (2000) con kcalClamped=true
- *  invece di kcal=0 violando il contratto clamp [500..10000]. */
+ *  Il clamp [500..10000] è un limite tecnico storico dell'app, non una dichiarazione
+ *  di sicurezza clinica. M0.1 della roadmap sostituirà questo contratto con un
+ *  risultato esplicito per target non proponibili. */
 export function calcGoalAdjustedCalories(
   tdee: number,
   currentWeightKg: number | undefined,
@@ -171,9 +158,6 @@ export function calcGoalAdjustedCalories(
   kcalClamped: boolean;
 } {
   if (!Number.isFinite(tdee) || tdee <= 0) {
-    // Fix MEDIUM bug: prima ritornava kcal=0 (violando il clamp min 500). Ora ritorniamo
-    // 500 (il minimo del range sicuro) con kcalClamped=true, così la UI può mostrare un
-    // warning appropriato invece di un obiettivo calorico pericolosamente basso.
     return {
       kcal: 500,
       weeklyDeltaKg: 0,
@@ -198,41 +182,53 @@ export function calcGoalAdjustedCalories(
   return { kcal, weeklyDeltaKg, dailyAdjustment, weeksToTarget, totalDeltaKg, rateClamped, kcalClamped };
 }
 
-/** Default settings iniziali (dark theme, 2000 kcal, 30/40/30) */
+/** Default settings iniziali (system theme, 2000 kcal, 30/40/30) */
 export const DEFAULT_SETTINGS: UserSettings = {
   calorieGoal: 2000,
   macroSplit: { proteinPct: 30, carbsPct: 40, fatPct: 30 },
   theme: 'system',
 };
 
-/** Normalizza macro split: se somma != 100, riscala.
- *  Fix B14: clampa i negativi a 0 prima di riscalare (proteinPct=-10 → 0).
- *  Fix MEDIUM bug: la tolleranza 0.5 permetteva split in [99.5, 100.5) di passare invariati,
- *  violando il contratto "sum=100 SEMPRE". Ora ridistribuiamo la differenza su fat. */
+/**
+ * Normalizza lo split macro garantendo una somma di 100.
+ *
+ * Per piccoli errori di input (<0.5 punti percentuali) preserva il più possibile
+ * i valori scelti: un deficit viene assorbito dal grasso, mentre un eccesso viene
+ * sottratto dal componente più grande. Per scostamenti maggiori riscala l'intero
+ * vettore e arrotonda a percentuali intere, come faceva il comportamento storico.
+ */
 export function normalizeMacroSplit(split: MacroSplit): MacroSplit {
-  // Fix B14: clampa negativi a 0
   const protein = Math.max(0, split.proteinPct);
   const carbs = Math.max(0, split.carbsPct);
   const fat = Math.max(0, split.fatPct);
   const sum = protein + carbs + fat;
   if (sum === 0) return { proteinPct: 33, carbsPct: 34, fatPct: 33 };
-  if (Math.abs(sum - 100) < 0.5) {
-    // Fix MEDIUM bug: ridistribuisci la differenza su fat per garantire sum=100 esatto.
-    // Prima {99.6, 0, 0} passava invariata (sum=99.6 ≠ 100). Ora fat = 100 - protein - carbs.
-    const correctedFat = Math.max(0, 100 - protein - carbs);
-    return { proteinPct: protein, carbsPct: carbs, fatPct: correctedFat };
+
+  const delta = 100 - sum;
+  if (Math.abs(delta) < 0.5) {
+    if (delta >= 0) {
+      return { proteinPct: protein, carbsPct: carbs, fatPct: fat + delta };
+    }
+
+    const excess = -delta;
+    if (protein >= carbs && protein >= fat) {
+      return { proteinPct: protein - excess, carbsPct: carbs, fatPct: fat };
+    }
+    if (carbs >= fat) {
+      return { proteinPct: protein, carbsPct: carbs - excess, fatPct: fat };
+    }
+    return { proteinPct: protein, carbsPct: carbs, fatPct: fat - excess };
   }
-  const f = 100 / sum;
-  const p = Math.round(protein * f);
-  const c = Math.round(carbs * f);
-  const ft = 100 - p - c;
-  return { proteinPct: p, carbsPct: c, fatPct: ft };
+
+  const factor = 100 / sum;
+  const p = Math.round(protein * factor);
+  const c = Math.round(carbs * factor);
+  const f = 100 - p - c;
+  return { proteinPct: p, carbsPct: c, fatPct: f };
 }
 
 /** Calcola kcal da macro (verifica consistenza) */
 export function kcalFromMacros(grams: { protein: number; carbs: number; fat: number }): number {
-  // Fix LOW bug: clamp negativi a 0 (defense in depth; upstream clamps già, ma caller
-  // diretto potrebbe passare valori invalidi)
   const p = Math.max(0, grams.protein);
   const c = Math.max(0, grams.carbs);
   const f = Math.max(0, grams.fat);
