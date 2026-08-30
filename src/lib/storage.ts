@@ -33,7 +33,7 @@ interface ParsedPersistedPayload {
   signature: string;
 }
 
-interface PendingMultiTabUpdate extends ParsedPersistedPayload {}
+type PendingMultiTabUpdate = ParsedPersistedPayload;
 
 const LEGACY_STAMP: VersionStamp = { revision: 0, originTabId: '' };
 
@@ -434,7 +434,7 @@ function applyMultiTabUpdate(remote: ParsedPersistedPayload): void {
  * persistente la convergenza anche dopo un reload.
  */
 function repairStalePhysicalSnapshot(rawRemote: string, remote: ParsedPersistedPayload): void {
-  if (remote.stamp.revision === 0 || compareStamps(remote.stamp, _currentStamp) >= 0) return;
+  if (compareStamps(remote.stamp, _currentStamp) >= 0) return;
   let currentRaw: string | null = null;
   try {
     currentRaw = localStorage.getItem(STORAGE_KEY);
