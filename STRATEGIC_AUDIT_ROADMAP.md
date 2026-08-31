@@ -258,9 +258,19 @@ Deterministic coverage now protects:
 
 ## M6.4 Toolchain maintenance
 
-- [ ] Upgrade Vite/PWA/Workbox in an isolated change.
-- [ ] Validate typecheck, lint, test, build and offline/PWA smoke behavior.
-- [ ] Do not mix dependency upgrades with architecture changes.
+**Status: completed 2026-08-31.**
+
+- [x] Upgrade Vite 5 → 8, vite-plugin-pwa 0.20 → 1.3, Workbox 7.1 → 7.4 and Vitest/coverage 2.1 → 4.1 as one isolated toolchain change.
+- [x] Migrate deprecated project-owned Vite/Vitest configuration instead of carrying compatibility shims forward.
+- [x] Validate `npm ci`, typecheck, lint, formatting, 422 tests with coverage, Vite production build and the generated PWA/offline-shell contract on Node 22.
+- [x] Strengthen CI so `injectManifest`, PWA scope/base path, runtime cache names, service-worker registration, view splitting, worker splitting and the API chunk are checked from production artifacts.
+- [x] Keep architecture/domain code out of the dependency-upgrade change.
+
+Residual dependency audit note:
+
+- npm reports three high-severity transitive advisories in `brace-expansion`, `fast-uri` and `js-yaml`.
+- `js-yaml` is reached through ESLint only; the production-classified `brace-expansion`/`fast-uri` paths are under `workbox-build` and execute during build, not in the deployed browser runtime.
+- `npm audit fix --package-lock-only --dry-run` proposes zero changes with the current latest direct dependencies. We deliberately do not add permanent `overrides` solely to silence the audit; revisit when upstream direct dependencies resolve these paths.
 
 ---
 
@@ -296,6 +306,6 @@ Every milestone must finish with:
 
 ## Current execution order
 
-`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 ✅ → M6.3 ✅ → M6.4`
+`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 ✅ → M6.3 ✅ → M6.4 ✅`
 
 The order can change only when a later dependency must be pulled forward to fix a correctness or integrity problem cleanly.

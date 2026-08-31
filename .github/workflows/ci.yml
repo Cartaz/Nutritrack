@@ -21,7 +21,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -55,25 +55,51 @@ jobs:
           VITE_BASE_PATH: ${{ steps.basepath.outputs.base }}
         run: npm run build
 
-      - name: Verify PWA assets
+      - name: Verify PWA assets and offline shell
+        env:
+          VITE_BASE_PATH: ${{ steps.basepath.outputs.base }}
+        shell: bash
         run: |
+          set -euo pipefail
           test -f dist/index.html
           test -f dist/manifest.webmanifest
           test -f dist/sw.js
-          # Con injectRegister: false (Pattern 10), la registrazione SW è inline in index-*.js
-          # come riferimento al chunk virtual_pwa-register-*.js
-          grep -l "pwa-register" dist/assets/index-*.js > /dev/null
+
+          # injectManifest must have replaced the source placeholder with a real precache manifest.
+          if grep -q '__WB_MANIFEST' dist/sw.js; then
+            echo 'Service worker precache manifest was not injected'
+            exit 1
+          fi
+          grep -q 'index.html' dist/sw.js
+          grep -q 'manifest.webmanifest' dist/sw.js
+
+          # Runtime offline/cache behavior from src/sw.ts must survive the production build.
+          grep -q 'nutritrack-nav' dist/sw.js
+          grep -q 'nutritrack-off-api' dist/sw.js
+          grep -q 'nutritrack-off-img' dist/sw.js
+
+          # The generated manifest must retain the GitHub Pages base path used by the build.
+          node --input-type=module - <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('dist/manifest.webmanifest', 'utf8'));
+          const base = process.env.VITE_BASE_PATH;
+          if (manifest.start_url !== base || manifest.scope !== base) {
+            throw new Error(`Unexpected PWA scope: start_url=${manifest.start_url}, scope=${manifest.scope}, expected=${base}`);
+          }
+          NODE
+
+          # With injectRegister: false, application code owns service-worker registration.
+          grep -l 'pwa-register' dist/assets/index-*.js > /dev/null
           ls dist/assets/virtual_pwa-register-*.js > /dev/null
-          # Verifica code-splitting: ogni vista in chunk separato
+
+          # Preserve intentional view/worker/API code splitting after the Vite 8 migration.
           ls dist/assets/dashboard-*.js > /dev/null
           ls dist/assets/foods-*.js > /dev/null
           ls dist/assets/recipes-*.js > /dev/null
           ls dist/assets/settings-*.js > /dev/null
-          # Verifica worker
           ls dist/assets/stats.worker-*.js > /dev/null
-          # Verifica manualChunks (api)
           ls dist/assets/api-*.js > /dev/null
-          echo "PWA assets OK"
+          echo 'PWA/offline build contract OK'
 
       - name: Upload validated build artifact
         uses: actions/upload-artifact@v4
