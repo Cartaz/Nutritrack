@@ -28,9 +28,7 @@ describe('modal lifecycle regressions', () => {
       onConfirm,
     });
 
-    document
-      .querySelector<HTMLElement>('[data-modal-id="validation"] [data-modal-action="confirm"]')
-      ?.click();
+    document.querySelector<HTMLElement>('[data-modal-id="validation"] [data-modal-action="confirm"]')?.click();
     vi.advanceTimersByTime(250);
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
