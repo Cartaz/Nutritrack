@@ -15,7 +15,6 @@ interface ModalCallbacks {
   /** Ritorna false per lasciare il modal aperto dopo una validazione fallita. */
   onConfirm?: (clickedEl?: HTMLElement) => boolean | void;
   onClose?: () => void;
-  sticky?: boolean;
 }
 
 interface ModalBaseOptions {
@@ -44,10 +43,12 @@ type ModalBodyOptions =
 
 export type ShowModalOptions = ModalBaseOptions & ModalBodyOptions;
 
+type CloseReason = 'normal' | 'superseded';
+
 let _modalInit = false;
-const _callbacks = new Map<string, ModalCallbacks>();
+const _callbacks = new WeakMap<HTMLElement, ModalCallbacks>();
+const _returnFocus = new WeakMap<HTMLElement, HTMLElement | null>();
 const _closing = new WeakSet<HTMLElement>();
-let _previouslyFocused: HTMLElement | null = null;
 
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -56,6 +57,19 @@ function getFocusableElements(overlay: HTMLElement): HTMLElement[] {
   return Array.from(overlay.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
     (el) => el.offsetParent !== null || el === document.activeElement,
   );
+}
+
+/**
+ * Restituisce il modal più recente con questo id.
+ * Durante il fade-out possono coesistere per ~200 ms un modal sostituito e il suo
+ * successore; cercare dall'ultimo evita di agire accidentalmente sul vecchio overlay.
+ */
+function getLatestModalById(modalId: string): HTMLElement | null {
+  const overlays = document.querySelectorAll<HTMLElement>('.modal-overlay');
+  for (let i = overlays.length - 1; i >= 0; i--) {
+    if (overlays[i].dataset.modalId === modalId) return overlays[i];
+  }
+  return null;
 }
 
 function initModal(): void {
@@ -72,8 +86,7 @@ function initModal(): void {
       return;
     }
     if (action === 'confirm') {
-      const modalId = overlay.dataset.modalId || '';
-      const cb = _callbacks.get(modalId);
+      const cb = _callbacks.get(overlay);
       if (cb?.onConfirm) {
         const result = cb.onConfirm(target);
         if (result === false) return;
@@ -115,17 +128,17 @@ function initModal(): void {
   });
 }
 
-function closeModal(el: HTMLElement): void {
+function closeModal(el: HTMLElement, reason: CloseReason = 'normal'): void {
   if (_closing.has(el)) return;
   _closing.add(el);
 
-  const modalId = el.dataset.modalId || '';
-  const cb = _callbacks.get(modalId);
+  const cb = _callbacks.get(el);
+  const returnFocus = _returnFocus.get(el) ?? null;
 
-  // Rimuovere subito i callback rende idempotenti i click ripetuti durante il fade-out.
-  if (_callbacks.get(modalId) === cb) {
-    _callbacks.delete(modalId);
-  }
+  // Ogni overlay possiede i propri callback. Rimuoverli subito rende idempotenti i
+  // click ripetuti durante il fade-out senza farli ricadere sul modal sostitutivo.
+  _callbacks.delete(el);
+  _returnFocus.delete(el);
 
   el.classList.remove('modal-show');
   setTimeout(() => {
@@ -134,10 +147,8 @@ function closeModal(el: HTMLElement): void {
       document.body.classList.remove('modal-open');
     }
 
-    // Un modal con lo stesso id può essere stato sostituito durante il fade-out.
-    // In quel caso il vecchio onClose non deve ripulire lo stato appartenente al nuovo dialog.
-    const replacementActive = _callbacks.has(modalId);
-    if (!replacementActive && cb?.onClose) {
+    // Un modal sostituito non deve pulire stato o focus che appartengono al successore.
+    if (reason === 'normal' && cb?.onClose) {
       try {
         cb.onClose();
       } catch (e) {
@@ -145,13 +156,13 @@ function closeModal(el: HTMLElement): void {
       }
     }
     _closing.delete(el);
-    if (!replacementActive && _previouslyFocused && typeof _previouslyFocused.focus === 'function') {
+
+    if (reason === 'normal' && returnFocus && typeof returnFocus.focus === 'function') {
       try {
-        _previouslyFocused.focus();
+        returnFocus.focus();
       } catch {
         /* noop */
       }
-      _previouslyFocused = null;
     }
   }, 200);
 }
@@ -160,21 +171,27 @@ export function showModal(opts: ShowModalOptions): HTMLElement {
   initModal();
   const modalId = opts.modalId || `modal-${Date.now()}`;
 
-  const existing = document.querySelector<HTMLElement>(`.modal-overlay[data-modal-id="${modalId}"]`);
+  // Se sostituiamo lo stesso modal, ereditiamo il suo target di ritorno del focus.
+  // In questo modo chiudere il successore riporta all'elemento precedente alla prima apertura,
+  // non a un bottone del modal ormai rimosso.
+  const existing = getLatestModalById(modalId);
+  const returnFocus = existing
+    ? (_returnFocus.get(existing) ?? (document.activeElement as HTMLElement | null))
+    : (document.activeElement as HTMLElement | null);
   if (existing) {
-    closeModal(existing);
+    closeModal(existing, 'superseded');
   }
-
-  _callbacks.set(modalId, {
-    onConfirm: opts.onConfirm,
-    onClose: opts.onClose,
-    sticky: opts.sticky,
-  });
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.dataset.modalId = modalId;
   if (opts.sticky) overlay.dataset.sticky = '1';
+
+  _callbacks.set(overlay, {
+    onConfirm: opts.onConfirm,
+    onClose: opts.onClose,
+  });
+  _returnFocus.set(overlay, returnFocus);
 
   const actionsHtml = opts.actions
     .map((a) => {
@@ -203,7 +220,6 @@ export function showModal(opts: ShowModalOptions): HTMLElement {
     overlay.dataset.modalAction = 'overlay-close';
   }
 
-  _previouslyFocused = document.activeElement as HTMLElement;
   document.body.appendChild(overlay);
   document.body.classList.add('modal-open');
 
@@ -215,8 +231,8 @@ export function showModal(opts: ShowModalOptions): HTMLElement {
   return overlay;
 }
 
-/** Chiude il modal con dato modalId, se presente. */
+/** Chiude il modal più recente con dato modalId, se presente. */
 export function closeModalById(modalId: string): void {
-  const el = document.querySelector<HTMLElement>(`.modal-overlay[data-modal-id="${modalId}"]`);
+  const el = getLatestModalById(modalId);
   if (el) closeModal(el);
 }
