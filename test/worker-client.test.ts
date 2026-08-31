@@ -126,31 +126,21 @@ describe('stats worker client', () => {
   });
 
   it('torna al main thread se postMessage fallisce', async () => {
-    vi.stubGlobal('Worker', FakeWorker);
+    class ThrowingPostMessageWorker extends FakeWorker {
+      override readonly postMessage = vi.fn(() => {
+        throw new Error('clone failed');
+      });
+    }
+
+    vi.stubGlobal('Worker', ThrowingPostMessageWorker);
     const { computeStatsAsync, terminateWorker } = await import('../src/worker/client');
     const entries = [makeEntry('e1', '2026-08-31', 1)];
-    const warmupResult: StatsResult = {
-      days: [],
-      avgCalories: 0,
-      avgProtein: 0,
-      avgCarbs: 0,
-      avgFat: 0,
-      totalEntries: 0,
-      daysTracked: 0,
-    };
 
-    const warmup = computeStatsAsync([], []);
-    const worker = FakeWorker.instances[0];
-    const warmupRequest = worker.postMessage.mock.calls[0][0] as { reqId: number };
-    worker.emit({ type: 'stats', reqId: warmupRequest.reqId, result: warmupResult });
-    await warmup;
-
-    worker.postMessage.mockImplementationOnce(() => {
-      throw new Error('clone failed');
+    await expect(computeStatsAsync(entries, ['2026-08-31'])).resolves.toMatchObject({
+      avgCalories: 200,
+      totalEntries: 1,
+      daysTracked: 1,
     });
-    const fallbackPromise = computeStatsAsync(entries, ['2026-08-31']);
-
-    await expect(fallbackPromise).resolves.toMatchObject({ avgCalories: 200, totalEntries: 1, daysTracked: 1 });
     terminateWorker();
   });
 });
