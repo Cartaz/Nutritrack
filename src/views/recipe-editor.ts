@@ -49,6 +49,7 @@ let _recipeEditorBound = false;
 let _recipeEditBaseline: string | null = null;
 
 function resetRecipeEditorState(): void {
+  cancelSubSearchWork();
   Object.assign(_recipeEditorState, {
     name: '',
     description: '',
@@ -141,6 +142,7 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
     ],
     onConfirm: () => handleSave(recipeId),
     onClose: () => {
+      cancelSubSearchWork();
       _recipeEditBaseline = null;
       closeRecipeEditor();
     },
@@ -241,6 +243,7 @@ function computeTotals(ingredients: RecipeIngredient[]) {
 let _subOverlay: HTMLElement | null = null;
 
 function openSubSearch(): void {
+  cancelSubSearchWork();
   const state = getState();
   _recipeEditorState.searchOpen = true;
   _recipeEditorState.searchTab =
@@ -255,17 +258,9 @@ function openSubSearch(): void {
     bodyHtml: renderSubSearchShell(),
     actions: [],
     onClose: () => {
+      cancelSubSearchWork();
       _recipeEditorState.searchOpen = false;
       _subOverlay = null;
-      if (_recipeEditorState.searchAbort) {
-        try {
-          _recipeEditorState.searchAbort.abort();
-        } catch {
-          /* noop */
-        }
-        _recipeEditorState.searchAbort = null;
-      }
-      _recipeEditorState.searchLoading = false;
     },
   });
 
@@ -445,7 +440,8 @@ function updatePerServingLive(): void {
   }
 }
 
-const runSubSearch = debounce(async (query: string) => {
+async function executeSubSearch(query: string): Promise<void> {
+  if (!_recipeEditorState.searchOpen) return;
   if (query.trim().length < SEARCH_MIN_QUERY) {
     _recipeEditorState.searchResults = [];
     _recipeEditorState.searchLoading = false;
@@ -463,10 +459,10 @@ const runSubSearch = debounce(async (query: string) => {
   _recipeEditorState.searchAbort = ctrl;
   try {
     const data = await searchFoods(query, { signal: ctrl.signal });
-    if (ctrl.signal.aborted) return;
+    if (ctrl.signal.aborted || !_recipeEditorState.searchOpen || query !== _recipeEditorState.searchQuery) return;
     _recipeEditorState.searchResults = data.foods;
   } catch (e) {
-    if (ctrl.signal.aborted) return;
+    if (ctrl.signal.aborted || !_recipeEditorState.searchOpen || query !== _recipeEditorState.searchQuery) return;
     const kind = e instanceof FoodSearchError ? e.kind : 'unknown';
     const msg =
       kind === 'offline'
@@ -481,11 +477,30 @@ const runSubSearch = debounce(async (query: string) => {
     showToast(msg, 'error', 5000);
     _recipeEditorState.searchResults = [];
   } finally {
-    if (_recipeEditorState.searchAbort === ctrl) _recipeEditorState.searchAbort = null;
-    _recipeEditorState.searchLoading = false;
-    updateSubSearchList();
+    if (_recipeEditorState.searchAbort === ctrl) {
+      _recipeEditorState.searchAbort = null;
+      _recipeEditorState.searchLoading = false;
+      updateSubSearchList();
+    }
   }
+}
+
+const scheduleSubSearch = debounce((query: string) => {
+  void executeSubSearch(query);
 }, SEARCH_DEBOUNCE_MS);
+
+function cancelSubSearchWork(): void {
+  scheduleSubSearch.cancel();
+  if (_recipeEditorState.searchAbort) {
+    try {
+      _recipeEditorState.searchAbort.abort();
+    } catch {
+      /* noop */
+    }
+    _recipeEditorState.searchAbort = null;
+  }
+  _recipeEditorState.searchLoading = false;
+}
 
 function bindRecipeEditorModalEvents(): void {
   if (_recipeEditorBound) return;
@@ -521,15 +536,15 @@ function bindRecipeEditorModalEvents(): void {
     }
     if (t.id === 're-search-input') {
       _recipeEditorState.searchQuery = (t as HTMLInputElement).value;
+      cancelSubSearchWork();
       if (_recipeEditorState.searchQuery.trim().length < SEARCH_MIN_QUERY) {
         _recipeEditorState.searchResults = [];
-        _recipeEditorState.searchLoading = false;
         updateSubSearchList();
         return;
       }
       _recipeEditorState.searchLoading = true;
       updateSubSearchList();
-      runSubSearch(_recipeEditorState.searchQuery);
+      scheduleSubSearch(_recipeEditorState.searchQuery);
     }
   });
 
@@ -548,15 +563,7 @@ function bindRecipeEditorModalEvents(): void {
       const newTab = target.dataset.tab as 'favorites' | 'saved' | 'search';
       if (newTab === _recipeEditorState.searchTab) return;
       if (_recipeEditorState.searchTab === 'search' && newTab !== 'search') {
-        if (_recipeEditorState.searchAbort) {
-          try {
-            _recipeEditorState.searchAbort.abort();
-          } catch {
-            /* noop */
-          }
-          _recipeEditorState.searchAbort = null;
-        }
-        _recipeEditorState.searchLoading = false;
+        cancelSubSearchWork();
         _recipeEditorState.searchResults = [];
       }
       _recipeEditorState.searchTab = newTab;
@@ -676,6 +683,7 @@ export function refreshRecipeEditor(): void {
   if (!_recipeEditorState.searchOpen) {
     openSubSearch();
   }
+  cancelSubSearchWork();
   _recipeEditorState.searchTab = 'saved';
   updateSubSearchContent();
 }

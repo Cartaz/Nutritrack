@@ -179,6 +179,8 @@ Avoid CRDT/operation-log machinery: it would be disproportionate for the current
 
 # M4 — Remove duplicated knowledge
 
+**Status: completed 2026-08-31.**
+
 ## M4.1 Shared statistics core
 
 **Status: completed 2026-08-31.**
@@ -198,8 +200,11 @@ Avoid CRDT/operation-log machinery: it would be disproportionate for the current
 
 ## M4.3 Clarify debounce contracts
 
-- [ ] Separate debounced trigger (`void`) from awaitable search execution (`Promise`).
-- [ ] Remove misleading `await` usage on debounced functions.
+**Status: completed 2026-08-31.**
+
+- [x] Separate debounced trigger (`void`) from awaitable search execution (`Promise`).
+- [x] Remove misleading `await` usage on debounced functions.
+- [x] Cancel pending triggers and active requests together when the query or search context invalidates the work.
 
 ---
 

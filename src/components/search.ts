@@ -73,15 +73,7 @@ function isSearchOpen(): boolean {
 }
 
 function resetSearchState(): void {
-  if (_searchState.abortController) {
-    try {
-      _searchState.abortController.abort();
-    } catch {
-      /* noop */
-    }
-  }
-  // Cancella il timer del debounce per evitare che parta una fetch a dialog chiuso.
-  runSearch.cancel();
+  cancelSearchWork();
   _searchState.tab = 'favorites';
   _searchState.query = '';
   _searchState.loading = false;
@@ -130,7 +122,7 @@ function showFoodSearchError(error: unknown, context: 'search' | 'barcode'): voi
 
 // ============ Debounced initial search ============
 
-const runSearch = debounce(async (query: string) => {
+async function executeSearch(query: string): Promise<void> {
   if (!isSearchOpen()) return;
   if (query.trim().length < SEARCH_MIN_QUERY) {
     _searchState.results = [];
@@ -151,12 +143,12 @@ const runSearch = debounce(async (query: string) => {
   _searchState.abortController = ctrl;
   try {
     const data = await searchFoods(query, { signal: ctrl.signal, italianOnly: true });
-    if (ctrl.signal.aborted || !isSearchOpen()) return;
+    if (ctrl.signal.aborted || !isSearchOpen() || query !== _searchState.query) return;
     _searchState.results = data.foods;
     _searchState.totalCount = data.totalCount;
     _searchState.continuation = data.continuation;
   } catch (error) {
-    if (ctrl.signal.aborted || !isSearchOpen()) return;
+    if (ctrl.signal.aborted || !isSearchOpen() || query !== _searchState.query) return;
     showFoodSearchError(error, 'search');
     _searchState.results = [];
     _searchState.totalCount = 0;
@@ -164,10 +156,14 @@ const runSearch = debounce(async (query: string) => {
   } finally {
     if (_searchState.abortController === ctrl) {
       _searchState.abortController = null;
+      _searchState.loading = false;
+      if (isSearchOpen()) emitChange();
     }
-    _searchState.loading = false;
-    if (isSearchOpen()) emitChange();
   }
+}
+
+const scheduleSearch = debounce((query: string) => {
+  void executeSearch(query);
 }, SEARCH_DEBOUNCE_MS);
 
 /** Carica semanticamente la pagina successiva senza esporre query effettiva o page index alla UI. */
@@ -190,9 +186,11 @@ async function loadMoreResults(): Promise<void> {
     if (ctrl.signal.aborted || !isSearchOpen()) return;
     showFoodSearchError(error, 'search');
   } finally {
-    if (_searchState.abortController === ctrl) _searchState.abortController = null;
-    _searchState.loading = false;
-    if (isSearchOpen()) emitChange();
+    if (_searchState.abortController === ctrl) {
+      _searchState.abortController = null;
+      _searchState.loading = false;
+      if (isSearchOpen()) emitChange();
+    }
   }
 }
 
@@ -200,8 +198,9 @@ async function loadMoreResults(): Promise<void> {
 
 let _boundSearch = false;
 
-/** Abortisce qualsiasi ricerca OFF in corso + reset loading. */
-function abortInFlightSearch(): void {
+/** Annulla sia il trigger debounced sia l'eventuale richiesta OFF già partita. */
+function cancelSearchWork(): void {
+  scheduleSearch.cancel();
   if (_searchState.abortController) {
     try {
       _searchState.abortController.abort();
@@ -256,7 +255,7 @@ export function bindSearchEvents(): void {
         const tab = target.dataset.tab as 'favorites' | 'saved' | 'search';
         if (tab && tab !== _searchState.tab) {
           if (_searchState.tab === 'search' && tab !== 'search') {
-            abortInFlightSearch();
+            cancelSearchWork();
             _searchState.results = [];
           }
           _searchState.tab = tab;
@@ -270,7 +269,7 @@ export function bindSearchEvents(): void {
           ) {
             _searchState.loading = true;
             emitChange();
-            runSearch(_searchState.query);
+            scheduleSearch(_searchState.query);
           }
         }
         return;
@@ -333,7 +332,7 @@ export function bindSearchEvents(): void {
         return;
       }
       case 'clearQuery': {
-        abortInFlightSearch();
+        cancelSearchWork();
         _searchState.query = '';
         _searchState.results = [];
         _searchState.totalCount = 0;
@@ -411,20 +410,20 @@ export function bindSearchEvents(): void {
       if (_searchState.tab !== 'search') {
         _searchState.tab = 'search';
       }
+      cancelSearchWork();
       _searchState.selectedId = null;
       _searchState.gramsOverride = '';
       _searchState.pendingCustomPortions = [];
       _searchState.totalCount = 0;
       _searchState.continuation = null;
       if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
-        abortInFlightSearch();
         _searchState.results = [];
         emitChange();
         return;
       }
       _searchState.loading = true;
       emitChange();
-      runSearch(_searchState.query);
+      scheduleSearch(_searchState.query);
       return;
     }
     if (target.id === 'grams-input') {
@@ -481,7 +480,7 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
   if (_searchState.tab !== 'search') {
     _searchState.tab = 'search';
   }
-  abortInFlightSearch();
+  cancelSearchWork();
   _searchState.loading = true;
   _searchState.query = barcode;
   _searchState.selectedId = null;
@@ -545,9 +544,11 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
     _searchState.results = [];
     showFoodSearchError(error, 'barcode');
   } finally {
-    if (_searchState.abortController === ctrl) _searchState.abortController = null;
-    _searchState.loading = false;
-    if (isSearchOpen()) emitChange();
+    if (_searchState.abortController === ctrl) {
+      _searchState.abortController = null;
+      _searchState.loading = false;
+      if (isSearchOpen()) emitChange();
+    }
   }
 }
 
@@ -889,6 +890,7 @@ function renderStatBox(label: string, value: string): string {
 // Aggiorna la lista del parent dopo la creazione di un alimento custom figlio.
 export function refreshSearchAfterCustomFood(): void {
   if (!isSearchOpen()) return;
+  cancelSearchWork();
   _searchState.tab = 'saved';
   emitChange();
 }
