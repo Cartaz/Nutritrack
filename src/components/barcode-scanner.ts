@@ -231,7 +231,19 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   void (async () => {
     try {
       stream = await startCameraStream();
-      if (stopped) return; // cleanup avvenuto durante await getUserMedia
+      if (stopped) {
+        // La chiusura può avvenire mentre getUserMedia è ancora pending. In quel caso
+        // cleanup() non aveva ancora uno stream da fermare: fermalo appena arriva.
+        stream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch {
+            /* noop */
+          }
+        });
+        stream = null;
+        return;
+      }
       video.srcObject = stream;
       // Attendi metadata + play
       let playFailed = false;
