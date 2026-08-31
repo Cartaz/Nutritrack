@@ -1,0 +1,41 @@
+name: Audit consolidation
+
+on:
+  push:
+    branches: [strategic-audit-remediation]
+
+permissions:
+  contents: write
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: strategic-audit-remediation
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: node scripts/apply-audit-consolidation.mjs
+      - run: npm run format
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:coverage
+      - run: npm run build
+
+      - name: Commit consolidated remediation
+        run: |
+          if git diff --quiet; then
+            echo "No consolidation changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src test
+          git commit -m "fix: consolidate remaining audit invariants"
+          git push origin HEAD:strategic-audit-remediation
