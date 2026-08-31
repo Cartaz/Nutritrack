@@ -33,6 +33,14 @@ const _entryEditorState: EntryEditorState = {
 };
 
 let _entryEditorBound = false;
+let _entryAmountBaseline: string | null = null;
+
+function entryAmountSignature(entry: DiaryEntry): string {
+  return JSON.stringify({
+    quantity: entry.quantity,
+    gramsOverride: entry.gramsOverride ?? null,
+  });
+}
 
 function loadFromEntry(entryId: string): boolean {
   const entry = findEntryById(entryId);
@@ -56,11 +64,13 @@ function findEntryById(entryId: string): DiaryEntry | null {
 
 export function renderEntryEditorModal(entryId: string): void {
   if (!loadFromEntry(entryId)) {
+    _entryAmountBaseline = null;
     showToast('La voce del diario non esiste più', 'info');
     closeEntryEditor();
     return;
   }
   const entry = findEntryById(entryId)!;
+  _entryAmountBaseline = entryAmountSignature(entry);
 
   showModal({
     modalId: 'entry-editor',
@@ -71,7 +81,10 @@ export function renderEntryEditorModal(entryId: string): void {
       { label: 'Salva', action: 'confirm', variant: 'primary' },
     ],
     onConfirm: () => handleSave(entryId),
-    onClose: () => closeEntryEditor(),
+    onClose: () => {
+      _entryAmountBaseline = null;
+      closeEntryEditor();
+    },
   });
 
   bindEntryEditorModalEvents();
@@ -368,6 +381,14 @@ function handleSave(entryId: string): boolean {
   const MAX_GRAMS = 10_000;
   if (grams > MAX_GRAMS) {
     showToast(`Grammi eccessivi (max ${MAX_GRAMS}g = 10kg)`, 'error');
+    return false;
+  }
+  if (_entryAmountBaseline === null || entryAmountSignature(entry) !== _entryAmountBaseline) {
+    showToast(
+      "La quantità è stata modificata in un altro tab. Le modifiche locali non sono state applicate: riapri l'editor sui dati aggiornati.",
+      'warning',
+      6500,
+    );
     return false;
   }
   setDiaryEntryAmount(entry.id, 1, grams);

@@ -6,7 +6,7 @@
 
 import type { AppState, FoodItem, Recipe, DiaryEntry, DayDiary } from '../types';
 import { BACKUP_KEY, STORAGE_KEY, STORAGE_WARN_BYTES, SCHEMA_VERSION } from './constants';
-import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll, isAnyDialogOpen } from './store';
+import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll } from './store';
 import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
 import { migratePersistedDocument, type MigrationFailureReason } from './migrations';
 
@@ -530,26 +530,22 @@ function handleStorageEvent(e: StorageEvent): void {
     return;
   }
 
-  // Il reset è una cancellazione globale: non deve essere congelato da modal o draft locali.
+  // Il reset è una cancellazione globale e mantiene precedenza su qualsiasi stato locale.
   if (remote.stamp.syncKind === 'reset') {
     applyMultiTabUpdate(remote);
     return;
   }
 
-  // Un emit locale può essere ancora in attesa del RAF autosave. Prima di applicare
-  // un remote snapshot normale a UI libera, commetti sincronicamente quel locale dirty.
-  if (!isAnyDialogOpen() && hasUnsyncedLocalState()) {
+  // I draft degli editor non fanno parte dello snapshot persistito. L'unico motivo per
+  // ritardare un remote snapshot è quindi uno stato dominio locale realmente dirty.
+  // Prima di applicare il remoto, commetti quel locale dirty in modo sincrono.
+  if (hasUnsyncedLocalState()) {
     const saved = saveData();
     if (!saved.ok) {
       queuePendingRemote(remote);
       return;
     }
     if (!isRemoteNewer(remote)) return;
-  }
-
-  if (isAnyDialogOpen()) {
-    queuePendingRemote(remote);
-    return;
   }
 
   applyMultiTabUpdate(remote);
@@ -563,11 +559,11 @@ export function initMultiTabSync(): void {
 }
 
 /**
- * Alla chiusura dell'ultimo dialog, salva prima qualsiasi stato locale dirty e solo dopo
- * valuta lo snapshot remoto pending. Un pending con revisione più vecchia viene scartato.
+ * Riprova ad applicare l'ultimo snapshot remoto rimasto pending dopo un precedente
+ * errore di salvataggio locale. I dialog non partecipano alla causalità della sync.
  */
 export function flushPendingMultiTabUpdate(): void {
-  if (!_pendingMultiTabUpdate || isAnyDialogOpen()) return;
+  if (!_pendingMultiTabUpdate) return;
 
   const pending = _pendingMultiTabUpdate;
   _pendingMultiTabUpdate = null;

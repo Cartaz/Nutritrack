@@ -156,22 +156,24 @@ Avoid CRDT/operation-log machinery: it would be disproportionate for the current
 
 # M3 — UI state and modal architecture
 
+**Status: completed 2026-08-31.**
+
 **Root cause:** adding one dialog currently requires touching AppState flags, renderer branches, modal-open detection, cleanup logic and often sync/reset code.
 
 ## M3.1 Consolidate dialog state
 
-- [ ] Replace proliferating mutually-exclusive top-level modal flags with one discriminated dialog state where appropriate.
-- [ ] Keep local/transient sub-dialog state inside the owning UI module when persistence/global coordination is unnecessary.
-- [ ] Centralize `isAnyDialogOpen` knowledge.
-- [ ] Eliminate duplicated modal inventories from keyboard shortcuts, storage sync and reset code.
+- [x] Replace proliferating mutually-exclusive top-level modal flags with one discriminated dialog state where appropriate.
+- [x] Keep local/transient sub-dialog state inside the owning UI module when persistence/global coordination is unnecessary.
+- [x] Centralize `isAnyDialogOpen` knowledge.
+- [x] Eliminate duplicated modal inventories from keyboard shortcuts, storage sync and reset code.
 
 **Done when:** adding a normal application dialog has one state owner and one render path.
 
 ## M3.2 Draft ownership for editors
 
-- [ ] Treat editor form contents as drafts owned by the editor, not as reasons to freeze all remote state synchronization.
-- [ ] Detect entity-level concurrent edits at save time when needed.
-- [ ] Keep unrelated remote changes live while an editor is open.
+- [x] Treat editor form contents as drafts owned by the editor, not as reasons to freeze all remote state synchronization.
+- [x] Detect entity-level concurrent edits at save time when needed.
+- [x] Keep unrelated remote changes live while an editor is open.
 
 ---
 

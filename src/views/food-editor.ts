@@ -12,7 +12,7 @@ import {
 import { showToast } from '../components/toast';
 import { showModal } from '../components/modal';
 import { escapeAttr } from '../lib/utils';
-import { KCAL_PER_GRAM, type NutritionPer100 } from '../types';
+import { KCAL_PER_GRAM, type FoodItem, type NutritionPer100 } from '../types';
 import { refreshSearchAfterCustomFood } from '../components/search';
 
 interface FoodFormState {
@@ -29,6 +29,16 @@ interface FoodFormState {
   servingSize: string;
   servingLabel: string;
   lockFromMacros: boolean;
+}
+
+interface FoodEditBaseline {
+  name: string;
+  brand?: string;
+  barcode?: string;
+  source: FoodItem['source'];
+  servingSize: number;
+  servingLabel?: string;
+  nutrition: NutritionPer100;
 }
 
 const _foodEditorState: FoodFormState = {
@@ -49,6 +59,7 @@ const _foodEditorState: FoodFormState = {
 
 let _foodEditorBound = false;
 let _foodEditorInitial: FoodFormState | null = null;
+let _foodEditBaseline: FoodEditBaseline | null = null;
 
 function resetFoodEditorState(): void {
   Object.assign(_foodEditorState, {
@@ -72,6 +83,38 @@ function snapshotState(): FoodFormState {
   return { ..._foodEditorState };
 }
 
+function captureFoodEditBaseline(food: FoodItem): FoodEditBaseline {
+  return {
+    name: food.name,
+    brand: food.brand,
+    barcode: food.barcode,
+    source: food.source,
+    servingSize: food.servingSize,
+    servingLabel: food.servingLabel,
+    nutrition: { ...food.nutrition },
+  };
+}
+
+function matchesFoodEditBaseline(food: FoodItem, baseline: FoodEditBaseline): boolean {
+  const a = food.nutrition;
+  const b = baseline.nutrition;
+  return (
+    food.name === baseline.name &&
+    food.brand === baseline.brand &&
+    food.barcode === baseline.barcode &&
+    food.source === baseline.source &&
+    food.servingSize === baseline.servingSize &&
+    food.servingLabel === baseline.servingLabel &&
+    a.calories === b.calories &&
+    a.protein === b.protein &&
+    a.carbs === b.carbs &&
+    a.fat === b.fat &&
+    a.fiber === b.fiber &&
+    a.sugar === b.sugar &&
+    a.salt === b.salt
+  );
+}
+
 function isDirty(): boolean {
   if (!_foodEditorInitial) return false;
   return (
@@ -91,11 +134,11 @@ function isDirty(): boolean {
   );
 }
 
-function loadFromFood(foodId: string): void {
+function loadFromFood(foodId: string): FoodItem | null {
   const f = getState().foods.find((x) => x.id === foodId);
   if (!f) {
     resetFoodEditorState();
-    return;
+    return null;
   }
   _foodEditorState.name = f.name;
   _foodEditorState.brand = f.brand || '';
@@ -110,13 +153,22 @@ function loadFromFood(foodId: string): void {
   _foodEditorState.servingSize = String(f.servingSize);
   _foodEditorState.servingLabel = f.servingLabel || '';
   _foodEditorState.lockFromMacros = false;
+  return f;
 }
 
 export function renderFoodEditorModal(foodId: string | null): void {
   if (foodId && foodId !== 'new') {
-    loadFromFood(foodId);
+    const food = loadFromFood(foodId);
+    if (!food) {
+      _foodEditBaseline = null;
+      showToast("L'alimento non esiste più (potrebbe essere stato eliminato in un altro tab)", 'warning', 5000);
+      closeFoodEditor();
+      return;
+    }
+    _foodEditBaseline = captureFoodEditBaseline(food);
   } else {
     resetFoodEditorState();
+    _foodEditBaseline = null;
   }
   _foodEditorInitial = snapshotState();
 
@@ -136,6 +188,7 @@ export function renderFoodEditorModal(foodId: string | null): void {
       }
       closeFoodEditor();
       _foodEditorInitial = null;
+      _foodEditBaseline = null;
     },
   });
 
@@ -383,6 +436,24 @@ function handleSave(foodId: string | null): boolean {
   }
 
   if (foodId && foodId !== 'new') {
+    const current = getState().foods.find((food) => food.id === foodId);
+    if (!current) {
+      showToast(
+        "L'alimento è stato eliminato in un altro tab. Le modifiche locali non sono state applicate.",
+        'warning',
+        6000,
+      );
+      closeFoodEditor();
+      return true;
+    }
+    if (!_foodEditBaseline || !matchesFoodEditBaseline(current, _foodEditBaseline)) {
+      showToast(
+        "L'alimento è stato modificato in un altro tab. Le modifiche locali non sono state applicate: riapri l'editor sui dati aggiornati.",
+        'warning',
+        6500,
+      );
+      return false;
+    }
     updateFood(foodId, payload);
     const diaryEntriesUsingFood = Object.values(getState().diary).some((entries) =>
       entries.some((e) => e.foodId === foodId),

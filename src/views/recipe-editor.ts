@@ -18,7 +18,7 @@ import { buildFoodFromOff } from '../lib/normalize';
 import { saveOffFood } from '../lib/foods';
 import { imgTag } from '../components/img';
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY, SEARCH_AUTO_RETRY_DELAY_MS } from '../lib/constants';
-import type { FoodItem, RecipeIngredient } from '../types';
+import type { FoodItem, Recipe, RecipeIngredient } from '../types';
 
 interface EditorState {
   name: string;
@@ -51,6 +51,7 @@ const _recipeEditorState: EditorState = {
 };
 
 let _recipeEditorBound = false;
+let _recipeEditBaseline: string | null = null;
 
 function resetRecipeEditorState(): void {
   Object.assign(_recipeEditorState, {
@@ -69,23 +70,72 @@ function resetRecipeEditorState(): void {
   });
 }
 
-function loadFromRecipe(recipeId: string): void {
+function recipeEditSignature(recipe: Recipe): string {
+  return JSON.stringify({
+    name: recipe.name,
+    description: recipe.description ?? null,
+    servings: recipe.servings,
+    ingredients: recipe.ingredients.map((ing) => ({
+      id: ing.id,
+      foodId: ing.foodId ?? null,
+      grams: ing.grams,
+      foodSnapshot: {
+        id: ing.foodSnapshot.id,
+        name: ing.foodSnapshot.name,
+        brand: ing.foodSnapshot.brand ?? null,
+        barcode: ing.foodSnapshot.barcode ?? null,
+        source: ing.foodSnapshot.source,
+        servingSize: ing.foodSnapshot.servingSize,
+        servingLabel: ing.foodSnapshot.servingLabel ?? null,
+        customPortions:
+          ing.foodSnapshot.customPortions?.map((portion) => ({
+            id: portion.id,
+            label: portion.label,
+            grams: portion.grams,
+          })) ?? null,
+        nutrition: {
+          calories: ing.foodSnapshot.nutrition.calories,
+          protein: ing.foodSnapshot.nutrition.protein,
+          carbs: ing.foodSnapshot.nutrition.carbs,
+          fat: ing.foodSnapshot.nutrition.fat,
+          fiber: ing.foodSnapshot.nutrition.fiber ?? null,
+          sugar: ing.foodSnapshot.nutrition.sugar ?? null,
+          salt: ing.foodSnapshot.nutrition.salt ?? null,
+        },
+        image: ing.foodSnapshot.image ?? null,
+        createdAt: ing.foodSnapshot.createdAt,
+      },
+    })),
+  });
+}
+
+function loadFromRecipe(recipeId: string): Recipe | null {
   const r = getState().recipes.find((x) => x.id === recipeId);
   if (!r) {
     resetRecipeEditorState();
     closeRecipeEditor();
     showToast('La ricetta non esiste più (potrebbe essere stata eliminata in un altro tab)', 'warning', 5000);
-    return;
+    return null;
   }
   _recipeEditorState.name = r.name;
   _recipeEditorState.description = r.description || '';
   _recipeEditorState.servings = String(r.servings);
   _recipeEditorState.ingredients = r.ingredients.map((ing) => ({ ...ing }));
+  return r;
 }
 
 export function renderRecipeEditorModal(recipeId: string | null): void {
-  if (recipeId && recipeId !== 'new') loadFromRecipe(recipeId);
-  else resetRecipeEditorState();
+  if (recipeId && recipeId !== 'new') {
+    const recipe = loadFromRecipe(recipeId);
+    if (!recipe) {
+      _recipeEditBaseline = null;
+      return;
+    }
+    _recipeEditBaseline = recipeEditSignature(recipe);
+  } else {
+    resetRecipeEditorState();
+    _recipeEditBaseline = null;
+  }
 
   const editing = !!recipeId && recipeId !== 'new';
   showModal({
@@ -97,7 +147,10 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
       { label: editing ? 'Salva ricetta' : 'Crea ricetta', action: 'confirm', variant: 'primary' },
     ],
     onConfirm: () => handleSave(recipeId),
-    onClose: () => closeRecipeEditor(),
+    onClose: () => {
+      _recipeEditBaseline = null;
+      closeRecipeEditor();
+    },
   });
 
   bindRecipeEditorModalEvents();
@@ -617,6 +670,24 @@ function handleSave(recipeId: string | null): boolean {
     ingredients: _recipeEditorState.ingredients,
   };
   if (recipeId && recipeId !== 'new') {
+    const current = getState().recipes.find((recipe) => recipe.id === recipeId);
+    if (!current) {
+      showToast(
+        'La ricetta è stata eliminata in un altro tab. Le modifiche locali non sono state applicate.',
+        'warning',
+        6000,
+      );
+      closeRecipeEditor();
+      return true;
+    }
+    if (_recipeEditBaseline === null || recipeEditSignature(current) !== _recipeEditBaseline) {
+      showToast(
+        "La ricetta è stata modificata in un altro tab. Le modifiche locali non sono state applicate: riapri l'editor sui dati aggiornati.",
+        'warning',
+        6500,
+      );
+      return false;
+    }
     updateRecipe(recipeId, payload);
     showToast('Ricetta aggiornata', 'success');
   } else {

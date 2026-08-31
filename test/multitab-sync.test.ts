@@ -1,11 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetStorageInternalForTesting,
-  flushPendingMultiTabUpdate,
-  initMultiTabSync,
-  resetApplicationData,
-  saveData,
-} from '../src/lib/storage';
+import { __resetStorageInternalForTesting, initMultiTabSync, resetApplicationData, saveData } from '../src/lib/storage';
 import { BACKUP_KEY, STORAGE_KEY } from '../src/lib/constants';
 import { getState, resetAll, setState } from '../src/lib/store';
 import type { AppDialog } from '../src/types';
@@ -102,51 +96,42 @@ describe('revisioned multi-tab synchronization', () => {
     expect(getState().settings.calorieGoal).toBe(1800);
   });
 
-  it('does not let a pending remote snapshot overwrite a newer local edit', () => {
+  it('keeps remote domain changes live while a dialog draft is open', () => {
+    const baseRevision = Number(storedPayload().revision);
+    setState({ dialog: SEARCH_DIALOG });
+
+    dispatchRemote(remoteSnapshot(1750, baseRevision + 1));
+
+    expect(getState().settings.calorieGoal).toBe(1750);
+    expect(getState().dialog).toEqual(SEARCH_DIALOG);
+  });
+
+  it('commits real local domain changes before a remote snapshot even with a dialog open', () => {
     const baseRevision = Number(storedPayload().revision);
     const remoteRevision = baseRevision + 1;
-
-    setState({ dialog: SEARCH_DIALOG });
-    dispatchRemote(remoteSnapshot(1800, remoteRevision));
-    expect(getState().settings.calorieGoal).toBe(2000);
-
     setState({
+      dialog: SEARCH_DIALOG,
       settings: { ...getState().settings, calorieGoal: 2200 },
-      dialog: null,
     });
 
-    flushPendingMultiTabUpdate();
+    dispatchRemote(remoteSnapshot(1800, remoteRevision));
 
     expect(getState().settings.calorieGoal).toBe(2200);
+    expect(getState().dialog).toEqual(SEARCH_DIALOG);
     const persisted = storedPayload();
     expect((persisted.settings as Record<string, unknown>).calorieGoal).toBe(2200);
     expect(Number(persisted.revision)).toBeGreaterThan(remoteRevision);
   });
 
-  it('applies a deferred remote snapshot when no local persisted state changed', () => {
-    const baseRevision = Number(storedPayload().revision);
-
-    setState({ dialog: SEARCH_DIALOG });
-    dispatchRemote(remoteSnapshot(1750, baseRevision + 1));
-    expect(getState().settings.calorieGoal).toBe(2000);
-
-    setState({ dialog: null });
-    flushPendingMultiTabUpdate();
-
-    expect(getState().settings.calorieGoal).toBe(1750);
-  });
-
-  it('keeps only the newest pending remote snapshot', () => {
+  it('applies successive newer remote snapshots while a dialog stays open', () => {
     const baseRevision = Number(storedPayload().revision);
     setState({ dialog: SEARCH_DIALOG });
 
     dispatchRemote(remoteSnapshot(1900, baseRevision + 1, 'remote-a'));
     dispatchRemote(remoteSnapshot(1850, baseRevision + 2, 'remote-b'));
 
-    setState({ dialog: null });
-    flushPendingMultiTabUpdate();
-
     expect(getState().settings.calorieGoal).toBe(1850);
+    expect(getState().dialog).toEqual(SEARCH_DIALOG);
   });
 });
 
