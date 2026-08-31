@@ -113,15 +113,18 @@ describe('reconcileAll invariants', () => {
 describe('store invariants', () => {
   it('rifiuta atomicamente un batch che supererebbe il limite giornaliero', () => {
     const snapshot = food('f1', 'Mela');
-    const existing: DiaryEntry[] = Array.from({ length: MAX_DIARY_ENTRIES_PER_DAY - 1 }, (_, index) => ({
-      id: `existing-${index}`,
-      date: '2026-01-01',
-      meal: 'breakfast',
-      foodId: snapshot.id,
-      foodSnapshot: snapshot,
-      quantity: 1,
-      createdAt: index,
-    }));
+    const existing: DiaryEntry[] = Array.from(
+      { length: MAX_DIARY_ENTRIES_PER_DAY - 1 },
+      (_, index) => ({
+        id: `existing-${index}`,
+        date: '2026-01-01',
+        meal: 'breakfast',
+        foodId: snapshot.id,
+        foodSnapshot: snapshot,
+        quantity: 1,
+        createdAt: index,
+      }),
+    );
     setState({ foods: [snapshot], diary: { '2026-01-01': existing } });
 
     const result = addDiaryEntries([
@@ -203,10 +206,14 @@ describe('multi-tab revision ordering', () => {
         },
       });
 
-    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY, newValue: payload(5, 2500) }));
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: STORAGE_KEY, newValue: payload(5, 2500) }),
+    );
     expect(getState().settings.calorieGoal).toBe(2500);
 
-    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY, newValue: payload(4, 1400) }));
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: STORAGE_KEY, newValue: payload(4, 1400) }),
+    );
     expect(getState().settings.calorieGoal).toBe(2500);
   });
 });
@@ -227,7 +234,10 @@ describe('complete local reset primitives', () => {
       expect(deleteCache).toHaveBeenCalledWith('nutritrack-off-img');
       expect(deleteCache).toHaveBeenCalledWith('nutritrack-img');
     } finally {
-      Object.defineProperty(globalThis, 'caches', { configurable: true, value: previousCaches });
+      Object.defineProperty(globalThis, 'caches', {
+        configurable: true,
+        value: previousCaches,
+      });
     }
   });
 });
