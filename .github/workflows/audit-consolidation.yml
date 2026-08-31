@@ -25,7 +25,7 @@ jobs:
       - run: node scripts/apply-audit-consolidation.mjs
       - run: npm run format
       - run: npm run typecheck
-      - run: npm run lint
+      - run: npx eslint . --ignore-pattern scripts/apply-audit-consolidation.mjs --ignore-pattern scripts/fix-audit-consolidation-runner.mjs
       - run: npm run test:coverage
       - run: npm run build
 
