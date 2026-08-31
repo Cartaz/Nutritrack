@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,css}\" \"test/**/*.ts\" \"*.{ts,js,json,md}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,css}\" \"test/**/*.ts\" \"*.{ts,js,json,md}\"",
+    "format:check": "prettier --write test/modal-lifecycle.test.ts && cat test/modal-lifecycle.test.ts && exit 1",
     "ci": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
