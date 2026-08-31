@@ -35,8 +35,8 @@ jobs:
       - name: Format check (Prettier)
         run: npm run format:check
 
-      - name: Unit tests (Vitest)
-        run: npm run test
+      - name: Unit + integration tests with coverage
+        run: npm run test:coverage
 
       - name: Build (Vite)
         run: npm run build
@@ -68,7 +68,7 @@ jobs:
           path: dist/
           retention-days: 7
 
-      - name: Upload coverage artifact (if present)
+      - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
