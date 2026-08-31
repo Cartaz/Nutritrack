@@ -24,9 +24,6 @@ import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
 import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
 import { flushPendingMultiTabUpdate, resetApplicationData } from '../lib/storage';
-// Fix CI: import solo del modulo leggero signatures (NO import delle viste, rompe code-splitting)
-// Le viste sono caricate lazy sotto via dynamic import, mantenedo i chunk separati.
-import { resetAllViewSignatures } from '../views/signatures';
 
 let _mainEl: HTMLElement | null = null;
 let _appEl: HTMLElement | null = null;
@@ -89,8 +86,6 @@ async function doRender(): Promise<void> {
   const viewChanged = main.dataset.view !== state.currentView;
   if (viewChanged) {
     main.dataset.view = state.currentView;
-    // Reset signature cache delle viste per forzare re-render completo al cambio vista
-    resetViewSignatures();
     main.innerHTML = `<div class="view-skeleton"><div class="spinner" aria-hidden="true"></div></div>`;
   }
 
@@ -425,13 +420,6 @@ function closeModalCleanup(): void {
     // durante un workflow modale.
     flushPendingMultiTabUpdate();
   }
-}
-
-/** Reset signature cache di tutte le viste (chiamato al cambio vista).
- *  Fix 9.2 (T9): sincrono (prima era async con race → skeleton perpetuo su navigazione rapida).
- *  Fix CI: usa resetAllViewSignatures da modulo leggero signatures (no import delle viste, code-splitting preservato). */
-function resetViewSignatures(): void {
-  resetAllViewSignatures();
 }
 
 // ============ Global event delegation (Pattern 3) ============

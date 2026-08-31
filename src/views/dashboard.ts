@@ -32,10 +32,7 @@ import { copyDiaryToClipboard } from '../lib/clipboard';
 import { getRecentFoods, quickAddRecentFood } from '../lib/recentFoods';
 import { computeStreak, getBadgeStatuses, countUnlockedBadges } from '../lib/gamification';
 import { showToast } from '../components/toast';
-// Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
 import {
-  getDashRenderSig,
-  setDashRenderSig,
   getWeekStats,
   setWeekStats,
   getWeekStatsInputSig,
@@ -50,11 +47,8 @@ import {
   setYearStats,
   getYearStatsInputSig,
   setYearStatsInputSig,
-  resetDashboardSignature as resetDashSig,
-} from './signatures';
-import type { StatsTab } from './signatures';
-// Re-export per compatibilità (renderer importava resetDashboardSignature da qui)
-export { resetDashSig as resetDashboardSignature };
+} from './dashboard-state';
+import type { StatsTab } from './dashboard-state';
 
 let _dashBound = false;
 let _weekStatsToken = 0;
@@ -63,29 +57,6 @@ export function renderDashboard(main: HTMLElement): void {
   const state = getState();
   const diary = state.diary[state.currentDate] || [];
   const macroGrams = calcMacroGrams(state.settings.calorieGoal, state.settings.macroSplit);
-
-  // Signature cache: se nessun dato rilevante è cambiato, skip del re-render completo.
-  // Previene flickering quando emitChange viene chiamato per altri motivi (es. chiusura modal).
-  const bioToday = state.biometrics[state.currentDate] ?? {};
-  const renderSig = JSON.stringify({
-    date: state.currentDate,
-    cal: state.settings.calorieGoal,
-    split: state.settings.macroSplit,
-    favCount: state.favoriteFoodIds.length,
-    diarySig: diary.map((e) => `${e.id}:${e.quantity}:${e.gramsOverride ?? ''}`).join('|'),
-    weekSig: getWeekStats() ? `${getWeekStats()!.avgCalories}:${getWeekStats()!.days.length}` : 'null',
-    statsTab: getStatsTab(),
-    monthSig: getMonthStats() ? `${getMonthStats()!.avgCalories}:${getMonthStats()!.days.length}` : 'null',
-    yearSig: getYearStats() ? `${getYearStats()!.avgCalories}:${getYearStats()!.days.length}` : 'null',
-    bio: `${bioToday.waterMl ?? ''}:${bioToday.sleepHours ?? ''}:${bioToday.weightKg ?? ''}`,
-    bioKeys: Object.keys(state.biometrics).length,
-  });
-  if (renderSig === getDashRenderSig()) {
-    // Stato invariato: non distruggere il DOM. Aggiorna comunque le stats del tab attivo.
-    launchActiveStatsWorker(state);
-    return;
-  }
-  setDashRenderSig(renderSig);
 
   // Totale giornata
   const nutritions = diary.map((e) => {
@@ -181,7 +152,7 @@ export function renderDashboard(main: HTMLElement): void {
 
   bindDashboardEvents(main);
 
-  // Avvia calcolo statistiche per il tab attivo (con signature cache per evitare loop)
+  // Avvia calcolo statistiche per il tab attivo. La cache appartiene al worker input, non al DOM.
   launchActiveStatsWorker(state);
 }
 
@@ -197,7 +168,6 @@ function renderBiometricCard(date: string): string {
   const waterPct = waterGoal > 0 ? Math.min(100, Math.round((waterMl / waterGoal) * 100)) : 0;
   const glasses = Math.round(waterMl / WATER_GLASS_ML);
 
-  // Sparkline trend peso: ultimi 14 punti con dato, con media mobile 7gg
   const allPoints = computeWeightTrend(state.biometrics);
   const recentPoints = allPoints.slice(-14);
   const maPoints = computeWeightMovingAverage(recentPoints, 7);
@@ -279,11 +249,10 @@ function renderWeightSparkline(points: ReturnType<typeof computeWeightMovingAver
   const weights = points.map((p) => p.weightKg);
   const min = Math.min(...weights);
   const max = Math.max(...weights);
-  const range = max - min || 1; // evita divisione per 0 se tutti uguali
+  const range = max - min || 1;
   const xStep = (W - PAD * 2) / (points.length - 1);
 
   const yFor = (w: number): number => {
-    // Invertito: peso maggiore → Y minore
     return PAD + (1 - (w - min) / range) * (H - PAD * 2);
   };
 
@@ -434,7 +403,6 @@ function renderStatsCard(state: ReturnType<typeof getState>): string {
     body = renderYearTab(state);
   }
 
-  // Trend peso: mostra solo se ci sono almeno 2 registrazioni.
   const weightChart = renderWeightTrendChart(state);
 
   return `
@@ -512,23 +480,18 @@ function renderMonthTab(state: ReturnType<typeof getState>): string {
   `;
 }
 
-/** Tab Anno: heatmap 365 giorni stile GitHub contribution graph.
- *  Griglia di settimane (colonne) × giorni (righe). Colore per intensità calorica
- *  relativa all'obiettivo. */
+/** Tab Anno: heatmap 365 giorni stile GitHub contribution graph. */
 function renderYearTab(state: ReturnType<typeof getState>): string {
   const stats = getYearStats();
   if (!stats) {
     return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
   }
   const goal = state.settings.calorieGoal;
-  // Costruisci una mappa date -> calories per lookup veloce
   const calMap = new Map<string, number>();
   for (const d of stats.days) calMap.set(d.date, d.calories);
 
-  // La heatmap ha 53 colonne (settimane) × 7 righe (giorni).
-  // Allineiamo la prima colonna al giorno della settimana della prima data.
   const firstDate = parseISODateLocal(stats.days[0].date);
-  const firstDayOfWeek = firstDate.getDay(); // 0=dom, 1=lun, ...
+  const firstDayOfWeek = firstDate.getDay();
   const cellSize = 11;
   const gap = 2;
   const cols = 53;
@@ -536,11 +499,9 @@ function renderYearTab(state: ReturnType<typeof getState>): string {
   const W = cols * (cellSize + gap);
   const H = rows * (cellSize + gap);
 
-  // Funzione colore: 5 livelli stile GitHub
   const colorFor = (cal: number | undefined): string => {
     if (cal == null || cal === 0) return 'var(--bg-muted)';
     if (goal <= 0) {
-      // Senza obiettivo: scala sul max osservato
       if (cal < 500) return 'rgba(16, 185, 129, 0.25)';
       if (cal < 1500) return 'rgba(16, 185, 129, 0.5)';
       if (cal < 2500) return 'rgba(16, 185, 129, 0.75)';
@@ -551,22 +512,15 @@ function renderYearTab(state: ReturnType<typeof getState>): string {
     if (ratio < 0.5) return 'rgba(16, 185, 129, 0.4)';
     if (ratio < 0.75) return 'rgba(16, 185, 129, 0.6)';
     if (ratio <= 1.0) return 'var(--color-primary)';
-    // Over goal: rosso
     return 'var(--color-danger)';
   };
 
   const cells: string[] = [];
-  // Offset iniziale: i primi firstDayOfWeek slot della prima colonna sono vuoti
-  // (la prima data inizia dal suo giorno della settimana).
-  // Iteriamo per 53 settimane × 7 giorni = 371 slot, ma mostriamo solo i 365 giorni.
   for (let col = 0; col < cols; col++) {
     for (let row = 0; row < rows; row++) {
       const slotIndex = col * rows + row;
       const dayOffset = slotIndex - firstDayOfWeek;
-      if (dayOffset < 0 || dayOffset >= stats.days.length) {
-        // Slot vuoto (padding iniziale o finale)
-        continue;
-      }
+      if (dayOffset < 0 || dayOffset >= stats.days.length) continue;
       const d = stats.days[dayOffset];
       const cal = calMap.get(d.date) ?? 0;
       const x = col * (cellSize + gap);
@@ -598,8 +552,7 @@ function renderYearTab(state: ReturnType<typeof getState>): string {
   `;
 }
 
-/** Trend peso con line chart SVG (più grande dello sparkline nella card Biometrica).
- *  Mostra tutti i punti peso registrati con media mobile 7gg. Nascosto se < 2 punti. */
+/** Trend peso con line chart SVG (più grande dello sparkline nella card Biometrica). */
 function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
   const points = computeWeightTrend(state.biometrics);
   if (points.length < 2) return '';
@@ -618,7 +571,6 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
   const min = Math.min(...weights);
   const max = Math.max(...weights);
   const range = max - min || 1;
-  // Aggiungi padding verticale del 10% per non toccare i bordi
   const yMin = min - range * 0.1;
   const yMax = max + range * 0.1;
   const yRange = yMax - yMin || 1;
@@ -640,12 +592,10 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
     )
     .join('');
 
-  // Etichette asse Y (min / max)
   const yMinLabel = `<text x="${PAD_L - 4}" y="${yFor(yMin).toFixed(1)}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--text-muted)">${round1(yMin)}</text>`;
   const yMaxLabel = `<text x="${PAD_L - 4}" y="${yFor(yMax).toFixed(1)}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--text-muted)">${round1(yMax)}</text>`;
 
-  // Etichette asse X (prima e ultima data)
-  const firstDate = points[0].date.slice(5); // MM-DD
+  const firstDate = points[0].date.slice(5);
   const lastDate = points[points.length - 1].date.slice(5);
   const xFirstLabel = `<text x="${PAD_L}" y="${H - 4}" text-anchor="start" font-size="9" fill="var(--text-muted)">${escapeHtml(firstDate)}</text>`;
   const xLastLabel = `<text x="${W - PAD_R}" y="${H - 4}" text-anchor="end" font-size="9" fill="var(--text-muted)">${escapeHtml(lastDate)}</text>`;
@@ -672,22 +622,13 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
   `;
 }
 
-/** P1 #1: lancia il worker per il tab attivo (week/month/year).
- *  Fix 2.4 (T2): catch su rejection del worker per evitare spinner perenne + memory leak.
- *  Fix MEDIUM bug: ancoraggio a state.currentDate invece di new Date() — prima la sezione
- *  "Ultimi 7 giorni" mostrava sempre gli ultimi 7 giorni da today, ignorando la data
- *  selezionata nel dashboard. Ora se l'utente naviga a una data passata, vede la finestra
- *  che termina in quella data. */
+/** Lancia il worker per il tab attivo (week/month/year). */
 function launchActiveStatsWorker(state: ReturnType<typeof getState>): void {
   launchStatsWorker(state, getStatsTab());
 }
 
-/** Helper generico: calcola le date dell'ultima finestra (7/30/365 giorni terminanti
- *  a state.currentDate), raccoglie le entry, lancia il worker se l'input è cambiato,
- *  salva il risultato nel signature cache corrispondente al tab.
- *  Fix 2.4 (T2): catch su rejection del worker per evitare spinner perenne + memory leak. */
+/** Calcola l'input della finestra attiva e rilancia il worker solo quando cambia. */
 function launchStatsWorker(state: ReturnType<typeof getState>, tab: StatsTab): void {
-  // Fix MEDIUM bug: usa state.currentDate come anchor, non today.
   const anchor = isValidDateKey(state.currentDate) ? parseISODateLocal(state.currentDate) : new Date();
   const span = tab === 'week' ? 7 : tab === 'month' ? 30 : 365;
   const dates: string[] = [];
@@ -701,7 +642,6 @@ function launchStatsWorker(state: ReturnType<typeof getState>, tab: StatsTab): v
     const list = state.diary[d];
     if (list) allEntries.push(...list);
   }
-  // Signature: dates + entries identity + qty + gramsOverride
   const sig = dates.join(',') + '|' + allEntries.map((e) => `${e.id}:${e.quantity}:${e.gramsOverride ?? ''}`).join('|');
 
   if (tab === 'week') {
@@ -718,7 +658,7 @@ function launchStatsWorker(state: ReturnType<typeof getState>, tab: StatsTab): v
   const token = ++_weekStatsToken;
   void computeStatsAsync(allEntries, dates)
     .then((res) => {
-      if (token !== _weekStatsToken) return; // obsolete
+      if (token !== _weekStatsToken) return;
       if (tab === 'week') setWeekStats({ days: res.days, avgCalories: res.avgCalories });
       else if (tab === 'month') setMonthStats({ days: res.days, avgCalories: res.avgCalories });
       else setYearStats({ days: res.days, avgCalories: res.avgCalories });
@@ -726,7 +666,6 @@ function launchStatsWorker(state: ReturnType<typeof getState>, tab: StatsTab): v
     })
     .catch((err) => {
       console.error('[dashboard] worker stats error', err);
-      // Reset signature per permettere retry al prossimo emitChange
       if (tab === 'week') setWeekStatsInputSig('');
       else if (tab === 'month') setMonthStatsInputSig('');
       else setYearStatsInputSig('');
@@ -787,8 +726,6 @@ function macroRing(value: number, goal: number, size: number): string {
 
 function macroBar(label: string, value: number, goal: number, color: string): string {
   const ratio = goal > 0 ? Math.min(value / goal, 1) : 0;
-  // Fix 2.9 (T2): usa floor invece di round per evitare 100% visuale prematuro
-  // (prima: value/goal=0.995 → ratio=0.995 → pct=Math.round(99.5)=100 ma over=false)
   const over = value > goal;
   const pct = over ? 100 : Math.floor(ratio * 100);
   return `
@@ -833,8 +770,6 @@ function bindDashboardEvents(main: HTMLElement): void {
       return;
     }
     if (action === 'goToDate') {
-      // Click su una barra della settimana → naviga a quel giorno.
-      // Fix dead affordance: le .week-bar avevano cursor:pointer e tooltip ma nessun handler.
       const date = target.dataset.date || '';
       if (date && isValidDateKey(date)) {
         setCurrentDate(date);
@@ -842,7 +777,6 @@ function bindDashboardEvents(main: HTMLElement): void {
       return;
     }
     if (action === 'deleteEntry') {
-      // stopPropagation non necessario: closest già trova il bottone delete (più vicino)
       const id = target.dataset.entryId || '';
       if (id) removeDiaryEntry(id);
       return;
@@ -851,7 +785,6 @@ function bindDashboardEvents(main: HTMLElement): void {
       const id = target.dataset.entryId || '';
       const delta = action === 'qtyInc' ? 0.5 : -0.5;
       const entry = state.diary[state.currentDate]?.find((en) => en.id === id);
-      // Fix 2.2 (T2): passa gramsOverride corrente per preservare modalità grammi
       if (entry) changeEntryQuantity(id, delta, entry.quantity, entry.gramsOverride);
       return;
     }
@@ -883,8 +816,6 @@ function bindDashboardEvents(main: HTMLElement): void {
     if (action === 'quickAddRecent') {
       const foodId = target.dataset.foodId || '';
       if (!foodId) return;
-      // Recupera il food da state.foods (snapshot fresco) — i recenti derivano
-      // dal diario, ma il food potrebbe essere stato eliminato nel frattempo.
       const food = state.foods.find((f) => f.id === foodId);
       if (!food) {
         showToast('Alimento non più disponibile (è stato eliminato?)', 'info', 3500);
@@ -895,28 +826,23 @@ function bindDashboardEvents(main: HTMLElement): void {
     }
   });
 
-  // Supporto tastiera (Enter/Space) per accessibilità sulla riga della entry
   main.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action="editEntry"]');
     if (!target) return;
-    // Skip se il focus è su un bottone figlio (delete, +/−): lascia che il click nativo del bottone proceda
     if (e.target !== target) return;
     e.preventDefault();
     const id = target.dataset.entryId || '';
     if (id) openEntryEditor(id);
   });
 
-  // Input biometrici (sonno / peso). Delegato sul main: si attiva solo quando
-  // l'input è dentro la dashboard. Usiamo 'change' (non 'input') per evitare
-  // re-render ad ogni keystroke che distruggerebbe il focus.
   main.addEventListener('change', (e) => {
     const target = e.target as HTMLElement;
     if (target.id === 'bio-sleep-input') {
       const state = getState();
       const val = Number((target as HTMLInputElement).value);
       if ((target as HTMLInputElement).value === '') {
-        setSleep(state.currentDate, 0); // cancella
+        setSleep(state.currentDate, 0);
       } else {
         setSleep(state.currentDate, val);
       }
@@ -926,7 +852,7 @@ function bindDashboardEvents(main: HTMLElement): void {
       const state = getState();
       const val = Number((target as HTMLInputElement).value);
       if ((target as HTMLInputElement).value === '') {
-        setWeight(state.currentDate, 0); // cancella
+        setWeight(state.currentDate, 0);
       } else {
         setWeight(state.currentDate, val);
       }

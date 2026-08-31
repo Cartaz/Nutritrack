@@ -210,12 +210,14 @@ Avoid CRDT/operation-log machinery: it would be disproportionate for the current
 
 # M5 — Rendering simplification and measured performance
 
+**Status: completed 2026-08-31.**
+
 ## M5.1 Remove manual render-signature invalidation
 
-- [ ] Establish a correctness baseline without manual view-signature caches.
-- [ ] Delete signature bookkeeping if no measured regression justifies it.
-- [ ] Profile before reintroducing any memoization.
-- [ ] If needed, confine caching to demonstrably expensive derived statistics behind a small API.
+- [x] Establish a correctness baseline without manual view-signature caches.
+- [x] Delete signature bookkeeping after the baseline showed no regression requiring it.
+- [x] Do not reintroduce memoization without profiling/measurement.
+- [x] Confine the remaining cache to Dashboard's expensive asynchronous derived statistics behind a small local state API.
 
 **Done when:** correctness does not depend on developers remembering to update a hand-built signature after every new feature.
 
@@ -288,6 +290,6 @@ Every milestone must finish with:
 
 ## Current execution order
 
-`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 → M4 → M5 → M6`
+`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6`
 
 The order can change only when a later dependency must be pulled forward to fix a correctness or integrity problem cleanly.
