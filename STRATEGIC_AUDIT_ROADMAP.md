@@ -181,9 +181,11 @@ Avoid CRDT/operation-log machinery: it would be disproportionate for the current
 
 ## M4.1 Shared statistics core
 
-- [ ] Move statistics calculation into one pure module.
-- [ ] Make worker and main-thread fallback call the same implementation.
-- [ ] Remove "keep these implementations aligned" duplication.
+**Status: completed 2026-08-31.**
+
+- [x] Move statistics calculation into one pure module.
+- [x] Make worker and main-thread fallback call the same implementation.
+- [x] Remove "keep these implementations aligned" duplication.
 
 ## M4.2 Shared Open Food Facts search policy
 
