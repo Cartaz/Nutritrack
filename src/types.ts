@@ -130,8 +130,8 @@ export const WEIGHT_GOAL_LABELS: Record<WeightGoalType, string> = {
   gain: 'Aumentare peso',
 };
 
-/** Rateo massimo di variazione peso: 0.5 kg/settimana (linea guida WHO/ACSM).
- *  Oltre questo valore il rischio è perdere massa magra / accumulare grasso troppo in fretta. */
+/** Rateo massimo di variazione peso: 0.5 kg/settimana.
+ *  È un limite tecnico prudenziale dell'app, non una prescrizione clinica. */
 export const MAX_WEEKLY_KG_RATE = 0.5;
 
 /** Equivalente energetico approssimato del tessuto adiposo: ~7700 kcal/kg.
@@ -152,9 +152,7 @@ export interface UserSettings {
   weightGoalType?: WeightGoalType;
   /** Peso target in kg che l'utente vuole raggiungere (undefined se maintain). */
   targetWeightKg?: number;
-  /** Rateo di variazione peso desiderato in kg/settimana (es. 0.5 = 0.5 kg/sett).
-   *  Clampato a [0.1 .. MAX_WEEKLY_KG_RATE]. Il sistema calcola dinamicamente
-   *  le settimane necessarie da questo valore + la differenza di peso. */
+  /** Rateo di variazione peso desiderato in kg/settimana. */
   weeklyRateKg?: number;
 }
 
@@ -282,20 +280,29 @@ export type WorkerRequest =
   | { type: 'dayTotals'; reqId: number; entries: DiaryEntry[] };
 
 export type WorkerResponse =
-  { type: 'stats'; reqId: number; result: StatsResult } | { type: 'dayTotals'; reqId: number; result: DayTotals };
+  | { type: 'stats'; reqId: number; result: StatsResult }
+  | { type: 'dayTotals'; reqId: number; result: DayTotals }
+  | { type: 'error'; reqId: number; message: string };
 
 // ============ App state ============
 
 export type ViewName = 'dashboard' | 'foods' | 'recipes' | 'settings';
 
-export interface AppState {
+/**
+ * Dati di dominio persistenti. È il solo contratto che storage/import/export e
+ * sincronizzazione multi-tab possono leggere o sostituire.
+ */
+export interface PersistedState {
   settings: UserSettings;
   foods: FoodItem[];
   diary: DayDiary;
   recipes: Recipe[];
   favoriteFoodIds: string[];
-  /** Biometria giornaliera (acqua/sonno/peso). P1 #3 Step 02. */
   biometrics: Biometrics;
+}
+
+/** Stato effimero dell'interfaccia: non deve mai finire nei backup. */
+export interface UiState {
   currentView: ViewName;
   currentDate: string; // YYYY-MM-DD (dashboard)
   _storageDisabled: boolean;
@@ -313,3 +320,5 @@ export interface AppState {
   _addRecipeToMealPickerId: string | null;
   _editingEntryId: string | null;
 }
+
+export interface AppState extends PersistedState, UiState {}
