@@ -1,47 +1,32 @@
 // Persistenza localStorage con backup, quota handling e multi-tab sync.
-// Pattern 7 + 8 dello standard.
-//
-// Fix B1: ordine backup corretto (leggi PRIMA di sovrascrivere).
-// Fix B2: _storageOK flippato a false nel branch SecurityError (previene loop RAF).
-// Fix B3: strip immagini ricorsivo (diary.foodSnapshot.image + recipes.ingredients[].foodSnapshot.image).
-// Fix B8: emitChange() dopo setState in multi-tab sync (UI si aggiorna nell'altro tab).
-// Fix B10: emitChange() + saveData() in importDataJson (persiste prima del reload).
-// Fix B19: rimosso dead code MAX_FOODS_BEFORE_PRUNE (non più referenziato).
-//
-// Fix C2 (CRITICAL): importDataJson valida chiavi riconosciute + versione schema.
-// Fix C3 (CRITICAL): multi-tab — accoda update cross-tab mentre modal aperto, applica alla chiusura.
-// Fix 7.2: _editingEntryId aggiunto al multi-tab skip-check.
-// Fix 7.5: saveData skip se payload invariato.
-// Fix 7.6: importDataJson propaga errori di saveData.
-// Fix 7.9: BACKUP_KEY scritto solo se prev è JSON parseable.
-// Fix 7.11: toast su strip immagini per quota.
-// Fix 7.12: rimosso doppio save in importDataJson.
-// Fix 7.13: warning su schema version mismatch.
+// Storage conosce esclusivamente PersistedState: UiState e lifecycle dei modal restano fuori.
 
-import type { FoodItem, Recipe, DiaryEntry, DayDiary } from '../types';
-import { BACKUP_KEY, STORAGE_KEY, STORAGE_WARN_BYTES, SCHEMA_VERSION } from './constants';
-import { getState, setState, setStorageDisabled, subscribe, emitChange } from './store';
-import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
+import type { DayDiary, DiaryEntry, FoodItem, PersistedState, Recipe } from '../types';
+import { BACKUP_KEY, SCHEMA_VERSION, STORAGE_KEY, STORAGE_WARN_BYTES } from './constants';
+import {
+  emitChange,
+  getPersistedState,
+  replacePersistedState,
+  setStorageDisabled,
+  subscribe,
+} from './store';
+import { estimateStorageBytes, isStorageWarn, reconcileAll } from './normalize';
 
 let _storageOK = true;
-// Fix C3: queue di update cross-tab ricevuti mentre un modal era aperto
-let _pendingMultiTabUpdate: {
-  settings: unknown;
-  foods: unknown;
-  diary: unknown;
-  recipes: unknown;
-  favoriteFoodIds: unknown;
-  biometrics: unknown;
-} | null = null;
+let _revision = 0;
+let _lastDataSignature = '';
 let _quotaWarnedThisSession = false;
 let _stripWarnedThisSession = false;
+let _multiTabInit = false;
+let _storageListener: ((event: StorageEvent) => void) | null = null;
+let _autoSaveEnabled = false;
+let _autoSaveUnsub: (() => void) | null = null;
 
-// Rilevazione modalità privata / storage non disponibile (IIFE all'avvio).
 (function detectStorage(): void {
   try {
-    const k = '__nt_test_' + Date.now();
-    localStorage.setItem(k, '1');
-    localStorage.removeItem(k);
+    const key = '__nt_test_' + Date.now();
+    localStorage.setItem(key, '1');
+    localStorage.removeItem(key);
   } catch {
     _storageOK = false;
     console.warn('[storage] localStorage non disponibile (modalità privata?)');
@@ -52,137 +37,135 @@ export function isStorageAvailable(): boolean {
   return _storageOK;
 }
 
-interface PersistedPayload {
+interface PersistedPayload extends PersistedState {
   version: number;
-  settings: unknown;
-  foods: unknown;
-  diary: unknown;
-  recipes: unknown;
-  favoriteFoodIds: unknown;
-  biometrics: unknown;
+  /** Revisione monotona usata per last-write-wins tra tab. */
+  revision: number;
 }
 
-function buildPayload(): PersistedPayload {
-  const s = getState();
+function dataSignature(data: PersistedState): string {
+  return JSON.stringify(data);
+}
+
+function buildPayload(data: PersistedState = getPersistedState(), revision = _revision): PersistedPayload {
   return {
     version: SCHEMA_VERSION,
-    settings: s.settings,
-    foods: s.foods,
-    diary: s.diary,
-    recipes: s.recipes,
-    favoriteFoodIds: s.favoriteFoodIds,
-    biometrics: s.biometrics,
+    revision,
+    settings: data.settings,
+    foods: data.foods,
+    diary: data.diary,
+    recipes: data.recipes,
+    favoriteFoodIds: data.favoriteFoodIds,
+    biometrics: data.biometrics,
   };
 }
 
-/** Fix B3: strip ricorsivo delle immagini da foods, diary.foodSnapshot, recipes, recipes.ingredients[].foodSnapshot */
-function stripImages(payload: PersistedPayload): PersistedPayload {
-  const stripFood = (f: FoodItem): FoodItem => ({ ...f, image: undefined });
-  const stripDiary = (diary: unknown): DayDiary => {
-    if (typeof diary !== 'object' || diary === null) return {};
+function readRevision(raw: unknown): number {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 0;
+  const revision = (raw as { revision?: unknown }).revision;
+  return typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+function readRevisionFromSerialized(raw: string | null): number {
+  if (!raw) return 0;
+  try {
+    return readRevision(JSON.parse(raw));
+  } catch {
+    return 0;
+  }
+}
+
+/** Strip ricorsivo delle sole immagini, preservando tutto il resto del dominio. */
+function stripImages(data: PersistedState): PersistedState {
+  const stripFood = (food: FoodItem): FoodItem => ({ ...food, image: undefined });
+  const stripDiary = (diary: DayDiary): DayDiary => {
     const out: DayDiary = {};
-    for (const [date, entries] of Object.entries(diary as Record<string, unknown>)) {
-      if (!Array.isArray(entries)) continue;
-      out[date] = (entries as DiaryEntry[]).map((e) => ({
-        ...e,
-        foodSnapshot: stripFood(e.foodSnapshot),
+    for (const [date, entries] of Object.entries(diary)) {
+      out[date] = entries.map((entry: DiaryEntry) => ({
+        ...entry,
+        foodSnapshot: stripFood(entry.foodSnapshot),
       }));
     }
     return out;
   };
-  const stripRecipe = (r: Recipe): Recipe => ({
-    ...r,
+  const stripRecipe = (recipe: Recipe): Recipe => ({
+    ...recipe,
     image: undefined,
-    ingredients: r.ingredients.map((ing) => ({
-      ...ing,
-      foodSnapshot: stripFood(ing.foodSnapshot),
+    ingredients: recipe.ingredients.map((ingredient) => ({
+      ...ingredient,
+      foodSnapshot: stripFood(ingredient.foodSnapshot),
     })),
   });
   return {
-    ...payload,
-    foods: (payload.foods as FoodItem[]).map(stripFood),
-    diary: stripDiary(payload.diary),
-    recipes: (payload.recipes as Recipe[]).map(stripRecipe),
+    ...data,
+    foods: data.foods.map(stripFood),
+    diary: stripDiary(data.diary),
+    recipes: data.recipes.map(stripRecipe),
   };
 }
 
-/** Tipo risultato di saveData per permettere a importDataJson di propagare errori. */
 export type SaveDataResult = { ok: true } | { ok: false; error: string; fatal: boolean };
 
-/** Salva su localStorage con backup automatico e gestione quota.
- *  Fix 7.5: skip scrittura se payload invariato (risparmio I/O + storage events inutili). */
-export function saveData(): SaveDataResult {
-  if (!_storageOK) return { ok: false, error: 'storage non disponibile', fatal: false };
-  const payload = buildPayload();
-  const serialized = JSON.stringify(payload);
+type PersistResult =
+  | { ok: true; data: PersistedState; revision: number; stripped: boolean }
+  | { ok: false; error: string; fatal: boolean };
 
-  // Fix B1: leggi PRIMA di sovrascrivere, così il backup contiene il valore precedente
-  let prev: string | null = null;
+function validJson(raw: string): boolean {
   try {
-    prev = localStorage.getItem(STORAGE_KEY);
+    JSON.parse(raw);
+    return true;
   } catch {
-    // ignore read error
+    return false;
+  }
+}
+
+function writeBackup(previous: string | null, nextSerialized: string): void {
+  if (!previous || previous === nextSerialized || !validJson(previous)) return;
+  try {
+    localStorage.setItem(BACKUP_KEY, previous);
+  } catch {
+    // Il backup non deve trasformare un primary write riuscito in un fallimento.
+  }
+}
+
+/**
+ * Persiste un candidate senza toccare lo store. Il commit in-memory avviene solo
+ * dopo il successo, così import e recovery sono transazionali dal punto di vista UI.
+ */
+function persistCandidate(candidate: PersistedState): PersistResult {
+  if (!_storageOK) return { ok: false, error: 'storage non disponibile', fatal: false };
+
+  let previous: string | null = null;
+  try {
+    previous = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // Un read fallito non impedisce il tentativo di write.
   }
 
-  // Fix 7.5: skip se payload invariato
-  if (prev === serialized) {
-    return { ok: true };
-  }
+  const nextRevision = Math.max(_revision, readRevisionFromSerialized(previous)) + 1;
+  const payload = buildPayload(candidate, nextRevision);
+  const serialized = JSON.stringify(payload);
 
   try {
     localStorage.setItem(STORAGE_KEY, serialized);
-    // Backup snapshot precedente (solo se diverso dal nuovo)
-    // Fix 7.9: scrivi BACKUP_KEY solo se prev è JSON parseable (non scrivere stringhe corrotte)
-    if (prev && prev !== serialized) {
-      try {
-        JSON.parse(prev); // validate
-        localStorage.setItem(BACKUP_KEY, prev);
-      } catch {
-        // prev è corrotto: non propagarlo al backup
-      }
-    }
-    // Fix 7.7: warning quota runtime (once per sessione)
-    if (!_quotaWarnedThisSession) {
-      const sizeInfo = checkStorageSize();
-      if (sizeInfo.warn) {
-        _quotaWarnedThisSession = true;
-        // Lazy import per evitare ciclo: toast.ts non dipende da storage.ts
-        import('../components/toast').then(({ showToast }) => {
-          showToast(
-            `Attenzione: dati vicini al limite di quota (${Math.round((sizeInfo.bytes / 1024 / 1024) * 10) / 10}MB). Esporta un backup.`,
-            'warning',
-            6000,
-          );
-        });
-      }
-    }
-    return { ok: true };
+    writeBackup(previous, serialized);
+    return { ok: true, data: candidate, revision: nextRevision, stripped: false };
   } catch (e: unknown) {
     const err = e as { name?: string; code?: number };
     if (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014) {
-      // Fix B3: strip ricorsivo delle immagini (foods + diary + recipes + ingredients)
-      const stripped = stripImages(payload);
+      const stripped = stripImages(candidate);
+      const strippedSerialized = JSON.stringify(buildPayload(stripped, nextRevision));
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
-        // Fix 7.11: feedback utente su strip (once per sessione)
+        localStorage.setItem(STORAGE_KEY, strippedSerialized);
+        writeBackup(previous, strippedSerialized);
         if (!_stripWarnedThisSession) {
           _stripWarnedThisSession = true;
-          import('../components/toast').then(({ showToast }) => {
+          void import('../components/toast').then(({ showToast }) => {
             showToast('Spazio esaurito — immagini rimosse per fare spazio. Esporta un backup.', 'warning', 6000);
           });
         }
-        // Aggiorna lo state in-memory con il payload stripped (evita loop: prossimo save sarà già senza immagini)
-        setState({
-          foods: stripped.foods as FoodItem[],
-          diary: stripped.diary as DayDiary,
-          recipes: stripped.recipes as Recipe[],
-        });
-        return { ok: true };
+        return { ok: true, data: stripped, revision: nextRevision, stripped: true };
       } catch {
-        // Fix MEDIUM bug: flip _storageOK a false per interrompere i retry wasteful.
-        // Prima _storageOK restava true anche quando storage era effettivamente inutilizzabile,
-        // quindi ogni successivo emitChange (auto-save) ritentava 2 setItem fallimentari,
-        // sprecando CPU e loggando errori ad ogni tentativo.
         _storageOK = false;
         console.error('[storage] storage esaurito anche dopo strip. Esporta backup. Salvataggio disabilitato.');
         return {
@@ -191,20 +174,56 @@ export function saveData(): SaveDataResult {
           fatal: true,
         };
       }
-    } else if (err.name === 'SecurityError' || err.code === 18) {
-      // Fix B2: flippa _storageOK a false per evitare loop RAF infinito
+    }
+    if (err.name === 'SecurityError' || err.code === 18) {
       _storageOK = false;
       setStorageDisabled(true);
       console.warn('[storage] modalità privata rilevata, salvataggio disabilitato');
       return { ok: false, error: 'Modalità privata: salvataggio disabilitato', fatal: false };
-    } else {
-      console.error('[storage] errore salvataggio', e);
-      return { ok: false, error: 'Errore salvataggio generico', fatal: false };
     }
+    console.error('[storage] errore salvataggio', e);
+    return { ok: false, error: 'Errore salvataggio generico', fatal: false };
   }
 }
 
-/** Carica da localStorage con fallback backup */
+function recordPersisted(result: Extract<PersistResult, { ok: true }>): void {
+  _revision = result.revision;
+  _lastDataSignature = dataSignature(result.data);
+}
+
+/** Salva lo stato corrente. Skip se i dati persistenti non sono cambiati. */
+export function saveData(): SaveDataResult {
+  if (!_storageOK) return { ok: false, error: 'storage non disponibile', fatal: false };
+  const candidate = getPersistedState();
+  const signature = dataSignature(candidate);
+  if (signature === _lastDataSignature) return { ok: true };
+
+  const result = persistCandidate(candidate);
+  if (!result.ok) return result;
+  recordPersisted(result);
+
+  if (result.stripped) {
+    replacePersistedState(result.data);
+    emitChange();
+  }
+
+  if (!_quotaWarnedThisSession) {
+    const sizeInfo = checkStorageSize();
+    if (sizeInfo.warn) {
+      _quotaWarnedThisSession = true;
+      void import('../components/toast').then(({ showToast }) => {
+        showToast(
+          `Attenzione: dati vicini al limite di quota (${Math.round((sizeInfo.bytes / 1024 / 1024) * 10) / 10}MB). Esporta un backup.`,
+          'warning',
+          6000,
+        );
+      });
+    }
+  }
+  return { ok: true };
+}
+
+/** Carica da localStorage con fallback al backup, senza toccare UiState. */
 export function loadData(): boolean {
   if (!_storageOK) return false;
   let raw: string | null = null;
@@ -219,7 +238,6 @@ export function loadData(): boolean {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // parse fallito: prova backup
     try {
       const backup = localStorage.getItem(BACKUP_KEY);
       if (!backup) return false;
@@ -231,46 +249,23 @@ export function loadData(): boolean {
   }
 
   const reconciled = reconcileAll(parsed);
-  setState({
-    settings: reconciled.settings,
-    foods: reconciled.foods,
-    diary: reconciled.diary,
-    recipes: reconciled.recipes,
-    favoriteFoodIds: reconciled.favoriteFoodIds,
-    biometrics: reconciled.biometrics,
-  });
+  replacePersistedState(reconciled);
+  _revision = readRevision(parsed);
+  _lastDataSignature = dataSignature(reconciled);
   return true;
 }
 
-/** Verifica dimensione dati e ritorna true se in warning (>4.5MB) */
 export function checkStorageSize(): { bytes: number; warn: boolean } {
   const bytes = estimateStorageBytes(buildPayload());
   return { bytes, warn: isStorageWarn(bytes) };
 }
 
-/** Avviso se ci si avvicina alla quota */
 export function shouldWarnQuota(): boolean {
   return checkStorageSize().bytes > STORAGE_WARN_BYTES * 0.9;
 }
 
-/**
- * Reset interno per test (non usare in produzione).
- * Fix MEDIUM bug: dopo il test "QuotaExceededError anche dopo strip, ritorna fatal",
- * _storageOK resta false e contamina i test successivi. Questa funzione permette
- * al test setup di ripristinare lo stato interno del modulo storage.
- */
-export function __resetStorageInternalForTesting(): void {
-  _storageOK = true;
-  _quotaWarnedThisSession = false;
-  _stripWarnedThisSession = false;
-  _pendingMultiTabUpdate = null;
-}
+// ============ Auto-save ============
 
-// ============ Auto-save: subscribe a ogni emit ============
-
-let _autoSaveEnabled = false;
-// Fix 7.14: salva l'unsubscribe per permettere teardown in test/HMR
-let _autoSaveUnsub: (() => void) | null = null;
 export function enableAutoSave(): void {
   if (_autoSaveEnabled || !_storageOK) return;
   _autoSaveEnabled = true;
@@ -287,123 +282,54 @@ export function disableAutoSave(): void {
   _autoSaveEnabled = false;
 }
 
-// ============ Multi-tab sync via storage event ============
+// ============ Multi-tab sync ============
 
-let _multiTabInit = false;
-export function initMultiTabSync(): void {
-  if (_multiTabInit || !_storageOK) return;
-  _multiTabInit = true;
-  window.addEventListener('storage', (e) => {
-    if (e.key !== STORAGE_KEY || !e.newValue) return;
-    // Fix 7.15 (Safari iOS echo): se newValue === serialized corrente, skip (no-op)
-    try {
-      const parsed = JSON.parse(e.newValue);
-      const reconciled = reconcileAll(parsed);
-      // Skip se un modale è aperto (evita di sovrascrivere form)
-      // Fix 7.2 (T7): aggiunto _editingEntryId al check
-      const s = getState();
-      const anyModalOpen =
-        s._searchOpen ||
-        s._editingFoodId !== null ||
-        s._editingRecipeId !== null ||
-        s._viewingRecipeId !== null ||
-        s._confirmReset ||
-        s._confirmDeleteFoodId !== null ||
-        s._confirmDeleteRecipeId !== null ||
-        s._addRecipeToMealPickerId !== null ||
-        s._editingEntryId !== null;
-      if (anyModalOpen) {
-        // Fix C3 (CRITICAL): accoda l'update invece di scartarlo.
-        // Verrà applicato quando tutti i modali saranno chiusi (vedi flushPendingMultiTabUpdate).
-        _pendingMultiTabUpdate = {
-          settings: reconciled.settings,
-          foods: reconciled.foods,
-          diary: reconciled.diary,
-          recipes: reconciled.recipes,
-          favoriteFoodIds: reconciled.favoriteFoodIds,
-          biometrics: reconciled.biometrics,
-        };
-        return;
-      }
-      applyMultiTabUpdate(reconciled);
-    } catch {
-      // ignore parse error da tab parziale
-    }
-  });
-}
+function applyMultiTabUpdate(reconciled: PersistedState, revision: number): void {
+  const signature = dataSignature(reconciled);
+  if (revision < _revision) return;
+  if (revision === _revision && signature === _lastDataSignature) return;
 
-function applyMultiTabUpdate(reconciled: ReturnType<typeof reconcileAll>): void {
-  // Fix 7.15: confronta con stato corrente per evitare echo (Safari iOS)
-  const current = getState();
-  const currentSig = JSON.stringify({
-    settings: current.settings,
-    foods: current.foods,
-    diary: current.diary,
-    recipes: current.recipes,
-    favoriteFoodIds: current.favoriteFoodIds,
-    biometrics: current.biometrics,
-  });
-  const newSig = JSON.stringify({
-    settings: reconciled.settings,
-    foods: reconciled.foods,
-    diary: reconciled.diary,
-    recipes: reconciled.recipes,
-    favoriteFoodIds: reconciled.favoriteFoodIds,
-    biometrics: reconciled.biometrics,
-  });
-  if (currentSig === newSig) return; // no-op, evita echo
-  setState({
-    settings: reconciled.settings,
-    foods: reconciled.foods,
-    diary: reconciled.diary,
-    recipes: reconciled.recipes,
-    favoriteFoodIds: reconciled.favoriteFoodIds,
-    biometrics: reconciled.biometrics,
-  });
-  // Fix B8: emitChange() per aggiornare la UI (setState è silenzioso)
+  replacePersistedState(reconciled);
+  _revision = Math.max(_revision, revision);
+  _lastDataSignature = signature;
   emitChange();
-  // Notifica custom event per badge/aggiornamenti
   window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
 }
 
-/** Da chiamare alla chiusura di ogni modal: se c'è un update cross-tab pending, applicalo.
- *  Fix C3 (CRITICAL): previene sovrascrittura stale quando il modal viene chiuso. */
-export function flushPendingMultiTabUpdate(): void {
-  if (!_pendingMultiTabUpdate) return;
-  const s = getState();
-  const anyModalOpen =
-    s._searchOpen ||
-    s._editingFoodId !== null ||
-    s._editingRecipeId !== null ||
-    s._viewingRecipeId !== null ||
-    s._confirmReset ||
-    s._confirmDeleteFoodId !== null ||
-    s._confirmDeleteRecipeId !== null ||
-    s._addRecipeToMealPickerId !== null ||
-    s._editingEntryId !== null;
-  if (anyModalOpen) return; // altri modali ancora aperti
-  const pending = _pendingMultiTabUpdate;
-  _pendingMultiTabUpdate = null;
-  const reconciled = reconcileAll(pending);
-  applyMultiTabUpdate(reconciled);
+export function initMultiTabSync(): void {
+  if (_multiTabInit || !_storageOK) return;
+  _multiTabInit = true;
+  _storageListener = (event: StorageEvent) => {
+    if (event.key !== STORAGE_KEY || !event.newValue) return;
+    try {
+      const parsed = JSON.parse(event.newValue);
+      const reconciled = reconcileAll(parsed);
+      const rawRevision = readRevision(parsed);
+      // Compatibilità con tab legacy senza revision: trattalo come nuova write.
+      const revision = rawRevision > 0 ? rawRevision : _revision + 1;
+      applyMultiTabUpdate(reconciled, revision);
+    } catch {
+      // Ignora storage event corrotto/parziale; non modifica lo stato valido corrente.
+    }
+  };
+  window.addEventListener('storage', _storageListener);
 }
 
-// ============ Export / Import JSON backup ============
+/**
+ * Compatibilità con il vecchio renderer. Non esistono più update pending: la
+ * sincronizzazione riguarda solo PersistedState ed è indipendente dai modal.
+ */
+export function flushPendingMultiTabUpdate(): void {
+  // no-op intenzionale
+}
+
+// ============ Export / Import backup ============
 
 export function exportDataJson(): string {
   return JSON.stringify(buildPayload(), null, 2);
 }
 
-/**
- * Cancella sia la chiave primaria che il backup da localStorage.
- * Fix HIGH bug (privacy): resetAll() in store.ts prima cancellava solo lo state in-memory
- * e saveData() sovrascriveva STORAGE_KEY con payload vuoto, ma BACKUP_KEY conservava
- * ancora il payload precedente (snapshot pre-reset). Al prossimo parsing fallito di
- * STORAGE_KEY (es. corruption), loadData() avrebbe fatto fallback al backup resuscitando
- * i dati "cancellati". Ora questa funzione pulisce entrambe le chiavi.
- */
 export function clearAllStoredData(): void {
-  if (!_storageOK) return;
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
@@ -414,16 +340,34 @@ export function clearAllStoredData(): void {
   } catch {
     /* ignore */
   }
-  // Reset dei flag di sessione per permettere future notifiche
+  _revision = 0;
+  _lastDataSignature = '';
   _quotaWarnedThisSession = false;
   _stripWarnedThisSession = false;
 }
 
-/** Importa un backup JSON.
- *  Fix C2 (CRITICAL): valida chiavi riconosciute + versione schema (prima {} o JSON sconosciuto cancellava tutti i dati).
- *  Fix 7.6: propaga errori di saveData (silenzioso prima).
- *  Fix 7.8: count post-reconcile ma con feedback su scarti.
- *  Fix 7.12: rimosso doppio save. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Un backup completo deve contenere tutte le collezioni presenti fin dalla v1.0. */
+function validateBackupEnvelope(parsed: unknown): string | null {
+  if (!isRecord(parsed)) return 'Formato file non riconosciuto';
+  if (typeof parsed.version !== 'number' || !Number.isInteger(parsed.version) || parsed.version < 1) {
+    return 'Backup NutriTrack senza versione schema valida';
+  }
+  if (parsed.version > SCHEMA_VERSION) {
+    return `Backup creato con una versione più recente (schema ${parsed.version}); aggiorna NutriTrack prima di importarlo`;
+  }
+  const required = ['settings', 'foods', 'diary', 'recipes', 'favoriteFoodIds'] as const;
+  const missing = required.filter((key) => !(key in parsed));
+  if (missing.length > 0) {
+    return `Backup incompleto: mancano ${missing.join(', ')}`;
+  }
+  return null;
+}
+
+/** Import completo e atomico: valida -> normalizza -> persiste -> commit in RAM. */
 export function importDataJson(
   json: string,
 ): { ok: true; count: number; skipped?: number } | { ok: false; error: string } {
@@ -433,68 +377,53 @@ export function importDataJson(
   } catch {
     return { ok: false, error: 'JSON non valido' };
   }
-  // Validazione minima: deve essere un oggetto con almeno una chiave riconosciuta
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, error: 'Formato file non riconosciuto' };
-  }
-  // Fix C2 (CRITICAL): richiedi almeno una chiave riconosciuta del payload NutriTrack
-  const KNOWN_KEYS = ['version', 'settings', 'foods', 'diary', 'recipes', 'favoriteFoodIds', 'biometrics'];
-  const hasKnownKey = KNOWN_KEYS.some((k) => k in (parsed as Record<string, unknown>));
-  if (!hasKnownKey) {
-    return { ok: false, error: 'File non riconosciuto come backup NutriTrack (nessuna chiave valida)' };
-  }
-  // Fix 7.13: warning su version mismatch (non bloccante, reconcileAll gestisce)
-  const parsedObj = parsed as { version?: unknown };
-  if (
-    parsedObj.version !== undefined &&
-    typeof parsedObj.version === 'number' &&
-    parsedObj.version !== SCHEMA_VERSION
-  ) {
-    console.warn(
-      `[storage] import con versione schema ${parsedObj.version} (attesa ${SCHEMA_VERSION}). Tentativo di migrazione...`,
-    );
-  }
 
-  // Conta raw items PRIMA di reconcile per feedback su scarti (Fix 7.8)
-  const rawParsed = parsed as {
+  const envelopeError = validateBackupEnvelope(parsed);
+  if (envelopeError) return { ok: false, error: envelopeError };
+
+  const raw = parsed as {
     foods?: unknown[];
     recipes?: unknown[];
     diary?: Record<string, unknown[]>;
-    favoriteFoodIds?: unknown[];
   };
-  const rawFoodsCount = Array.isArray(rawParsed.foods) ? rawParsed.foods.length : 0;
-  const rawRecipesCount = Array.isArray(rawParsed.recipes) ? rawParsed.recipes.length : 0;
+  const rawFoodsCount = Array.isArray(raw.foods) ? raw.foods.length : 0;
+  const rawRecipesCount = Array.isArray(raw.recipes) ? raw.recipes.length : 0;
   let rawEntriesCount = 0;
-  if (rawParsed.diary && typeof rawParsed.diary === 'object') {
-    for (const val of Object.values(rawParsed.diary)) {
-      if (Array.isArray(val)) rawEntriesCount += val.length;
+  if (raw.diary && typeof raw.diary === 'object') {
+    for (const entries of Object.values(raw.diary)) {
+      if (Array.isArray(entries)) rawEntriesCount += entries.length;
     }
   }
   const rawTotal = rawFoodsCount + rawRecipesCount + rawEntriesCount;
 
-  const reconciled = reconcileAll(parsed);
+  const candidate = reconcileAll(parsed);
   const count =
-    reconciled.foods.length +
-    reconciled.recipes.length +
-    Object.values(reconciled.diary).reduce((acc, entries) => acc + entries.length, 0);
+    candidate.foods.length +
+    candidate.recipes.length +
+    Object.values(candidate.diary).reduce((total, entries) => total + entries.length, 0);
   const skipped = Math.max(0, rawTotal - count);
 
-  setState({
-    settings: reconciled.settings,
-    foods: reconciled.foods,
-    diary: reconciled.diary,
-    recipes: reconciled.recipes,
-    favoriteFoodIds: reconciled.favoriteFoodIds,
-    biometrics: reconciled.biometrics,
-  });
-  // Fix B10: persisti immediatamente su localStorage PRIMA del reload
-  // Fix 7.6: propaga errori di saveData
-  const saveResult = saveData();
-  if (!saveResult.ok) {
-    return { ok: false, error: saveResult.error };
-  }
-  // Fix 7.12: rimosso emitChange() ridondante (autosave subscribe gestisce; saveData già chiamato)
-  // Ma serve emitChange per triggerare il render dell'UI con i nuovi dati
+  // Persisti PRIMA di modificare lo stato in-memory: fallimento = nessun side effect sul dominio.
+  const persisted = persistCandidate(candidate);
+  if (!persisted.ok) return { ok: false, error: persisted.error };
+
+  replacePersistedState(persisted.data);
+  recordPersisted(persisted);
   emitChange();
   return { ok: true, count, skipped: skipped > 0 ? skipped : undefined };
+}
+
+/** Reset completo dello stato interno, solo per isolamento dei test. */
+export function __resetStorageInternalForTesting(): void {
+  disableAutoSave();
+  if (_storageListener) {
+    window.removeEventListener('storage', _storageListener);
+    _storageListener = null;
+  }
+  _multiTabInit = false;
+  _storageOK = true;
+  _revision = 0;
+  _lastDataSignature = '';
+  _quotaWarnedThisSession = false;
+  _stripWarnedThisSession = false;
 }
