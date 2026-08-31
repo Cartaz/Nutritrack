@@ -108,6 +108,15 @@ export function isValidDateKey(key: unknown): key is string {
   return !isNaN(d.getTime());
 }
 
+/**
+ * Avanza automaticamente al nuovo giorno solo quando l'app ha realmente attraversato
+ * la mezzanotte e il dashboard era ancora posizionato sul giorno che era "oggi".
+ * Una data storica scelta esplicitamente dall'utente non deve essere sovrascritta da focus/visibility.
+ */
+export function shouldAutoAdvanceDate(currentDate: string, lastObservedToday: string, today: string): boolean {
+  return today !== lastObservedToday && currentDate === lastObservedToday;
+}
+
 /** Debounced trigger con cancel.
  *  Il valore di ritorno del callback viene ignorato: operazioni async devono essere
  *  invocate esplicitamente dal trigger, non passate direttamente a debounce(). */
