@@ -62,10 +62,13 @@ function init(): void {
     const now = new Date();
     const midnight = new Date(now);
     midnight.setHours(24, 0, 0, 0);
-    setTimeout(() => {
-      checkMidnightRollover();
-      scheduleMidnightCheck();
-    }, midnight.getTime() - now.getTime() + 1000);
+    setTimeout(
+      () => {
+        checkMidnightRollover();
+        scheduleMidnightCheck();
+      },
+      midnight.getTime() - now.getTime() + 1000,
+    );
   };
   scheduleMidnightCheck();
 }

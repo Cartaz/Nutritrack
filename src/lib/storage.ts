@@ -3,14 +3,9 @@
 
 import type { DayDiary, DiaryEntry, FoodItem, PersistedState, Recipe } from '../types';
 import { BACKUP_KEY, SCHEMA_VERSION, STORAGE_KEY, STORAGE_WARN_BYTES } from './constants';
-import {
-  emitChange,
-  getPersistedState,
-  replacePersistedState,
-  setStorageDisabled,
-  subscribe,
-} from './store';
+import { emitChange, getPersistedState, replacePersistedState, setStorageDisabled, subscribe } from './store';
 import { estimateStorageBytes, isStorageWarn, reconcileAll } from './normalize';
+import { clearLocalStorageData, clearRuntimeDataCaches } from './localData';
 
 let _storageOK = true;
 let _revision = 0;
@@ -330,16 +325,8 @@ export function exportDataJson(): string {
 }
 
 export function clearAllStoredData(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-  try {
-    localStorage.removeItem(BACKUP_KEY);
-  } catch {
-    /* ignore */
-  }
+  clearLocalStorageData();
+  void clearRuntimeDataCaches();
   _revision = 0;
   _lastDataSignature = '';
   _quotaWarnedThisSession = false;

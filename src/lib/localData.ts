@@ -2,11 +2,7 @@
 
 import { BACKUP_KEY, STORAGE_KEY } from './constants';
 
-const USER_DATA_CACHE_NAMES = [
-  'nutritrack-off-api',
-  'nutritrack-off-img',
-  'nutritrack-img',
-] as const;
+const USER_DATA_CACHE_NAMES = ['nutritrack-off-api', 'nutritrack-off-img', 'nutritrack-img'] as const;
 
 /** Cancella payload principale + backup localStorage. Idempotente. */
 export function clearLocalStorageData(): void {

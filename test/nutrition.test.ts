@@ -343,12 +343,11 @@ describe('calcGoalAdjustedCalories', () => {
     expect(r.kcalClamped).toBe(true);
   });
 
-  it('ritorna 500 (clamp min) per TDEE non valido, con kcalClamped=true', () => {
-    // Fix MEDIUM bug: prima ritornava kcal=0 (violando il clamp min 500 dichiarato).
-    // Ora ritorna 500 con kcalClamped=true per permettere alla UI di mostrare un warning.
+  it('mantiene esplicito un TDEE non valido senza inventare un target calorico', () => {
     const r = calcGoalAdjustedCalories(0, 80, 75, 0.5, 'lose' as WeightGoalType);
-    expect(r.kcal).toBe(500);
-    expect(r.kcalClamped).toBe(true);
+    expect(r.valid).toBe(false);
+    expect(r.kcal).toBe(0);
+    expect(r.kcalClamped).toBe(false);
     expect(r.weeklyDeltaKg).toBe(0);
   });
 });
@@ -398,12 +397,17 @@ describe('normalizeMacroSplit', () => {
   });
 
   // Fix MEDIUM bug: tolleranza 0.5 non deve più permettere sum != 100
-  it('ridistribuisce su fat split entro tolleranza 0.5 per garantire sum=100 esatto', () => {
-    // Prima {99.6, 0, 0} passava invariata (sum=99.6 ≠ 100). Ora fat = 100 - 99.6 - 0 = 0.4
-    // ma Math.max(0, 0.4) = 0.4 → sum = 99.6 + 0 + 0.4 = 100. OK
+  it('normalizza anche gli split appena sopra 100 senza lasciare eccedenze', () => {
+    const r = normalizeMacroSplit({ proteinPct: 60, carbsPct: 40.2, fatPct: 0 });
+    expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
+    expect(r.proteinPct).toBeGreaterThanOrEqual(0);
+    expect(r.carbsPct).toBeGreaterThanOrEqual(0);
+    expect(r.fatPct).toBeGreaterThanOrEqual(0);
+  });
+
+  it('normalizza anche gli split appena sotto 100 a somma esatta', () => {
     const r = normalizeMacroSplit({ proteinPct: 99.6, carbsPct: 0, fatPct: 0 });
     expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
-    expect(r.proteinPct).toBe(99.6);
   });
 });
 

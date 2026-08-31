@@ -1,14 +1,7 @@
 // Azioni dominio: diario.
 
 import type { DiaryEntry, FoodItem, MealType } from '../types';
-import {
-  addDiaryEntries,
-  addDiaryEntry,
-  closeFoodSearch,
-  deleteDiaryEntry,
-  getState,
-  updateDiaryEntry,
-} from './store';
+import { addDiaryEntries, addDiaryEntry, closeFoodSearch, deleteDiaryEntry, getState, updateDiaryEntry } from './store';
 import { showToast } from '../components/toast';
 import { MEAL_LABELS } from '../types';
 import { clamp, isValidDateKey } from './utils';

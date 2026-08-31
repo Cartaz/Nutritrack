@@ -115,7 +115,11 @@ export async function apiGetJson<T>(buildUrl: (base: string) => string, opts: Ap
 
           if (response.status >= 500 && response.status < 600) {
             clearTimeout(timeoutId);
-            lastError = new ApiError(`Server OFF ${base} non disponibile (${response.status})`, 'ApiError', response.status);
+            lastError = new ApiError(
+              `Server OFF ${base} non disponibile (${response.status})`,
+              'ApiError',
+              response.status,
+            );
             if (attempt < maxAttempts - 1) {
               const delay = API_RETRY_DELAY_MS * (attempt + 1);
               if (Date.now() + delay < globalDeadline) {
@@ -248,16 +252,13 @@ export async function searchOff(
   // L'istanza italiana è il primo endpoint coerente con l'app. Se fallisce, la UI
   // permette un nuovo tentativo esplicito invece di moltiplicare automaticamente le query.
   const searchInstance = [OFF_INSTANCES[0]] as const;
-  const data = await apiGetJson<OffSearchResponse | null>(
-    (base) => `${base}/cgi/search.pl?${params.toString()}`,
-    {
-      signal: opts.signal,
-      instances: searchInstance,
-      retryPerInstance: 0,
-      stopOnRateLimit: true,
-      globalDeadlineMs: API_TIMEOUT_MS,
-    },
-  );
+  const data = await apiGetJson<OffSearchResponse | null>((base) => `${base}/cgi/search.pl?${params.toString()}`, {
+    signal: opts.signal,
+    instances: searchInstance,
+    retryPerInstance: 0,
+    stopOnRateLimit: true,
+    globalDeadlineMs: API_TIMEOUT_MS,
+  });
 
   if (!data || typeof data !== 'object') return { products: [], count: 0, page: 1, pageSize };
   return {

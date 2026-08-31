@@ -379,9 +379,7 @@ export function reconcileAll(raw: unknown): NormalizedPayload {
   const diary = normalizeDayDiary(raw.diary, foods);
   const recipes = normalizeUniqueRecipes(raw.recipes, foods);
   const favoriteFoodIds = Array.isArray(raw.favoriteFoodIds)
-    ? Array.from(
-        new Set(raw.favoriteFoodIds.filter((id): id is string => isString(id) && foodIds.has(id))),
-      )
+    ? Array.from(new Set(raw.favoriteFoodIds.filter((id): id is string => isString(id) && foodIds.has(id))))
     : [];
   return {
     settings: normalizeUserSettings(raw.settings),

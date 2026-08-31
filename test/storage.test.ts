@@ -319,9 +319,21 @@ describe('exportDataJson', () => {
 });
 
 describe('importDataJson', () => {
-  it('importa JSON valido', () => {
-    const payload = {
+  function completeBackup(overrides: Record<string, unknown> = {}) {
+    return {
       version: SCHEMA_VERSION,
+      settings: { calorieGoal: 2000, macroSplit: { proteinPct: 30, carbsPct: 40, fatPct: 30 }, theme: 'system' },
+      foods: [],
+      diary: {},
+      recipes: [],
+      favoriteFoodIds: [],
+      biometrics: {},
+      ...overrides,
+    };
+  }
+
+  it('importa un backup completo valido', () => {
+    const payload = completeBackup({
       settings: { calorieGoal: 2500, macroSplit: { proteinPct: 40, carbsPct: 30, fatPct: 30 }, theme: 'dark' },
       foods: [
         {
@@ -333,49 +345,51 @@ describe('importDataJson', () => {
           createdAt: 0,
         },
       ],
-      diary: {},
-      recipes: [],
-      favoriteFoodIds: [],
-    };
-
+    });
     const r = importDataJson(JSON.stringify(payload));
     expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.count).toBe(1);
-    }
     expect(getState().foods[0].name).toBe('Importata');
     expect(getState().settings.calorieGoal).toBe(2500);
   });
 
-  it('rigetta JSON non valido', () => {
-    const r = importDataJson('{invalid json');
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error).toContain('non valido');
-    }
+  it('rigetta JSON non valido e non-oggetti', () => {
+    expect(importDataJson('{invalid json').ok).toBe(false);
+    expect(importDataJson('[1,2,3]').ok).toBe(false);
   });
 
-  it('rigetta JSON non-oggetto (es. array)', () => {
-    const r = importDataJson('[1, 2, 3]');
-    expect(r.ok).toBe(false);
-  });
-
-  it('rigetta JSON senza chiavi riconosciute (Fix C2)', () => {
+  it('rigetta documenti non riconosciuti', () => {
     const r = importDataJson(JSON.stringify({ random: 'data', another: 123 }));
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error).toContain('non riconosciuto');
-    }
   });
 
-  it('accetta JSON con almeno una chiave riconosciuta', () => {
-    const r = importDataJson(JSON.stringify({ settings: { calorieGoal: 1500 } }));
-    expect(r.ok).toBe(true);
+  it('rigetta backup parziali senza cancellare i dati correnti', () => {
+    setState({
+      foods: [
+        {
+          id: 'keep',
+          name: 'Da conservare',
+          source: 'custom',
+          servingSize: 100,
+          nutrition: { calories: 50, protein: 1, carbs: 1, fat: 1 },
+          createdAt: 0,
+        },
+      ],
+    });
+    const before = getState().foods.map((food) => food.id);
+
+    const r = importDataJson(JSON.stringify({ version: SCHEMA_VERSION, settings: { calorieGoal: 1500 } }));
+
+    expect(r.ok).toBe(false);
+    expect(getState().foods.map((food) => food.id)).toEqual(before);
+  });
+
+  it('rigetta backup di schema futuro', () => {
+    const r = importDataJson(JSON.stringify(completeBackup({ version: SCHEMA_VERSION + 1 })));
+    expect(r.ok).toBe(false);
   });
 
   it('scarta entità invalide e ritorna count + skipped', () => {
-    const payload = {
-      version: SCHEMA_VERSION,
+    const payload = completeBackup({
       foods: [
         {
           id: 'f1',
@@ -393,7 +407,7 @@ describe('importDataJson', () => {
         },
         { id: 'f3', name: 'Senza nutrition', source: 'custom', servingSize: 100 },
       ],
-    };
+    });
     const r = importDataJson(JSON.stringify(payload));
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -402,9 +416,8 @@ describe('importDataJson', () => {
     }
   });
 
-  it('persiste su localStorage dopo import', () => {
-    const payload = {
-      version: SCHEMA_VERSION,
+  it('persiste il candidate prima di renderlo stato corrente', () => {
+    const payload = completeBackup({
       foods: [
         {
           id: 'f1',
@@ -412,14 +425,40 @@ describe('importDataJson', () => {
           source: 'custom',
           servingSize: 100,
           nutrition: { calories: 100, protein: 1, carbs: 1, fat: 1 },
+          createdAt: 0,
         },
       ],
-    };
-    importDataJson(JSON.stringify(payload));
-
+    });
+    const r = importDataJson(JSON.stringify(payload));
+    expect(r.ok).toBe(true);
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
     expect(stored.foods).toHaveLength(1);
     expect(stored.foods[0].name).toBe('Persistente');
+  });
+
+  it('se la persistenza fallisce, non sostituisce il dominio in memoria', () => {
+    setState({
+      foods: [
+        {
+          id: 'old',
+          name: 'Originale',
+          source: 'custom',
+          servingSize: 100,
+          nutrition: { calories: 80, protein: 2, carbs: 3, fat: 1 },
+          createdAt: 0,
+        },
+      ],
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      const error = new Error('denied');
+      error.name = 'SecurityError';
+      throw error;
+    });
+
+    const r = importDataJson(JSON.stringify(completeBackup({ foods: [] })));
+
+    expect(r.ok).toBe(false);
+    expect(getState().foods.map((food) => food.id)).toEqual(['old']);
   });
 });
 

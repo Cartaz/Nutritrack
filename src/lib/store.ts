@@ -17,20 +17,8 @@ import type {
 } from '../types';
 import { DEFAULT_SETTINGS } from './nutrition';
 import { isValidDateKey, safeId, toDateKey } from './utils';
-import { BACKUP_KEY, MAX_DIARY_ENTRIES_PER_DAY, STORAGE_KEY } from './constants';
-
-function clearAllStoredDataLocal(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-  try {
-    localStorage.removeItem(BACKUP_KEY);
-  } catch {
-    /* ignore */
-  }
-}
+import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
+import { clearAllLocalUserData } from './localData';
 
 function createDefaultPersistedState(): PersistedState {
   return {
@@ -535,11 +523,7 @@ export function resetAll(): void {
   state._confirmReset = false;
   state._addRecipeToMealPickerId = null;
   state._editingEntryId = null;
-  try {
-    clearAllStoredDataLocal();
-  } catch (e) {
-    console.warn('[store] pulizia storage fallita durante resetAll', e);
-  }
+  clearAllLocalUserData();
   emitChange();
 }
 

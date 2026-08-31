@@ -100,7 +100,8 @@ function errorMessage(error: unknown): string {
   if (name === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
     return 'Sei offline. Verifica la connessione e riprova.';
   }
-  if (name === 'RateLimitError') return 'Hai effettuato troppe ricerche ravvicinate. Attendi qualche secondo e riprova.';
+  if (name === 'RateLimitError')
+    return 'Hai effettuato troppe ricerche ravvicinate. Attendi qualche secondo e riprova.';
   if (name === 'NetworkError') return 'Open Food Facts non raggiungibile. Riprova tra qualche secondo.';
   if (name === 'TimeoutError') return 'Risposta di Open Food Facts troppo lenta. Riprova tra poco.';
   return 'Database Open Food Facts temporaneamente non disponibile. Riprova tra poco.';
@@ -139,7 +140,9 @@ async function executeSearch(query: string, page = 1): Promise<void> {
     } else {
       // OFF ids sono temporanei/random: dedupe per barcode, fallback name+brand.
       const identity = (food: FoodItem) =>
-        food.barcode ? `barcode:${food.barcode}` : `name:${food.name.toLowerCase()}:${(food.brand ?? '').toLowerCase()}`;
+        food.barcode
+          ? `barcode:${food.barcode}`
+          : `name:${food.name.toLowerCase()}:${(food.brand ?? '').toLowerCase()}`;
       const existing = new Set(_searchState.results.map(identity));
       _searchState.results = [..._searchState.results, ...items.filter((food) => !existing.has(identity(food)))];
     }
@@ -518,7 +521,9 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
   if (getState().foods.some((food) => food.id === foodId)) {
     removeCustomPortionFromFood(foodId, portionId);
   } else {
-    _searchState.pendingCustomPortions = _searchState.pendingCustomPortions.filter((portion) => portion.id !== portionId);
+    _searchState.pendingCustomPortions = _searchState.pendingCustomPortions.filter(
+      (portion) => portion.id !== portionId,
+    );
     emitChange();
   }
 }

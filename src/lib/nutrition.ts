@@ -210,7 +210,5 @@ export function kcalFromMacros(grams: { protein: number; carbs: number; fat: num
   const protein = Number.isFinite(grams.protein) ? Math.max(0, grams.protein) : 0;
   const carbs = Number.isFinite(grams.carbs) ? Math.max(0, grams.carbs) : 0;
   const fat = Number.isFinite(grams.fat) ? Math.max(0, grams.fat) : 0;
-  return Math.round(
-    protein * KCAL_PER_GRAM.protein + carbs * KCAL_PER_GRAM.carbs + fat * KCAL_PER_GRAM.fat,
-  );
+  return Math.round(protein * KCAL_PER_GRAM.protein + carbs * KCAL_PER_GRAM.carbs + fat * KCAL_PER_GRAM.fat);
 }

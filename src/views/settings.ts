@@ -179,7 +179,7 @@ function updateCalorieGoalLive(
           ? `<p class="hint-text">Sei già al peso target.</p>`
           : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
     }
-    ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
+    ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range tecnico [500..10000] kcal.</p>` : ''}
   `;
 }
 
@@ -206,7 +206,7 @@ function buildGoalToast(
     msg += ` · ${goal.weeksToTarget} settimane al target`;
   }
   if (goal.kcalClamped) {
-    msg += ` (kcal clampate a range sicuro)`;
+    msg += ` (kcal clampate a range tecnico)`;
   }
   return msg;
 }
@@ -275,7 +275,7 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
           ? `<p class="hint-text">Sei già al peso target.</p>`
           : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
     }
-    ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
+    ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range tecnico [500..10000] kcal.</p>` : ''}
   `;
 }
 
@@ -453,7 +453,7 @@ export function renderSettings(main: HTMLElement): void {
                       ? `<p class="hint-text">Sei già al peso target.</p>`
                       : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
                 }
-                ${goalPreview.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
+                ${goalPreview.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range tecnico [500..10000] kcal.</p>` : ''}
               `;
             })()}
           </div>

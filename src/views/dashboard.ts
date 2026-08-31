@@ -203,7 +203,7 @@ function renderBiometricCard(date: string): string {
   const sparkline = renderWeightSparkline(maPoints);
 
   const weightInferredNote = display.weightKgInferred
-    ? `<p class="bio-hint">Peso dall'ultima registrazione (${escapeHtml(formatDateIT(getLatestWeightDate(state.biometrics)))})</p>`
+    ? `<p class="bio-hint">Peso dall'ultima registrazione (${escapeHtml(formatDateIT(display.weightKgSourceDate ?? date))})</p>`
     : '';
 
   return `
@@ -263,12 +263,6 @@ function renderBiometricCard(date: string): string {
       ${sparkline}
     </section>
   `;
-}
-
-/** Helper: ritorna la data dell'ultimo peso registrato (per la nota "inferred"). */
-function getLatestWeightDate(biometrics: ReturnType<typeof getState>['biometrics']): string {
-  const points = computeWeightTrend(biometrics);
-  return points.length > 0 ? points[points.length - 1].date : '';
 }
 
 /** Mini sparkline SVG del trend peso. Mostra punti grezzi + linea media mobile 7gg.
