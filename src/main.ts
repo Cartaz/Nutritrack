@@ -1,10 +1,9 @@
 // Entry point: init store, load data, bind events, register SW (prod only), first render.
 
 import './styles/main.css';
-import { subscribe, getState, setCurrentDate } from './lib/store';
-import { loadData, enableAutoSave, initMultiTabSync, isStorageAvailable, shouldWarnQuota } from './lib/storage';
-import { setStorageDisabled } from './lib/store';
-import { render, bindGlobalEvents, applyInitialTheme } from './components/renderer';
+import { getState, setCurrentDate, setStorageDisabled, subscribe } from './lib/store';
+import { enableAutoSave, initMultiTabSync, isStorageAvailable, loadData, shouldWarnQuota } from './lib/storage';
+import { applyInitialTheme, bindGlobalEvents, render } from './components/renderer';
 import { showToast } from './components/toast';
 import { showModal } from './components/modal';
 import { terminateWorker } from './worker/client';
@@ -12,7 +11,6 @@ import { toDateKey } from './lib/utils';
 import { initKeyboardShortcuts } from './lib/keyboardShortcuts';
 
 function init(): void {
-  // 1. Storage detection + load
   if (!isStorageAvailable()) {
     setStorageDisabled(true);
     showModal({
@@ -31,55 +29,43 @@ function init(): void {
     }
   }
 
-  // 2. Tema
   applyInitialTheme();
-
-  // 3. Bind events globali
   bindGlobalEvents();
-  // P2 #3: keyboard shortcuts desktop (idempotente)
   initKeyboardShortcuts();
-
-  // 4. Subscribe per re-render su ogni change
   subscribe(render);
-
-  // 5. First render
   render();
 
-  // 6. Service Worker (solo in produzione)
-  if (import.meta.env.PROD) {
-    void registerSW();
-  }
+  if (import.meta.env.PROD) void registerSW();
 
-  // 7. Cleanup su unload
   window.addEventListener('beforeunload', () => {
     terminateWorker();
   });
 
-  // Fix 2.12 (T2): auto-advance della data a mezzanotte + su visibilitychange/focus.
-  // Se l'app resta aperta overnight, state.currentDate resta su ieri → badge "Oggi" sbagliato,
-  // nuove entry vanno alla data sbagliata, week stats non includono il nuovo giorno.
+  // Auto-advance solo se l'utente era rimasto sulla data che era "oggi".
+  // Una data storica scelta intenzionalmente non viene più persa su focus/visibilitychange.
+  let lastKnownToday = toDateKey(new Date());
   const checkMidnightRollover = (): void => {
     const today = toDateKey(new Date());
-    if (getState().currentDate !== today) {
-      setCurrentDate(today);
-    }
+    if (today === lastKnownToday) return;
+    const selectedDate = getState().currentDate;
+    const wasFollowingToday = selectedDate === lastKnownToday;
+    lastKnownToday = today;
+    if (wasFollowingToday) setCurrentDate(today);
   };
-  // Check su visibilitychange (tab torna attivo)
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') checkMidnightRollover();
   });
-  // Check su focus (window torna in primo piano)
   window.addEventListener('focus', checkMidnightRollover);
-  // Timer che scatta a mezzanotte (setTimeout calcolato al primo caricamento)
+
   const scheduleMidnightCheck = (): void => {
     const now = new Date();
     const midnight = new Date(now);
-    midnight.setHours(24, 0, 0, 0); // prossima mezzanotte
-    const msUntilMidnight = midnight.getTime() - now.getTime();
+    midnight.setHours(24, 0, 0, 0);
     setTimeout(() => {
       checkMidnightRollover();
-      scheduleMidnightCheck(); // rischedule per il giorno dopo
-    }, msUntilMidnight + 1000); // +1s per sicurezza
+      scheduleMidnightCheck();
+    }, midnight.getTime() - now.getTime() + 1000);
   };
   scheduleMidnightCheck();
 }
@@ -90,7 +76,6 @@ async function registerSW(): Promise<void> {
     registerVitePWA({
       immediate: true,
       onRegistered(registration) {
-        // Check aggiornamenti ogni ora
         if (registration) {
           setInterval(
             () => {
@@ -109,10 +94,8 @@ async function registerSW(): Promise<void> {
   }
 }
 
-// Boot
 init();
 
-// Esponi stato per debug in dev
 if (import.meta.env.DEV) {
   (window as unknown as { __nutritrack?: unknown }).__nutritrack = { getState };
 }
