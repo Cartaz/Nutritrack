@@ -300,8 +300,8 @@ function showUnsupportedToast(): void {
   showModal({
     modalId: 'barcode-unsupported',
     title: 'Scanner non disponibile',
-    bodyHtml:
-      "<p>Il tuo browser non supporta l'accesso alla fotocamera oppure non dispone di una camera. Puoi comunque cercare i prodotti per nome.</p>",
+    bodyText:
+      "Il tuo browser non supporta l'accesso alla fotocamera oppure non dispone di una camera. Puoi comunque cercare i prodotti per nome.",
     actions: [{ label: 'OK', action: 'close', variant: 'primary' }],
   });
 }

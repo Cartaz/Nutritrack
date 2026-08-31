@@ -176,7 +176,7 @@ export function renderFoodEditorModal(foodId: string | null): void {
   showModal({
     modalId: 'food-editor',
     title: editing ? 'Modifica alimento' : 'Crea alimento custom',
-    bodyHtml: renderFormBody(editing),
+    trustedBodyHtml: renderFormBody(editing),
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: editing ? 'Salva modifiche' : 'Crea alimento', action: 'confirm', variant: 'primary' },

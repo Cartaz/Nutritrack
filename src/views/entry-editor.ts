@@ -75,7 +75,7 @@ export function renderEntryEditorModal(entryId: string): void {
   showModal({
     modalId: 'entry-editor',
     title: 'Modifica quantità',
-    bodyHtml: renderFormBody(entry),
+    trustedBodyHtml: renderFormBody(entry),
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Salva', action: 'confirm', variant: 'primary' },

@@ -250,9 +250,11 @@ Deterministic coverage now protects:
 
 ## M6.3 Security/CSP hardening
 
-- [ ] Remove inline image event-handler JavaScript.
-- [ ] Make modal content construction safer by default so escaping is not purely caller discipline.
-- [ ] Evaluate a restrictive CSP after inline handlers are gone.
+**Status: completed 2026-08-31.**
+
+- [x] Remove inline image event-handler JavaScript; delegated image fallback owns both error and zero-width load handling.
+- [x] Make modal content safe by default with escaped `bodyText`; rich internal markup requires explicit `trustedBodyHtml`.
+- [x] Add and test a restrictive CSP: same-origin scripts, no `unsafe-eval`, no objects, explicit OFF network origins. Existing inline CSS remains temporarily allowed to avoid unrelated UI churn.
 
 ## M6.4 Toolchain maintenance
 
@@ -294,6 +296,6 @@ Every milestone must finish with:
 
 ## Current execution order
 
-`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 ✅ → M6.3 → M6.4`
+`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 ✅ → M6.3 ✅ → M6.4`
 
 The order can change only when a later dependency must be pulled forward to fix a correctness or integrity problem cleanly.

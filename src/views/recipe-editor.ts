@@ -135,7 +135,7 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
   showModal({
     modalId: 'recipe-editor',
     title: editing ? 'Modifica ricetta' : 'Crea ricetta custom',
-    bodyHtml: renderEditorBody(),
+    trustedBodyHtml: renderEditorBody(),
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: editing ? 'Salva ricetta' : 'Crea ricetta', action: 'confirm', variant: 'primary' },
@@ -255,7 +255,7 @@ function openSubSearch(): void {
   _subOverlay = showModal({
     modalId: 'recipe-search-sub',
     title: 'Aggiungi ingrediente',
-    bodyHtml: renderSubSearchShell(),
+    trustedBodyHtml: renderSubSearchShell(),
     actions: [],
     onClose: () => {
       cancelSubSearchWork();

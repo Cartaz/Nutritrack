@@ -199,7 +199,7 @@ function renderConfirmDeleteFood(): void {
   showModal({
     modalId: 'confirm-delete-food',
     title: "Eliminare l'alimento?",
-    bodyHtml: `<p>Stai per eliminare <strong>${escapeHtml(food.name)}</strong>. Le voci del diario che lo utilizzano manterranno uno snapshot dei dati nutrizionali, quindi non verranno perse.</p>`,
+    bodyText: `Stai per eliminare ${food.name}. Le voci del diario che lo utilizzano manterranno uno snapshot dei dati nutrizionali, quindi non verranno perse.`,
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Elimina', action: 'confirm', variant: 'danger' },
@@ -244,7 +244,7 @@ function renderConfirmDeleteRecipe(): void {
   showModal({
     modalId: 'confirm-delete-recipe',
     title: 'Eliminare la ricetta?',
-    bodyHtml: `<p>Stai per eliminare <strong>${escapeHtml(recipe.name)}</strong>. Questa azione non può essere annullata.</p>`,
+    bodyText: `Stai per eliminare ${recipe.name}. Questa azione non può essere annullata.`,
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Elimina', action: 'confirm', variant: 'danger' },
@@ -272,7 +272,8 @@ function renderConfirmReset(): void {
   showModal({
     modalId: 'confirm-reset',
     title: 'Resettare tutti i dati?',
-    bodyHtml: `<p>Verranno cancellati definitivamente alimenti, ricette, diario e impostazioni. Fai prima un backup se vuoi conservarli.</p>`,
+    bodyText:
+      'Verranno cancellati definitivamente alimenti, ricette, diario e impostazioni. Fai prima un backup se vuoi conservarli.',
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Reset', action: 'confirm', variant: 'danger' },
@@ -407,7 +408,7 @@ function renderRecipeMealPicker(): void {
   showModal({
     modalId: 'recipe-meal-picker',
     title: 'Aggiungi a quale pasto?',
-    bodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per ${escapeHtml(dateLabel)}</p>${servingsInput}<div class="grid-2">${buttons}</div>`,
+    trustedBodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per ${escapeHtml(dateLabel)}</p>${servingsInput}<div class="grid-2">${buttons}</div>`,
     actions: [{ label: 'Annulla', action: 'close', variant: 'outline' }],
     onClose: () => closeAddRecipeToMeal(),
   });

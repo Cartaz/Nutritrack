@@ -25,8 +25,8 @@ function init(): void {
     showModal({
       modalId: 'storage-disabled',
       title: 'Modalità privata',
-      bodyHtml:
-        '<p>Il salvataggio non è disponibile in questa sessione (modalità privata o storage disabilitato). I dati non verranno persistiti tra le sessioni.</p>',
+      bodyText:
+        'Il salvataggio non è disponibile in questa sessione (modalità privata o storage disabilitato). I dati non verranno persistiti tra le sessioni.',
       actions: [{ label: 'OK', action: 'close', variant: 'primary' }],
     });
   } else {
