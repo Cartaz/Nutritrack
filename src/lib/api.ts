@@ -1,40 +1,21 @@
-// API client tipizzato con AbortController + timeout + fallback multi-istanza OFF
-// + retry automatico con backoff per errori transitori.
-// Pattern 9 dello standard: apiGet<T>() con timeout 10s e supporto AbortSignal esterno.
-//
-// Fix B-8-1 (T8): deadline globale 20s (cumulative timeout era 5×8s=40s worst case).
-// Fix B-8-3 (T8): HTTP 429 → continue su prossima istanza (era trattato come 4xx fatal).
-// Fix B-8-4 (T8): dispatch su e.status invece di e.message.startsWith (fragile).
-// Fix B-8-6 (T8): invia OFF_USER_AGENT header.
-// Fix B-8-8 (T8): singolo listener su opts.signal (no accumulo).
-// Fix B-8-9 (T8): normalizza page/page_size/count a number.
-// Fix B-8-10 (T8): pre-check navigator.onLine.
-// Fix B-8-12 (T8): clearTimeout dopo res.json() (body read protetto).
-// Fix B-8-13 (T8): guard contro data null.
-//
-// Fix OFF-RETRY (issue #1): retry automatico con backoff per errori transitori.
-//   Quando OFF ha un blip (5xx, 429, network failure, timeout), riprova la stessa
-//   istanza dopo API_RETRY_DELAY_MS×attempt prima di passare alla successiva.
-//   Risolve il caso tipico in cui "riprovare dopo un secondo funziona".
+// API client Open Food Facts con timeout, abort e resilienza differenziata per tipo di endpoint.
+// I lookup puntuali possono usare fallback multi-istanza; le ricerche testuali sono una singola
+// richiesta remota per azione utente, in accordo con le regole di rate limiting OFF.
 
 import type { OffProduct, OffSearchResponse } from '../types';
 import {
-  API_TIMEOUT_MS,
   API_GLOBAL_DEADLINE_MS,
-  API_RETRY_PER_INSTANCE,
   API_RETRY_DELAY_MS,
+  API_RETRY_PER_INSTANCE,
+  API_TIMEOUT_MS,
   OFF_INSTANCES,
   OFF_PAGE_SIZE,
-  PARTIAL_MATCH_SUFFIXES,
 } from './constants';
-
-// Fix MEDIUM bug: OFF_USER_AGENT rimosso perché `User-Agent` è un forbidden header nei browser
-// (silently stripped per fingerprinting protection). Era dead code. Se in futuro vorremo
-// identificarci presso OFF, dovremo usare un header custom (es. `X-User-Agent`) o un proxy.
 
 export class ApiError extends Error {
   status?: number;
   override name: string;
+
   constructor(message: string, name: string, status?: number) {
     super(message);
     this.name = name;
@@ -42,215 +23,166 @@ export class ApiError extends Error {
   }
 }
 
-/** Sleep non bloccante che rispetta l'AbortSignal esterno.
- *  Se il signal si abortisce durante l'attesa, la promise rejecta con AbortError. */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new ApiError('Aborted', 'AbortError'));
       return;
     }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
     const onAbort = () => {
       clearTimeout(timer);
       reject(new ApiError('Aborted', 'AbortError'));
     };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
-/** Classifica un errore come "transitorio" (meritevole di retry):
- *  - NetworkError (TypeError di fetch: connection refused, DNS, ecc.)
- *  - TimeoutError (abort dal timeout interno)
- *  - HTTP 5xx e 429 (server error / rate limit)
- *  Non transitori: 4xx (eccetto 429) — errore del client, retry inutile. */
-function isTransientError(e: unknown): boolean {
-  if (e instanceof ApiError) {
-    if (e.name === 'NetworkError' || e.name === 'TimeoutError') return true;
-    if (e.status !== undefined && (e.status >= 500 || e.status === 429)) return true;
-    return false;
+function isTransientError(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    if (error.name === 'NetworkError' || error.name === 'TimeoutError') return true;
+    return error.status !== undefined && (error.status >= 500 || error.status === 429);
   }
-  const err = e as { name?: string };
-  if (err?.name === 'AbortError' || err?.name === 'TypeError') return true;
-  return false;
+  const err = error as { name?: string };
+  return err?.name === 'AbortError' || err?.name === 'TypeError';
 }
 
-/** Fetch con timeout interno + propagazione AbortSignal esterno.
- *  Fix B11: per-istanza AbortController — se la prima istanza hanga (TCP black hole),
- *  il timeout abortisce solo quella istanza e si passa alla successiva, non tutte.
- *  Fix B-8-1: deadline globale cumulativa previene 40s di attesa se tutte le istanze hangano.
- *  Fix OFF-RETRY: retry con backoff sulla stessa istanza per errori transitori. */
-export async function apiGetJson<T>(
-  buildUrl: (base: string) => string,
-  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
-): Promise<T> {
+interface ApiGetOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  /** Endpoint da interrogare. Default: tutte le istanze note. */
+  instances?: readonly string[];
+  /** Retry per singola istanza. Default: API_RETRY_PER_INSTANCE. */
+  retryPerInstance?: number;
+  /** Deadline cumulativa. */
+  globalDeadlineMs?: number;
+  /** Su 429 non provare altri host: utile per non aggirare rate limit di ricerca. */
+  stopOnRateLimit?: boolean;
+}
+
+/** Fetch JSON resiliente. Le policy di fallback sono parametri del chiamante, non hardcoded. */
+export async function apiGetJson<T>(buildUrl: (base: string) => string, opts: ApiGetOptions = {}): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? API_TIMEOUT_MS;
+  const instances = opts.instances ?? OFF_INSTANCES;
+  const retryPerInstance = opts.retryPerInstance ?? API_RETRY_PER_INSTANCE;
+  const globalDeadline = Date.now() + (opts.globalDeadlineMs ?? API_GLOBAL_DEADLINE_MS);
 
-  // Signal esterno: se già aborted, throw subito
-  if (opts.signal?.aborted) {
-    throw new ApiError('Aborted', 'AbortError');
-  }
-
-  // Fix B-8-10: pre-check navigator.onLine per feedback immediato.
-  // Questo è l'unico caso in cui il messaggio "Sei offline" è accurato.
+  if (opts.signal?.aborted) throw new ApiError('Aborted', 'AbortError');
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new ApiError('Sei offline. Verifica la connessione e riprova.', 'OfflineError');
   }
 
-  // Fix B-8-1: deadline globale
-  const globalDeadline = Date.now() + API_GLOBAL_DEADLINE_MS;
-
-  // Fix B-8-8: singolo listener su opts.signal che abortisce il controller corrente
   let currentController: AbortController | null = null;
   const onAbortExternal = () => currentController?.abort();
-  if (opts.signal) {
-    opts.signal.addEventListener('abort', onAbortExternal, { once: true });
-  }
-
+  opts.signal?.addEventListener('abort', onAbortExternal, { once: true });
   let lastError: Error | null = null;
 
   try {
-    for (const base of OFF_INSTANCES) {
-      // Fix OFF-RETRY: loop di retry sulla stessa istanza per errori transitori.
-      // maxAttempts = 1 + API_RETRY_PER_INSTANCE (es. 2 tentativi totali se retry=1).
-      const maxAttempts = 1 + API_RETRY_PER_INSTANCE;
+    for (const base of instances) {
+      const maxAttempts = 1 + Math.max(0, retryPerInstance);
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const remaining = globalDeadline - Date.now();
         if (remaining < 500) {
-          // Deadline globale quasi scaduto: esci
-          lastError =
-            lastError ?? new ApiError('Tutte le istanze OFF non disponibili (deadline globale)', 'TimeoutError');
+          lastError = lastError ?? new ApiError('Deadline globale Open Food Facts superata', 'TimeoutError');
           break;
         }
-        const instanceTimeout = Math.min(timeoutMs, remaining);
 
-        // Fix B11: nuovo AbortController per ogni tentativo
         currentController = new AbortController();
-        const timeoutId = setTimeout(() => currentController?.abort(), instanceTimeout);
-
-        const url = buildUrl(base);
+        const timeoutId = setTimeout(() => currentController?.abort(), Math.min(timeoutMs, remaining));
         try {
-          const res = await fetch(url, {
-            headers: {
-              Accept: 'application/json',
-              // Fix MEDIUM bug: rimosso 'User-Agent' header — è forbidden dai browser (silently stripped).
-              // Era dead code. Vedere nota nel commento in cima al file.
-            },
+          const response = await fetch(buildUrl(base), {
+            headers: { Accept: 'application/json' },
             signal: currentController.signal,
           });
-          // 5xx: prova prossima istanza (o retry sulla stessa)
-          // Fix B-8-3: 429 (rate limit) → retry su stessa istanza poi prossima
-          if ((res.status >= 500 && res.status < 600) || res.status === 429) {
+
+          if (response.status === 429) {
             clearTimeout(timeoutId);
-            lastError = new ApiError(`Server OFF ${base} non disponibile (${res.status})`, 'ApiError', res.status);
-            // Fix OFF-RETRY: se ci sono ancora tentativi disponibili, aspetta e ritenta
+            const rateError = new ApiError('Limite richieste Open Food Facts raggiunto', 'RateLimitError', 429);
+            if (opts.stopOnRateLimit) throw rateError;
+            lastError = rateError;
             if (attempt < maxAttempts - 1) {
               const delay = API_RETRY_DELAY_MS * (attempt + 1);
-              // Rispetta il deadline globale
               if (Date.now() + delay < globalDeadline) {
                 await sleep(delay, opts.signal);
                 continue;
               }
-              break;
             }
-            break; // tentativi esauriti per questa istanza, passa alla prossima
+            break;
           }
-          // 4xx reale (404, 400): ritorna errore
-          if (!res.ok) {
+
+          if (response.status >= 500 && response.status < 600) {
             clearTimeout(timeoutId);
-            const ct = res.headers.get('content-type') || '';
-            if (!ct.includes('application/json')) {
-              lastError = new ApiError(`Risposta non valida da ${base}`, 'ApiError', res.status);
-              // 4xx non-JSON: probabilmente pagina HTML di errore — prova prossima istanza
-              break;
+            lastError = new ApiError(`Server OFF ${base} non disponibile (${response.status})`, 'ApiError', response.status);
+            if (attempt < maxAttempts - 1) {
+              const delay = API_RETRY_DELAY_MS * (attempt + 1);
+              if (Date.now() + delay < globalDeadline) {
+                await sleep(delay, opts.signal);
+                continue;
+              }
             }
-            throw new ApiError(`Errore ricerca: ${res.status}`, 'ApiError', res.status);
+            break;
           }
-          const ct = res.headers.get('content-type') || '';
-          if (!ct.includes('application/json')) {
+
+          if (!response.ok) {
+            clearTimeout(timeoutId);
+            throw new ApiError(`Errore Open Food Facts: ${response.status}`, 'ApiError', response.status);
+          }
+
+          const contentType = response.headers.get('content-type') || '';
+          if (!contentType.includes('application/json')) {
             clearTimeout(timeoutId);
             lastError = new ApiError(`Risposta non JSON da ${base}`, 'ApiError');
-            // Non-transitorio (risposta valida ma content-type sbagliato): passa alla prossima
             break;
           }
-          // Fix B-8-12: leggi body PRIMA di clearTimeout (body read protetto da timeout)
-          const json = (await res.json()) as T;
+
+          const json = (await response.json()) as T;
           clearTimeout(timeoutId);
           return json;
-        } catch (e: unknown) {
+        } catch (error: unknown) {
           clearTimeout(timeoutId);
-          // Fix B-8-4: dispatch su status invece di message.startsWith
+          if (error instanceof ApiError && error.name === 'RateLimitError') throw error;
           if (
-            e instanceof ApiError &&
-            e.status !== undefined &&
-            e.status >= 400 &&
-            e.status < 500 &&
-            e.status !== 429
+            error instanceof ApiError &&
+            error.status !== undefined &&
+            error.status >= 400 &&
+            error.status < 500 &&
+            error.status !== 429
           ) {
-            throw e;
+            throw error;
           }
-          const err = e as { name?: string };
+
+          const err = error as { name?: string };
           if (err?.name === 'AbortError') {
-            // Fix B11: distingui tra timeout interno (questa istanza) e abort esterno
-            if (opts.signal?.aborted) {
-              // Abort esterno: propaga
-              throw new ApiError('Aborted', 'AbortError');
-            }
-            // Timeout interno su QUESTO tentativo
+            if (opts.signal?.aborted) throw new ApiError('Aborted', 'AbortError');
             lastError = new ApiError(`Timeout su ${base}`, 'TimeoutError');
-            // Fix OFF-RETRY: se ci sono tentativi disponibili, aspetta e ritenta
-            if (attempt < maxAttempts - 1) {
-              const delay = API_RETRY_DELAY_MS * (attempt + 1);
-              if (Date.now() + delay < globalDeadline) {
-                try {
-                  await sleep(delay, opts.signal);
-                  continue;
-                } catch {
-                  // sleep abortita da signal esterno: propaga
-                  throw new ApiError('Aborted', 'AbortError');
-                }
-              }
-              break;
-            }
-            break; // tentativi esauriti, passa alla prossima istanza
-          }
-          if (err?.name === 'TypeError') {
-            // network failure: retry sulla stessa istanza poi passa alla prossima
+          } else if (err?.name === 'TypeError') {
             lastError = new ApiError('Network', 'NetworkError');
-            if (attempt < maxAttempts - 1) {
-              const delay = API_RETRY_DELAY_MS * (attempt + 1);
-              if (Date.now() + delay < globalDeadline) {
-                try {
-                  await sleep(delay, opts.signal);
-                  continue;
-                } catch {
-                  throw new ApiError('Aborted', 'AbortError');
-                }
-              }
-              break;
-            }
-            break;
+          } else {
+            lastError = error instanceof Error ? error : new Error(String(error));
           }
-          // Errore non classificato: registralo e passa alla prossima istanza
-          lastError = e instanceof Error ? e : new Error(String(e));
+
+          if (isTransientError(lastError) && attempt < maxAttempts - 1) {
+            const delay = API_RETRY_DELAY_MS * (attempt + 1);
+            if (Date.now() + delay < globalDeadline) {
+              await sleep(delay, opts.signal);
+              continue;
+            }
+          }
           break;
         }
       }
     }
   } finally {
-    // Fix B-8-8: rimuovi sempre il listener esterno
-    if (opts.signal) {
-      opts.signal.removeEventListener('abort', onAbortExternal);
-    }
+    opts.signal?.removeEventListener('abort', onAbortExternal);
   }
 
-  throw lastError ?? new ApiError('Tutte le istanze OFF non disponibili', 'ApiError');
+  throw lastError ?? new ApiError('Open Food Facts non disponibile', 'ApiError');
 }
 
-// ============ Endpoint wrappers ============
+// ============ Search endpoint ============
 
 export interface SearchOffOpts {
   page?: number;
@@ -259,15 +191,47 @@ export interface SearchOffOpts {
   signal?: AbortSignal;
 }
 
-/** Cerca prodotti su Open Food Facts con fallback multi-istanza */
+// OFF documenta 10 search/min/IP. Manteniamo un margine ed evitiamo di inviare
+// richieste quando il client ha già prodotto 9 ricerche negli ultimi 60 secondi.
+const SEARCH_WINDOW_MS = 60_000;
+const SEARCH_WINDOW_MAX = 9;
+const _searchTimestamps: number[] = [];
+
+function acquireSearchSlot(now = Date.now()): void {
+  while (_searchTimestamps.length > 0 && now - _searchTimestamps[0] >= SEARCH_WINDOW_MS) {
+    _searchTimestamps.shift();
+  }
+  if (_searchTimestamps.length >= SEARCH_WINDOW_MAX) {
+    throw new ApiError('Troppe ricerche ravvicinate. Attendi qualche secondo e riprova.', 'RateLimitError', 429);
+  }
+  _searchTimestamps.push(now);
+}
+
+function normalizeResponseNumber(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+/**
+ * Una chiamata di searchOff corrisponde a una sola richiesta HTTP. Nessun suffix
+ * expansion, nessun retry e nessun cambio host su 429: il rate limit è un contratto.
+ */
 export async function searchOff(
   query: string,
   opts: SearchOffOpts = {},
 ): Promise<{ products: OffProduct[]; count: number; page: number; pageSize: number }> {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return { products: [], count: 0, page: 1, pageSize: opts.pageSize ?? OFF_PAGE_SIZE };
+
+  acquireSearchSlot();
   const page = opts.page ?? 1;
   const pageSize = opts.pageSize ?? OFF_PAGE_SIZE;
   const params = new URLSearchParams({
-    search_terms: query,
+    search_terms: normalizedQuery,
     search_simple: '1',
     action: 'process',
     json: '1',
@@ -281,121 +245,45 @@ export async function searchOff(
     params.set('tag_0', 'italia');
   }
 
-  // Fix B-8-13: guard contro data null
-  const data = (await apiGetJson<OffSearchResponse | null>((base) => `${base}/cgi/search.pl?${params.toString()}`, {
-    signal: opts.signal,
-  })) as OffSearchResponse | null;
+  // L'istanza italiana è il primo endpoint coerente con l'app. Se fallisce, la UI
+  // permette un nuovo tentativo esplicito invece di moltiplicare automaticamente le query.
+  const searchInstance = [OFF_INSTANCES[0]] as const;
+  const data = await apiGetJson<OffSearchResponse | null>(
+    (base) => `${base}/cgi/search.pl?${params.toString()}`,
+    {
+      signal: opts.signal,
+      instances: searchInstance,
+      retryPerInstance: 0,
+      stopOnRateLimit: true,
+      globalDeadlineMs: API_TIMEOUT_MS,
+    },
+  );
 
-  if (!data || typeof data !== 'object') {
-    return { products: [], count: 0, page: 1, pageSize };
-  }
-
-  // Fix B-8-9: normalizza page/page_size/count a number (OFF a volte ritorna stringhe)
-  const normalizeNum = (v: unknown, fallback: number): number => {
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string') {
-      const n = Number(v);
-      if (Number.isFinite(n)) return n;
-    }
-    return fallback;
-  };
-
+  if (!data || typeof data !== 'object') return { products: [], count: 0, page: 1, pageSize };
   return {
     products: Array.isArray(data.products) ? data.products : [],
-    count: normalizeNum(data.count, 0),
-    page: normalizeNum(data.page, 1),
-    pageSize: normalizeNum(data.page_size, pageSize),
+    count: normalizeResponseNumber(data.count, 0),
+    page: normalizeResponseNumber(data.page, 1),
+    pageSize: normalizeResponseNumber(data.page_size, pageSize),
   };
 }
 
-// ============ Partial match (suffix expansion) ============
-
-/** Risultato di searchOffWithPartialMatch: include `effectiveQuery` che il caller
- *  deve usare per la paginazione (page > 1) per garantire coerenza dei risultati. */
+/** Compatibilità API: niente più espansione automatica, quindi effectiveQuery è la query originale. */
 export interface SearchOffResult {
   products: OffProduct[];
   count: number;
   page: number;
   pageSize: number;
-  /** Query che ha effettivamente prodotto i risultati (può differire da quella
-   *  originale se è stato applicato il suffix expansion). */
   effectiveQuery: string;
 }
 
-/** Verifica se una query termina già con uno dei suffissi italiani comuni.
- *  In tal caso, il suffix expansion non serve (la query è già "completa"). */
-function endsWithItalianSuffix(query: string): boolean {
-  if (query.length === 0) return false;
-  const lastChar = query.slice(-1).toLowerCase();
-  return (PARTIAL_MATCH_SUFFIXES as readonly string[]).includes(lastChar);
-}
-
-/** Cerca prodotti su OFF con suffix expansion automatico per query parziali.
- *
- *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`
- *  ritorna 0 risultati). Quindi "melanzan" ritorna 0 prodotti anche se
- *  "melanzane" ne ha 417.
- *
- *  Strategia:
- *  1. Prova la query originale. Se ritorna risultati, li usa.
- *  2. Se 0 risultati E la query non termina già con un suffisso italiano,
- *     prova in parallelo la query + ogni suffisso di PARTIAL_MATCH_SUFFIXES.
- *  3. Ritorna il risultato con più prodotti (o il primo non-vuoto in caso
- *     di parità). Se tutti falliscono, ritorna il risultato originale (vuoto).
- *
- *  Il caller deve usare `effectiveQuery` dal risultato per le pagine successive
- *  (paginazione coerente). Su page > 1, la funzione NON ripete il suffix
- *  expansion: usa direttamente la query passata (che dovrebbe essere
- *  `effectiveQuery` della page 1).
- *
- *  @param query Query utente (già trimmata)
- *  @param opts  Opzioni di ricerca (signal, page, pageSize, italianOnly)
- *  @returns     Risultato con effectiveQuery per paginazione */
 export async function searchOffWithPartialMatch(query: string, opts: SearchOffOpts = {}): Promise<SearchOffResult> {
-  const page = opts.page ?? 1;
-
-  // Prova la query originale
-  const original = await searchOff(query, opts);
-
-  // Se ha risultati, oppure siamo su page > 1 (paginazione: usa già effectiveQuery),
-  // oppure la query termina già con un suffisso, ritorna senza expansion
-  if (original.products.length > 0 || page > 1 || endsWithItalianSuffix(query)) {
-    return { ...original, effectiveQuery: query };
-  }
-
-  // Suffix expansion: prova ogni suffisso in parallelo.
-  // catch → null: se un suffisso fallisce (network/timeout), lo ignora e continua.
-  const suffixResults = await Promise.all(
-    PARTIAL_MATCH_SUFFIXES.map((suffix) =>
-      searchOff(query + suffix, opts)
-        .then((r) => ({ suffix, result: r }))
-        .catch(() => null),
-    ),
-  );
-
-  // Trova il risultato con più prodotti
-  let best = original;
-  let bestQuery = query;
-  for (const sr of suffixResults) {
-    if (sr && sr.result.products.length > best.products.length) {
-      best = sr.result;
-      bestQuery = query + sr.suffix;
-    }
-  }
-
-  return {
-    products: best.products,
-    count: best.count,
-    page: best.page,
-    pageSize: best.pageSize,
-    effectiveQuery: bestQuery,
-  };
+  const result = await searchOff(query, opts);
+  return { ...result, effectiveQuery: query.trim() };
 }
 
-/** Recupera un prodotto per barcode.
- *  Fix MEDIUM bug: distingue 404 (prodotto non trovato, ritorna null) da altri errori
- *  (5xx, network, timeout) che ora propagano come ApiError per permettere alla UI di
- *  mostrare un messaggio appropriato invece del fuorviante "Nessun prodotto trovato". */
+// ============ Product lookup ============
+
 export async function getOffByBarcode(barcode: string, signal?: AbortSignal): Promise<OffProduct | null> {
   try {
     const data = await apiGetJson<{ product?: OffProduct } | null>(
@@ -404,17 +292,16 @@ export async function getOffByBarcode(barcode: string, signal?: AbortSignal): Pr
     );
     if (!data || typeof data !== 'object') return null;
     return data.product ?? null;
-  } catch (e) {
-    // Fix MEDIUM bug: 404 = prodotto non trovato, ritorna null silenziosamente.
-    // Altri errori (5xx, network, timeout) → propaga come ApiError per feedback UI corretto.
-    if (e instanceof ApiError && e.status === 404) {
-      return null;
-    }
-    // Per altri errori, logga e rilancia così il caller può distinguere "non trovato" da "servizio down"
-    console.warn('[api] getOffByBarcode error (non-404)', e);
-    throw e;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    console.warn('[api] getOffByBarcode error (non-404)', error);
+    throw error;
   }
 }
 
-// Esportato per i test
+/** Reset limiter solo per isolamento dei test. */
+export function __resetSearchLimiterForTesting(): void {
+  _searchTimestamps.length = 0;
+}
+
 export { isTransientError };
