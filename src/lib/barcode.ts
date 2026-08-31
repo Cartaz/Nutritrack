@@ -87,7 +87,12 @@ async function detectWithNative(video: HTMLVideoElement, signal: AbortSignal): P
       signal.removeEventListener('abort', onAbort);
       if (intervalId !== null) clearInterval(intervalId);
     };
-    const onAbort = (): void => stop();
+    // L'abort è parte del contratto pubblico: deve sempre completare la Promise.
+    // Prima fermava solo il timer, lasciando detectBarcodeFromVideo pending per sempre.
+    const onAbort = (): void => {
+      stop();
+      resolve(null);
+    };
     signal.addEventListener('abort', onAbort, { once: true });
 
     intervalId = setInterval(async () => {
