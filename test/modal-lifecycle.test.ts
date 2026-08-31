@@ -28,7 +28,9 @@ describe('modal lifecycle regressions', () => {
       onConfirm,
     });
 
-    document.querySelector<HTMLElement>('[data-modal-id="validation"] [data-modal-action="confirm"]')?.click();
+    document
+      .querySelector<HTMLElement>('[data-modal-id="validation"] [data-modal-action="confirm"]')
+      ?.click();
     vi.advanceTimersByTime(250);
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -85,5 +87,55 @@ describe('modal lifecycle regressions', () => {
     closeModalById('replace-me');
     vi.advanceTimersByTime(250);
     expect(newClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('chiudendo subito il sostituto non riattiva il callback del modal superato', () => {
+    const oldClose = vi.fn();
+    const newClose = vi.fn();
+
+    showModal({
+      modalId: 'rapid-replace',
+      title: 'Vecchio',
+      bodyText: 'A',
+      actions: [{ label: 'OK', action: 'close' }],
+      onClose: oldClose,
+    });
+    showModal({
+      modalId: 'rapid-replace',
+      title: 'Nuovo',
+      bodyText: 'B',
+      actions: [{ label: 'OK', action: 'close' }],
+      onClose: newClose,
+    });
+
+    closeModalById('rapid-replace');
+    vi.advanceTimersByTime(250);
+
+    expect(oldClose).not.toHaveBeenCalled();
+    expect(newClose).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('[data-modal-id="rapid-replace"]')).toHaveLength(0);
+  });
+
+  it('una sostituzione conserva il target di ritorno del focus originale', () => {
+    const origin = document.querySelector<HTMLButtonElement>('#origin')!;
+    origin.focus();
+
+    showModal({
+      modalId: 'focus-replace',
+      title: 'Vecchio',
+      bodyText: 'A',
+      actions: [{ label: 'OK', action: 'close' }],
+    });
+    showModal({
+      modalId: 'focus-replace',
+      title: 'Nuovo',
+      bodyText: 'B',
+      actions: [{ label: 'OK', action: 'close' }],
+    });
+
+    closeModalById('focus-replace');
+    vi.advanceTimersByTime(250);
+
+    expect(document.activeElement).toBe(origin);
   });
 });
