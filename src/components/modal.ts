@@ -127,8 +127,12 @@ function closeModal(el: HTMLElement): void {
     if (document.querySelectorAll('.modal-overlay').length === 0) {
       document.body.classList.remove('modal-open');
     }
-    // Fix B6: onClose callback per cleanup state
-    if (cb?.onClose) {
+
+    // Se durante il fade-out è comparso un nuovo modal con lo stesso id, il vecchio
+    // è stato sostituito. Il suo onClose non deve ripulire lo stato del nuovo modal
+    // (es. conferma eliminazione A sostituita immediatamente da B).
+    const replacementActive = _callbacks.has(modalId);
+    if (!replacementActive && cb?.onClose) {
       try {
         cb.onClose();
       } catch (e) {
@@ -136,8 +140,8 @@ function closeModal(el: HTMLElement): void {
       }
     }
     _closing.delete(el);
-    // Fix 2.7 (T2): ripristina focus all'elemento focalizzato prima dell'apertura del modal
-    if (_previouslyFocused && typeof _previouslyFocused.focus === 'function') {
+    // Il focus del modal sostituito appartiene ormai al nuovo modal: non ripristinarlo.
+    if (!replacementActive && _previouslyFocused && typeof _previouslyFocused.focus === 'function') {
       try {
         _previouslyFocused.focus();
       } catch {
@@ -166,7 +170,9 @@ export function showModal(opts: ShowModalOptions): HTMLElement {
   initModal();
   const modalId = opts.modalId || `modal-${Date.now()}`;
 
-  // Se esiste già un modal con stesso id, chiudilo prima (dedupe)
+  // Se esiste già un modal con stesso id, chiudilo prima (dedupe).
+  // closeModal riconosce una sostituzione se il nuovo callback viene registrato
+  // durante il fade-out e sopprime l'onClose del vecchio modal.
   const existing = document.querySelector<HTMLElement>(`.modal-overlay[data-modal-id="${modalId}"]`);
   if (existing) {
     closeModal(existing);
