@@ -1,12 +1,4 @@
 // Test unitari per src/lib/keyboardShortcuts.ts
-//
-// Verifica (leggera, focus su comportamento chiave):
-// - initKeyboardShortcuts è idempotente
-// - help overlay: open/close
-// - shortcut "/" apre search dialog
-// - shortcut "d/f/r/s" cambiano vista
-// - shortcut "?" apre help overlay
-// - shortcut ignorati quando si sta digitando in un input
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
@@ -18,7 +10,6 @@ import {
 import { setState } from '../src/lib/store';
 import { switchView, openFoodSearch } from '../src/lib/store';
 
-// Mock store actions per verificare le chiamate
 vi.mock('../src/lib/store', async () => {
   const actual = await vi.importActual<typeof import('../src/lib/store')>('../src/lib/store');
   return {
@@ -35,17 +26,8 @@ beforeEach(() => {
     recipes: [],
     favoriteFoodIds: [],
     biometrics: {},
-    _searchOpen: false,
-    _editingFoodId: null,
-    _editingRecipeId: null,
-    _viewingRecipeId: null,
-    _confirmReset: false,
-    _confirmDeleteFoodId: null,
-    _confirmDeleteRecipeId: null,
-    _addRecipeToMealPickerId: null,
-    _editingEntryId: null,
+    dialog: null,
   });
-  // Pulisci eventuali overlay residui
   document.body.innerHTML = '';
   document.body.classList.remove('modal-open');
 });
@@ -70,11 +52,9 @@ describe('initKeyboardShortcuts', () => {
     initKeyboardShortcuts();
     initKeyboardShortcuts();
     initKeyboardShortcuts();
-    // Se fossero duplicati, dispatchando "?" aprirebbe 3 overlay (ma verifichiamo solo 1)
     dispatchKey('?');
     expect(__isHelpOpenForTesting()).toBe(true);
-    const overlays = document.querySelectorAll('#kbd-help-overlay');
-    expect(overlays).toHaveLength(1);
+    expect(document.querySelectorAll('#kbd-help-overlay')).toHaveLength(1);
   });
 });
 
@@ -118,7 +98,7 @@ describe('navigation shortcuts', () => {
   });
 
   it('"d" passa al dashboard', () => {
-    setState({ currentView: 'foods' }); // già su foods per evitare short-circuit
+    setState({ currentView: 'foods' });
     dispatchKey('d');
     expect(switchView).toHaveBeenCalledWith('dashboard');
   });
@@ -141,7 +121,7 @@ describe('navigation shortcuts', () => {
     expect(switchView).toHaveBeenCalledWith('settings');
   });
 
-  it('shortcut ignorato se già su quella vista (no switchView call)', () => {
+  it('shortcut ignorato se già su quella vista', () => {
     setState({ currentView: 'dashboard' });
     dispatchKey('d');
     expect(switchView).not.toHaveBeenCalled();
@@ -157,8 +137,11 @@ describe('guard conditions', () => {
     expect(switchView).not.toHaveBeenCalled();
   });
 
-  it('shortcut ignorato quando un modal è aperto', () => {
-    setState({ currentView: 'foods', _searchOpen: true });
+  it('shortcut ignorato quando un dialog applicativo è aperto', () => {
+    setState({
+      currentView: 'foods',
+      dialog: { type: 'food-search', meal: 'breakfast', date: '2026-08-31' },
+    });
     dispatchKey('d');
     expect(switchView).not.toHaveBeenCalled();
   });

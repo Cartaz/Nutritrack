@@ -5,7 +5,7 @@ import {
   addRecipe,
   updateRecipe,
   deleteRecipe,
-  getState,
+  getActiveDialog,
   openDeleteRecipeConfirm,
   closeDeleteRecipeConfirm,
 } from './store';
@@ -34,9 +34,9 @@ export function requestDeleteRecipe(id: string): void {
 }
 
 export function confirmDeleteRecipe(): void {
-  const id = getState()._confirmDeleteRecipeId;
-  if (!id) return;
-  deleteRecipe(id);
+  const dialog = getActiveDialog();
+  if (dialog?.type !== 'confirm-delete-recipe') return;
+  deleteRecipe(dialog.recipeId);
   closeDeleteRecipeConfirm();
   showToast('Ricetta eliminata', 'success');
 }

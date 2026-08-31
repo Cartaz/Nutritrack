@@ -1,6 +1,14 @@
 // Modal: editor ricetta. Form nome/desc/servings + lista ingredienti con ricerca OFF.
 
-import { getState, closeRecipeEditor, addRecipe, updateRecipe, openFoodEditor, emitChange } from '../lib/store';
+import {
+  getState,
+  closeRecipeEditor,
+  addRecipe,
+  updateRecipe,
+  openFoodEditor,
+  emitChange,
+  isRecipeEditorOpen,
+} from '../lib/store';
 import { showToast } from '../components/toast';
 import { showModal, closeModalById } from '../components/modal';
 import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
@@ -17,16 +25,13 @@ interface EditorState {
   description: string;
   servings: string;
   ingredients: RecipeIngredient[];
-  // ingredient search sub-dialog
   searchOpen: boolean;
   searchTab: 'favorites' | 'saved' | 'search';
   searchQuery: string;
   searchLoading: boolean;
   searchResults: FoodItem[];
   searchAbort: AbortController | null;
-  // Fix OFF-RETRY (issue #1): flag auto-retry per la sub-search ingredienti
   searchAutoRetryDone: boolean;
-  // Fix PARTIAL-MATCH: query efficace (con suffix expansion applicato) per paginazione
   searchEffectiveQuery: string;
 }
 
@@ -67,8 +72,6 @@ function resetRecipeEditorState(): void {
 function loadFromRecipe(recipeId: string): void {
   const r = getState().recipes.find((x) => x.id === recipeId);
   if (!r) {
-    // Fix MEDIUM bug: se la ricetta è stata cancellata in altro tab mentre il viewer era aperto,
-    // chiudi l'editor invece di lasciarlo in uno stato inconsistente (titolo "Modifica" su form vuoto).
     resetRecipeEditorState();
     closeRecipeEditor();
     showToast('La ricetta non esiste più (potrebbe essere stata eliminata in un altro tab)', 'warning', 5000);
@@ -93,11 +96,7 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: editing ? 'Salva ricetta' : 'Crea ricetta', action: 'confirm', variant: 'primary' },
     ],
-    onConfirm: () => {
-      // Fix B5: ritorna false per bloccare chiusura se validazione fallisce
-      return handleSave(recipeId);
-    },
-    // Fix B6: cleanup state quando il modal viene chiuso
+    onConfirm: () => handleSave(recipeId),
     onClose: () => closeRecipeEditor(),
   });
 
@@ -191,11 +190,7 @@ function computeTotals(ingredients: RecipeIngredient[]) {
   return sumNutrition(nutritions);
 }
 
-// ============ Sub-dialog: ingredient search (proper modal with zone updates) ============
-// Pattern: il sub-search è un modal top-level registrato via showModal().
-// La shell (overlay + header con X + zone vuote) viene creata UNA volta.
-// Ad ogni cambio di stato, solo le zone dinamiche (tabs, list) vengono aggiornate.
-// L'input #re-search-input non viene MAI toccato dopo la creazione per non perdere focus.
+// ============ Sub-dialog: ingredient search ============
 
 let _subOverlay: HTMLElement | null = null;
 
@@ -216,7 +211,6 @@ function openSubSearch(): void {
     onClose: () => {
       _recipeEditorState.searchOpen = false;
       _subOverlay = null;
-      // Abort ricerca in corso
       if (_recipeEditorState.searchAbort) {
         try {
           _recipeEditorState.searchAbort.abort();
@@ -231,7 +225,6 @@ function openSubSearch(): void {
 
   updateSubSearchContent();
 
-  // Focus sul campo di ricerca se siamo sul tab search
   if (_recipeEditorState.searchTab === 'search') {
     setTimeout(() => {
       const inp = _subOverlay?.querySelector<HTMLInputElement>('#re-search-input');
@@ -256,7 +249,6 @@ function updateSubSearchContent(): void {
   const state = getState();
   const favorites = state.foods.filter((f) => state.favoriteFoodIds.includes(f.id));
 
-  // --- Tabs ---
   const tabsEl = _subOverlay.querySelector<HTMLElement>('[data-sub-zone="tabs"]');
   if (tabsEl) {
     const tabBtn = (id: 'favorites' | 'saved' | 'search', label: string, disabled: boolean) => `
@@ -269,32 +261,26 @@ function updateSubSearchContent(): void {
     `;
   }
 
-  // --- Searchbox (only on search tab) — created once, never touched after ---
   const boxEl = _subOverlay.querySelector<HTMLElement>('[data-sub-zone="searchbox"]');
   if (boxEl) {
     const shouldShow = _recipeEditorState.searchTab === 'search';
     const hasContent = boxEl.children.length > 0;
     if (shouldShow && !hasContent) {
-      // Crea il searchbox con input vergine
       boxEl.innerHTML = `
         <div class="search-box">
           <span class="search-icon">🔍</span>
           <input id="re-search-input" type="search" placeholder="Cerca su Open Food Facts…" autocomplete="off" />
         </div>
       `;
-      // Autofocus
       setTimeout(() => {
         const inp = boxEl.querySelector<HTMLInputElement>('#re-search-input');
         if (inp) inp.focus();
       }, 0);
     } else if (!shouldShow && hasContent) {
-      // Rimuovi il searchbox
       boxEl.innerHTML = '';
     }
-    // Se shouldShow && hasContent: NON toccare l'input (preserva focus e cursore)
   }
 
-  // --- List ---
   updateSubSearchList();
 }
 
@@ -338,16 +324,12 @@ function rerenderModalBody(): void {
   if (body) body.innerHTML = renderEditorBody();
 }
 
-/** Update mirato del DOM per la riga ingrediente modificata + i totali.
- *  Preserva il focus sull'input dei grammi (a differenza di rerenderModalBody
- *  che rigenererebbe tutto il body distruggendo il focus ad ogni keystroke). */
 function updateIngRowLive(ingId: string): void {
   const overlay = document.querySelector('[data-modal-id="recipe-editor"]');
   if (!overlay) return;
   const ing = _recipeEditorState.ingredients.find((i) => i.id === ingId);
   if (!ing) return;
 
-  // Aggiorna solo il <p class="ing-meta"> della riga
   const row = overlay.querySelector<HTMLElement>(`[data-ing-id="${CSS.escape(ingId)}"]`)?.closest('.ing-row');
   if (row) {
     const scaled = scaleNutrition(ing.foodSnapshot.nutrition, ing.grams);
@@ -357,7 +339,6 @@ function updateIngRowLive(ingId: string): void {
     }
   }
 
-  // Aggiorna i totali (Totale ricetta + Per porzione)
   const totals = computeTotals(_recipeEditorState.ingredients);
   const servings = Number(_recipeEditorState.servings) || 1;
   const per = {
@@ -386,14 +367,11 @@ function updateIngRowLive(ingId: string): void {
         ${renderMacroBox('G', `${per.fat}g`, true)}
       `;
     }
-    // Aggiorna label porzioni
     const perLabel = totalsBlocks[1].querySelector('.totals-label');
     if (perLabel) perLabel.textContent = `Per porzione (${servings} porz.)`;
   }
 }
 
-/** Update mirato del solo blocco "Per porzione" — usato quando cambia il numero
- *  di porzioni, per preservare il focus sull'input servings. */
 function updatePerServingLive(): void {
   const overlay = document.querySelector('[data-modal-id="recipe-editor"]');
   if (!overlay) return;
@@ -438,21 +416,15 @@ const runSubSearch = debounce(async (query: string) => {
   const ctrl = new AbortController();
   _recipeEditorState.searchAbort = ctrl;
   try {
-    // Fix PARTIAL-MATCH: usa searchOffWithPartialMatch per supportare query parziali
-    // (es. "melanzan" → "melanzane" via suffix expansion)
     const data = await searchOffWithPartialMatch(query.trim(), { signal: ctrl.signal });
     if (ctrl.signal.aborted) return;
     _recipeEditorState.searchResults = data.products.map(buildFoodFromOff).filter((f): f is FoodItem => f !== null);
     _recipeEditorState.searchEffectiveQuery = data.effectiveQuery;
-    // Fix OFF-RETRY: successo → resetta il flag auto-retry per la prossima query
     _recipeEditorState.searchAutoRetryDone = false;
   } catch (e) {
     if (ctrl.signal.aborted) return;
     const errName = e instanceof Error ? e.name : '';
     const errStatus = (e as { status?: number })?.status;
-
-    // Fix OFF-RETRY (issue #1): auto-retry UI-level per errori transitori.
-    // Stessa logica della search principale: una sola ripetizione silenziosa.
     const isTransient =
       errName === 'NetworkError' ||
       errName === 'TimeoutError' ||
@@ -463,14 +435,12 @@ const runSubSearch = debounce(async (query: string) => {
       _recipeEditorState.searchLoading = true;
       updateSubSearchList();
       setTimeout(() => {
-        // Se il modal è stato chiuso, skip
         if (!document.querySelector('[data-modal-id="recipe-editor"]')) return;
         runSubSearch(query);
       }, SEARCH_AUTO_RETRY_DELAY_MS);
       return;
     }
 
-    // Messaggi accurati: distinguono "offline reale" da "OFF irraggiungibile"
     const msg =
       errName === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)
         ? 'Sei offline. Verifica la connessione.'
@@ -507,7 +477,6 @@ function bindRecipeEditorModalEvents(): void {
     }
     if (t.id === 're-servings') {
       _recipeEditorState.servings = (t as HTMLInputElement).value;
-      // Update mirato del blocco "Per porzione" (preserva il focus sull'input servings)
       updatePerServingLive();
       return;
     }
@@ -515,39 +484,27 @@ function bindRecipeEditorModalEvents(): void {
       const id = t.dataset.ingId;
       const raw = (t as HTMLInputElement).value;
       const parsed = Number(raw);
-      // Se l'utente sta digitando un valore non numerico (es. "abc"), non
-      // aggiornare grams — lascia il valore precedente. La validazione
-      // finale avviene in handleSave.
-      if (raw.trim() !== '' && !Number.isFinite(parsed)) {
-        return;
-      }
+      if (raw.trim() !== '' && !Number.isFinite(parsed)) return;
       const v = Math.max(0, parsed);
       _recipeEditorState.ingredients = _recipeEditorState.ingredients.map((i) =>
         i.id === id ? { ...i, grams: v } : i,
       );
-      // Update mirato: aggiorna solo il meta della riga + i totali, senza re-render
-      // (preserva il focus sull'input dei grammi durante la digitazione)
       updateIngRowLive(id || '');
       return;
     }
     if (t.id === 're-search-input') {
       _recipeEditorState.searchQuery = (t as HTMLInputElement).value;
-      // Fix OFF-RETRY: nuova query → resetta il flag auto-retry
       _recipeEditorState.searchAutoRetryDone = false;
-      // Fix PARTIAL-MATCH: nuova query → resetta la query efficace
       _recipeEditorState.searchEffectiveQuery = '';
       if (_recipeEditorState.searchQuery.trim().length < SEARCH_MIN_QUERY) {
         _recipeEditorState.searchResults = [];
         _recipeEditorState.searchLoading = false;
-        // Aggiorna SOLO la lista — non toccare il searchbox (preserva focus)
         updateSubSearchList();
         return;
       }
       _recipeEditorState.searchLoading = true;
-      // Aggiorna SOLO la lista (mostra spinner) — non toccare il searchbox
       updateSubSearchList();
       runSubSearch(_recipeEditorState.searchQuery);
-      return;
     }
   });
 
@@ -565,7 +522,6 @@ function bindRecipeEditorModalEvents(): void {
     if (action === 'search-tab') {
       const newTab = target.dataset.tab as 'favorites' | 'saved' | 'search';
       if (newTab === _recipeEditorState.searchTab) return;
-      // Se lasciamo il tab search, abortisce la ricerca in corso
       if (_recipeEditorState.searchTab === 'search' && newTab !== 'search') {
         if (_recipeEditorState.searchAbort) {
           try {
@@ -585,14 +541,9 @@ function bindRecipeEditorModalEvents(): void {
     if (action === 'search-pick') {
       const id = target.dataset.foodId || '';
       const state = getState();
-      // lookup in saved/favorites OR in search results
       const all = [...state.foods, ..._recipeEditorState.searchResults];
       const f = all.find((x) => x.id === id);
       if (f) {
-        // Fix HIGH bug: usa saveOffFood() che centralizza il dedupe per barcode.
-        // Prima veniva fatto `addFood({...f, id: safeId('food_')})` che generava
-        // un nuovo id ad ogni pick, creando duplicati per lo stesso prodotto OFF
-        // quando pickato in sessioni/recipe-editor diverse.
         const foodRef = f.source === 'openfoodfacts' ? saveOffFood(f) : f;
         _recipeEditorState.ingredients = [
           ..._recipeEditorState.ingredients,
@@ -618,12 +569,10 @@ function bindRecipeEditorModalEvents(): void {
       const id = target.dataset.ingId || '';
       _recipeEditorState.ingredients = _recipeEditorState.ingredients.filter((i) => i.id !== id);
       rerenderModalBody();
-      return;
     }
   });
 }
 
-/** Fix B5: ritorna false per bloccare chiusura modal se validazione fallisce. */
 function handleSave(recipeId: string | null): boolean {
   if (!_recipeEditorState.name.trim()) {
     showToast('Inserisci il nome della ricetta', 'error');
@@ -633,7 +582,6 @@ function handleSave(recipeId: string | null): boolean {
     showToast('Aggiungi almeno un ingrediente', 'error');
     return false;
   }
-  // Validazione servings: parse strict, rifiuta NaN/negativi/zero
   const servingsTrimmed = _recipeEditorState.servings.trim();
   if (servingsTrimmed === '') {
     showToast('Inserisci il numero di porzioni', 'error');
@@ -648,15 +596,10 @@ function handleSave(recipeId: string | null): boolean {
     showToast('Il numero di porzioni deve essere almeno 1', 'error');
     return false;
   }
-  // Fix R8 (T4): validazione max servings (coerente con normalizeRecipe max=200 e HTML max=200)
   if (servings > 200) {
     showToast('Il numero di porzioni non può superare 200', 'error');
     return false;
   }
-  // Validazione grammi di ogni ingrediente: parse strict, rifiuta NaN/negativi/zero
-  // (lo stato interno contiene già numbers grazie all'input handler, ma verifichiamo
-  // comunque per difesa — l'utente potrebbe aver digitato "abc" e l'handler lo ha
-  // convertito silenziosamente a 0)
   for (const ing of _recipeEditorState.ingredients) {
     if (!Number.isFinite(ing.grams)) {
       showToast(`"${ing.foodSnapshot.name}": grammi non validi`, 'error');
@@ -680,19 +623,16 @@ function handleSave(recipeId: string | null): boolean {
     addRecipe(payload);
     showToast('Ricetta creata', 'success');
   }
-  // NOTA: non chiamiamo closeRecipeEditor() qui — ci pensa onClose callback del modal.
   emitChange();
   return true;
 }
 
 // Esposto per refresh da food-editor (caso: custom food creato da dentro recipe editor)
 export function refreshRecipeEditor(): void {
-  if (getState()._editingRecipeId !== null) {
-    // Riapri il sub-search sul tab salvati per mostrare il nuovo food custom
-    if (!_recipeEditorState.searchOpen) {
-      openSubSearch();
-    }
-    _recipeEditorState.searchTab = 'saved';
-    updateSubSearchContent();
+  if (!isRecipeEditorOpen()) return;
+  if (!_recipeEditorState.searchOpen) {
+    openSubSearch();
   }
+  _recipeEditorState.searchTab = 'saved';
+  updateSubSearchContent();
 }

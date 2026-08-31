@@ -8,6 +8,9 @@ import {
 } from '../src/lib/storage';
 import { BACKUP_KEY, STORAGE_KEY } from '../src/lib/constants';
 import { getState, resetAll, setState } from '../src/lib/store';
+import type { AppDialog } from '../src/types';
+
+const SEARCH_DIALOG: AppDialog = { type: 'food-search', meal: 'breakfast', date: '2026-08-31' };
 
 function resetStore(): void {
   setState({
@@ -21,15 +24,7 @@ function resetStore(): void {
     recipes: [],
     favoriteFoodIds: [],
     biometrics: {},
-    _searchOpen: false,
-    _editingFoodId: null,
-    _editingRecipeId: null,
-    _viewingRecipeId: null,
-    _confirmReset: false,
-    _confirmDeleteFoodId: null,
-    _confirmDeleteRecipeId: null,
-    _addRecipeToMealPickerId: null,
-    _editingEntryId: null,
+    dialog: null,
   });
 }
 
@@ -111,15 +106,13 @@ describe('revisioned multi-tab synchronization', () => {
     const baseRevision = Number(storedPayload().revision);
     const remoteRevision = baseRevision + 1;
 
-    setState({ _searchOpen: true });
+    setState({ dialog: SEARCH_DIALOG });
     dispatchRemote(remoteSnapshot(1800, remoteRevision));
     expect(getState().settings.calorieGoal).toBe(2000);
 
-    // The user saves locally while the modal is still open. The RAF autosave may not
-    // have run yet; flush must still recognize this persisted state as dirty.
     setState({
       settings: { ...getState().settings, calorieGoal: 2200 },
-      _searchOpen: false,
+      dialog: null,
     });
 
     flushPendingMultiTabUpdate();
@@ -133,11 +126,11 @@ describe('revisioned multi-tab synchronization', () => {
   it('applies a deferred remote snapshot when no local persisted state changed', () => {
     const baseRevision = Number(storedPayload().revision);
 
-    setState({ _searchOpen: true });
+    setState({ dialog: SEARCH_DIALOG });
     dispatchRemote(remoteSnapshot(1750, baseRevision + 1));
     expect(getState().settings.calorieGoal).toBe(2000);
 
-    setState({ _searchOpen: false });
+    setState({ dialog: null });
     flushPendingMultiTabUpdate();
 
     expect(getState().settings.calorieGoal).toBe(1750);
@@ -145,12 +138,12 @@ describe('revisioned multi-tab synchronization', () => {
 
   it('keeps only the newest pending remote snapshot', () => {
     const baseRevision = Number(storedPayload().revision);
-    setState({ _searchOpen: true });
+    setState({ dialog: SEARCH_DIALOG });
 
     dispatchRemote(remoteSnapshot(1900, baseRevision + 1, 'remote-a'));
     dispatchRemote(remoteSnapshot(1850, baseRevision + 2, 'remote-b'));
 
-    setState({ _searchOpen: false });
+    setState({ dialog: null });
     flushPendingMultiTabUpdate();
 
     expect(getState().settings.calorieGoal).toBe(1850);
@@ -188,17 +181,17 @@ describe('reset causal barrier', () => {
     expect(persisted.foods).toEqual([]);
   });
 
-  it('applies a remote reset immediately even while local state is dirty and a modal is open', () => {
+  it('applies a remote reset immediately even while local state is dirty and a dialog is open', () => {
     const baseRevision = Number(storedPayload().revision);
     setState({
       settings: { ...getState().settings, calorieGoal: 2400 },
-      _searchOpen: true,
+      dialog: SEARCH_DIALOG,
     });
 
     dispatchRemote(resetSnapshot(baseRevision + 1));
 
     expect(getState().settings.calorieGoal).toBe(2000);
-    expect(getState()._searchOpen).toBe(false);
+    expect(getState().dialog).toBeNull();
     expect(getState().foods).toEqual([]);
   });
 
@@ -229,7 +222,7 @@ describe('reset causal barrier', () => {
   it('rolls back in-memory reset if the reset tombstone cannot be persisted', () => {
     setState({
       settings: { ...getState().settings, calorieGoal: 2300 },
-      _confirmReset: true,
+      dialog: { type: 'confirm-reset' },
     });
     expect(saveData().ok).toBe(true);
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
@@ -240,6 +233,6 @@ describe('reset causal barrier', () => {
 
     expect(result.ok).toBe(false);
     expect(getState().settings.calorieGoal).toBe(2300);
-    expect(getState()._confirmReset).toBe(true);
+    expect(getState().dialog).toEqual({ type: 'confirm-reset' });
   });
 });

@@ -6,7 +6,7 @@
 
 import type { AppState, FoodItem, Recipe, DiaryEntry, DayDiary } from '../types';
 import { BACKUP_KEY, STORAGE_KEY, STORAGE_WARN_BYTES, SCHEMA_VERSION } from './constants';
-import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll } from './store';
+import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll, isAnyDialogOpen } from './store';
 import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
 import { migratePersistedDocument, type MigrationFailureReason } from './migrations';
 
@@ -479,21 +479,6 @@ export function disableAutoSave(): void {
 
 // ============ Multi-tab sync via storage event ============
 
-function isAnyModalOpen(): boolean {
-  const s = getState();
-  return (
-    s._searchOpen ||
-    s._editingFoodId !== null ||
-    s._editingRecipeId !== null ||
-    s._viewingRecipeId !== null ||
-    s._confirmReset ||
-    s._confirmDeleteFoodId !== null ||
-    s._confirmDeleteRecipeId !== null ||
-    s._addRecipeToMealPickerId !== null ||
-    s._editingEntryId !== null
-  );
-}
-
 function queuePendingRemote(remote: PendingMultiTabUpdate): void {
   if (!_pendingMultiTabUpdate) {
     _pendingMultiTabUpdate = remote;
@@ -553,7 +538,7 @@ function handleStorageEvent(e: StorageEvent): void {
 
   // Un emit locale può essere ancora in attesa del RAF autosave. Prima di applicare
   // un remote snapshot normale a UI libera, commetti sincronicamente quel locale dirty.
-  if (!isAnyModalOpen() && hasUnsyncedLocalState()) {
+  if (!isAnyDialogOpen() && hasUnsyncedLocalState()) {
     const saved = saveData();
     if (!saved.ok) {
       queuePendingRemote(remote);
@@ -562,7 +547,7 @@ function handleStorageEvent(e: StorageEvent): void {
     if (!isRemoteNewer(remote)) return;
   }
 
-  if (isAnyModalOpen()) {
+  if (isAnyDialogOpen()) {
     queuePendingRemote(remote);
     return;
   }
@@ -578,11 +563,11 @@ export function initMultiTabSync(): void {
 }
 
 /**
- * Alla chiusura dell'ultimo modal, salva prima qualsiasi stato locale dirty e solo dopo
+ * Alla chiusura dell'ultimo dialog, salva prima qualsiasi stato locale dirty e solo dopo
  * valuta lo snapshot remoto pending. Un pending con revisione più vecchia viene scartato.
  */
 export function flushPendingMultiTabUpdate(): void {
-  if (!_pendingMultiTabUpdate || isAnyModalOpen()) return;
+  if (!_pendingMultiTabUpdate || isAnyDialogOpen()) return;
 
   const pending = _pendingMultiTabUpdate;
   _pendingMultiTabUpdate = null;

@@ -3,6 +3,7 @@
 // Anti-pattern rispettati: niente Proxy, niente librerie esterne, niente emit sincrono.
 
 import type {
+  AppDialog,
   AppState,
   DayDiary,
   DiaryEntry,
@@ -30,17 +31,7 @@ const state: AppState = {
   currentView: 'dashboard',
   currentDate: toDateKey(new Date()),
   _storageDisabled: false,
-  _searchOpen: false,
-  _searchMeal: 'breakfast',
-  _searchDate: toDateKey(new Date()),
-  _editingFoodId: null,
-  _editingRecipeId: null,
-  _viewingRecipeId: null,
-  _confirmDeleteFoodId: null,
-  _confirmDeleteRecipeId: null,
-  _confirmReset: false,
-  _addRecipeToMealPickerId: null,
-  _editingEntryId: null,
+  dialog: null,
 };
 
 const listeners = new Set<() => void>();
@@ -55,6 +46,23 @@ export const getStoreState = getState;
 /** Patch shallow dello state. NON emette direttamente (chiama emitChange). */
 export function setState(patch: Partial<AppState>): void {
   Object.assign(state, patch);
+}
+
+export function getActiveDialog(): AppDialog | null {
+  return state.dialog;
+}
+
+/** Unico check globale per i consumer che devono sapere se esiste un workflow modale attivo. */
+export function isAnyDialogOpen(): boolean {
+  return state.dialog !== null;
+}
+
+export function isFoodSearchOpen(): boolean {
+  return state.dialog?.type === 'food-search';
+}
+
+export function isRecipeEditorOpen(): boolean {
+  return state.dialog?.type === 'recipe-editor';
 }
 
 export function subscribe(fn: () => void): () => void {
@@ -85,18 +93,9 @@ export function emitChange(): void {
 // ============ View navigation ============
 
 export function switchView(view: ViewName): void {
-  // Fix MEDIUM bug: chiudi tutti i modal UI aperti quando si cambia vista.
-  // Prima switchView lasciava aperti modal come search-dialog/food-editor/recipe-editor,
-  // che rimanevano floating sopra la nuova vista creando confusione UX.
-  state._searchOpen = false;
-  state._editingFoodId = null;
-  state._editingRecipeId = null;
-  state._viewingRecipeId = null;
-  state._confirmDeleteFoodId = null;
-  state._confirmDeleteRecipeId = null;
-  state._confirmReset = false;
-  state._addRecipeToMealPickerId = null;
-  state._editingEntryId = null;
+  // Un cambio vista termina il workflow modale globale corrente. Eventuali sub-dialog
+  // appartengono al modulo del parent e vengono ripuliti dal renderer/UI owner.
+  state.dialog = null;
   state.currentView = view;
   emitChange();
 }
@@ -332,104 +331,115 @@ export function setAllBiometrics(b: Biometrics): void {
   emitChange();
 }
 
-// ============ Search dialog (modal state) ============
+// ============ Dialog state ============
+
+function closeRootDialog(type: AppDialog['type']): void {
+  if (state.dialog?.type !== type) return;
+  state.dialog = null;
+  emitChange();
+}
 
 export function openFoodSearch(meal: MealType, date: string): void {
-  state._searchMeal = meal;
-  state._searchDate = date;
-  state._searchOpen = true;
+  state.dialog = { type: 'food-search', meal, date };
   emitChange();
 }
 
 export function closeFoodSearch(): void {
-  state._searchOpen = false;
-  emitChange();
+  closeRootDialog('food-search');
 }
 
-// ============ Food editor dialog ============
-
-export function openFoodEditor(foodId: string | null): void {
-  state._editingFoodId = foodId;
+/**
+ * Apre l'editor alimento. Da ricerca alimenti o editor ricetta diventa l'unico
+ * child dialog supportato; altrove è un dialog standalone.
+ */
+export function openFoodEditor(foodId: string): void {
+  const child = { type: 'food-editor', foodId } as const;
+  if (state.dialog?.type === 'food-search') {
+    state.dialog = { ...state.dialog, child };
+  } else if (state.dialog?.type === 'recipe-editor') {
+    state.dialog = { ...state.dialog, child };
+  } else {
+    state.dialog = child;
+  }
   emitChange();
 }
 
 export function closeFoodEditor(): void {
-  state._editingFoodId = null;
+  const dialog = state.dialog;
+  if (!dialog) return;
+  if (dialog.type === 'food-editor') {
+    state.dialog = null;
+  } else if (dialog.type === 'food-search' && dialog.child) {
+    state.dialog = { type: 'food-search', meal: dialog.meal, date: dialog.date };
+  } else if (dialog.type === 'recipe-editor' && dialog.child) {
+    state.dialog = { type: 'recipe-editor', recipeId: dialog.recipeId };
+  } else {
+    return;
+  }
   emitChange();
 }
 
-// ============ Recipe editor / viewer / delete ============
-
-export function openRecipeEditor(recipeId: string | null): void {
-  state._editingRecipeId = recipeId;
+export function openRecipeEditor(recipeId: string): void {
+  state.dialog = { type: 'recipe-editor', recipeId };
   emitChange();
 }
 
 export function closeRecipeEditor(): void {
-  state._editingRecipeId = null;
-  emitChange();
+  closeRootDialog('recipe-editor');
 }
 
 export function openRecipeViewer(recipeId: string): void {
-  state._viewingRecipeId = recipeId;
+  state.dialog = { type: 'recipe-viewer', recipeId };
   emitChange();
 }
 
 export function closeRecipeViewer(): void {
-  state._viewingRecipeId = null;
-  emitChange();
+  closeRootDialog('recipe-viewer');
 }
 
 export function openAddRecipeToMeal(recipeId: string): void {
-  state._addRecipeToMealPickerId = recipeId;
+  state.dialog = { type: 'recipe-meal-picker', recipeId };
   emitChange();
 }
 
 export function closeAddRecipeToMeal(): void {
-  state._addRecipeToMealPickerId = null;
-  emitChange();
+  closeRootDialog('recipe-meal-picker');
 }
 
 export function openDeleteFoodConfirm(foodId: string): void {
-  state._confirmDeleteFoodId = foodId;
+  state.dialog = { type: 'confirm-delete-food', foodId };
   emitChange();
 }
 
 export function closeDeleteFoodConfirm(): void {
-  state._confirmDeleteFoodId = null;
-  emitChange();
+  closeRootDialog('confirm-delete-food');
 }
 
 export function openDeleteRecipeConfirm(recipeId: string): void {
-  state._confirmDeleteRecipeId = recipeId;
+  state.dialog = { type: 'confirm-delete-recipe', recipeId };
   emitChange();
 }
 
 export function closeDeleteRecipeConfirm(): void {
-  state._confirmDeleteRecipeId = null;
-  emitChange();
+  closeRootDialog('confirm-delete-recipe');
 }
 
 export function openResetConfirm(): void {
-  state._confirmReset = true;
+  state.dialog = { type: 'confirm-reset' };
   emitChange();
 }
 
 export function closeResetConfirm(): void {
-  state._confirmReset = false;
-  emitChange();
+  closeRootDialog('confirm-reset');
 }
 
-// ============ Entry editor dialog (modifica quantità di una entry del diario) ============
-
 export function openEntryEditor(entryId: string): void {
-  state._editingEntryId = entryId;
+  state.dialog = { type: 'entry-editor', entryId };
   emitChange();
 }
 
 export function closeEntryEditor(): void {
-  state._editingEntryId = null;
-  emitChange();
+  closeRootDialog('entry-editor');
 }
 
 // ============ Bulk operations ============
@@ -442,15 +452,7 @@ export function resetAll(): void {
   state.recipes = [];
   state.favoriteFoodIds = [];
   state.biometrics = {};
-  state._searchOpen = false;
-  state._editingFoodId = null;
-  state._editingRecipeId = null;
-  state._viewingRecipeId = null;
-  state._confirmDeleteFoodId = null;
-  state._confirmDeleteRecipeId = null;
-  state._confirmReset = false;
-  state._addRecipeToMealPickerId = null;
-  state._editingEntryId = null;
+  state.dialog = null;
   emitChange();
 }
 

@@ -2,7 +2,13 @@
 // Permette di modificare la quantità di un cibo già inserito cliccando sulla riga.
 // Supporta grammi liberi + porzioni personalizzate salvate sul food.
 
-import { getState, closeEntryEditor, setDiaryEntryAmount, setDiaryEntryFoodSnapshot } from '../lib/store';
+import {
+  getState,
+  getActiveDialog,
+  closeEntryEditor,
+  setDiaryEntryAmount,
+  setDiaryEntryFoodSnapshot,
+} from '../lib/store';
 import { addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
 import { showToast } from '../components/toast';
 import { showModal } from '../components/modal';
@@ -160,9 +166,9 @@ function renderStatBox(label: string, value: string): string {
 }
 
 function currentEntry(): DiaryEntry | null {
-  const id = getState()._editingEntryId;
-  if (!id) return null;
-  return findEntryById(id);
+  const dialog = getActiveDialog();
+  if (dialog?.type !== 'entry-editor') return null;
+  return findEntryById(dialog.entryId);
 }
 
 function rerenderModalBody(): void {

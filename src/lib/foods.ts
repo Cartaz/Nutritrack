@@ -8,6 +8,7 @@ import {
   deleteFood,
   toggleFavorite,
   getState,
+  getActiveDialog,
   openDeleteFoodConfirm,
   closeDeleteFoodConfirm,
 } from './store';
@@ -103,9 +104,9 @@ export function requestDeleteFood(id: string): void {
 }
 
 export function confirmDeleteFood(): void {
-  const id = getState()._confirmDeleteFoodId;
-  if (!id) return;
-  deleteFood(id);
+  const dialog = getActiveDialog();
+  if (dialog?.type !== 'confirm-delete-food') return;
+  deleteFood(dialog.foodId);
   closeDeleteFoodConfirm();
   showToast('Alimento eliminato', 'success');
 }
