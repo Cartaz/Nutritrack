@@ -227,15 +227,17 @@ Avoid CRDT/operation-log machinery: it would be disproportionate for the current
 
 ## M6.1 High-value integration tests
 
-Add deterministic coverage for:
+**Status: completed 2026-08-31.**
 
-- [ ] multi-tab stale snapshot race;
-- [ ] diary/store invariants;
-- [ ] atomic recipe insertion;
-- [ ] barcode cancellation;
-- [ ] search cancellation/retry;
-- [ ] schema migrations/import;
-- [ ] one dashboard → search → add → edit → reload smoke flow.
+Deterministic coverage now protects:
+
+- [x] multi-tab stale snapshot race;
+- [x] diary/store invariants;
+- [x] atomic recipe insertion;
+- [x] barcode cancellation;
+- [x] search cancellation/retry;
+- [x] schema migrations/import;
+- [x] one dashboard → search → add → edit → reload smoke flow.
 
 ## M6.2 Dead/stale code removal
 
@@ -290,6 +292,6 @@ Every milestone must finish with:
 
 ## Current execution order
 
-`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6`
+`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 → M6.3 → M6.4`
 
 The order can change only when a later dependency must be pulled forward to fix a correctness or integrity problem cleanly.
