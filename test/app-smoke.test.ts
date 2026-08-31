@@ -137,6 +137,12 @@ describe('application diary smoke flow', () => {
     searchInput!.value = 'pasta';
     searchInput!.dispatchEvent(new Event('input', { bubbles: true }));
     await flushUi();
+    expect(searchMocks.searchFoods).not.toHaveBeenCalled();
+
+    const searchButton = document.querySelector<HTMLButtonElement>('[data-search-action="runSearch"]');
+    expect(searchButton).not.toBeNull();
+    searchButton!.click();
+    await flushUi();
 
     expect(searchMocks.searchFoods).toHaveBeenCalledWith('pasta', {
       signal: expect.any(AbortSignal),

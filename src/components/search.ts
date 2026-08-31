@@ -7,7 +7,7 @@
 // (lista, footer, tabs active) viene aggiornato via innerHTML mirato. L'input #search-input non viene
 // MAI toccato dopo la creazione per non perdere focus e cursore (causa del bug flickering).
 
-import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
+import { escapeHtml, escapeAttr, safeId } from '../lib/utils';
 import {
   continueFoodSearch,
   FoodSearchError,
@@ -22,7 +22,7 @@ import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood
 import { showToast } from './toast';
 import { imgTag } from './img';
 import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';
-import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
+import { SEARCH_MIN_QUERY } from '../lib/constants';
 import type { FoodItem, CustomPortion } from '../types';
 import { MEAL_ICONS, MEAL_LABELS } from '../types';
 
@@ -120,7 +120,7 @@ function showFoodSearchError(error: unknown, context: 'search' | 'barcode'): voi
   );
 }
 
-// ============ Debounced initial search ============
+// ============ Explicit initial search ============
 
 async function executeSearch(query: string): Promise<void> {
   if (!isSearchOpen()) return;
@@ -162,10 +162,6 @@ async function executeSearch(query: string): Promise<void> {
   }
 }
 
-const scheduleSearch = debounce((query: string) => {
-  void executeSearch(query);
-}, SEARCH_DEBOUNCE_MS);
-
 /** Carica semanticamente la pagina successiva senza esporre query effettiva o page index alla UI. */
 async function loadMoreResults(): Promise<void> {
   if (!isSearchOpen() || _searchState.loading || !_searchState.continuation) return;
@@ -200,7 +196,6 @@ let _boundSearch = false;
 
 /** Annulla sia il trigger debounced sia l'eventuale richiesta OFF già partita. */
 function cancelSearchWork(): void {
-  scheduleSearch.cancel();
   if (_searchState.abortController) {
     try {
       _searchState.abortController.abort();
@@ -262,15 +257,6 @@ export function bindSearchEvents(): void {
           _searchState.selectedId = null;
           _searchState.pendingCustomPortions = [];
           emitChange();
-          if (
-            tab === 'search' &&
-            _searchState.query.trim().length >= SEARCH_MIN_QUERY &&
-            _searchState.results.length === 0
-          ) {
-            _searchState.loading = true;
-            emitChange();
-            scheduleSearch(_searchState.query);
-          }
         }
         return;
       }
@@ -329,6 +315,16 @@ export function bindSearchEvents(): void {
       }
       case 'openAddCustom': {
         openFoodEditor('new');
+        return;
+      }
+      case 'runSearch': {
+        if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
+          showToast(`Inserisci almeno ${SEARCH_MIN_QUERY} caratteri`, 'info');
+          return;
+        }
+        _searchState.loading = true;
+        emitChange();
+        void executeSearch(_searchState.query);
         return;
       }
       case 'clearQuery': {
@@ -416,14 +412,8 @@ export function bindSearchEvents(): void {
       _searchState.pendingCustomPortions = [];
       _searchState.totalCount = 0;
       _searchState.continuation = null;
-      if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
-        _searchState.results = [];
-        emitChange();
-        return;
-      }
-      _searchState.loading = true;
+      _searchState.results = [];
       emitChange();
-      scheduleSearch(_searchState.query);
       return;
     }
     if (target.id === 'grams-input') {
@@ -445,6 +435,15 @@ export function bindSearchEvents(): void {
     if (!isSearchOpen()) return;
     const target = e.target as HTMLElement;
     if (e.key === 'Enter') {
+      if (target.id === 'search-input') {
+        e.preventDefault();
+        if (_searchState.query.trim().length >= SEARCH_MIN_QUERY) {
+          _searchState.loading = true;
+          emitChange();
+          void executeSearch(_searchState.query);
+        }
+        return;
+      }
       if (target.id === 'new-portion-label' || target.id === 'new-portion-grams') {
         e.preventDefault();
         createCustomPortion();
@@ -700,11 +699,12 @@ export function updateSearchContent(overlay: HTMLElement): void {
             <input id="search-input" type="search" placeholder="Cerca su Open Food Facts (es. pasta, yogurt…)" autocomplete="off" />
             ${_searchState.query ? '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci">✕</button>' : '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci" style="display:none">✕</button>'}
           </div>
+          <button type="button" class="btn btn-primary" data-search-action="runSearch">Cerca</button>
           <button type="button" class="scan-btn" data-search-action="scanBarcode" aria-label="Scansiona codice a barre" title="Scansiona codice a barre">
             <span aria-hidden="true">📷</span>
           </button>
         </div>
-        <p class="search-hint">Database gratuito collaborativo - milioni di prodotti. Powered by Open Food Facts. Usa 📷 per scansionare il codice a barre.</p>
+        <p class="search-hint">Database gratuito collaborativo - milioni di prodotti. Premi Cerca o Invio per interrogare Open Food Facts. Usa 📷 per il codice a barre.</p>
       `;
       const input = searchBoxEl.querySelector<HTMLInputElement>('#search-input');
       if (input) input.value = _searchState.query;

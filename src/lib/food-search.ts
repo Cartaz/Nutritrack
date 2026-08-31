@@ -1,4 +1,4 @@
-import { getOffByBarcode, searchOff, searchOffWithPartialMatch } from './api';
+import { getOffByBarcode, searchOff } from './api';
 import { SEARCH_AUTO_RETRY_DELAY_MS } from './constants';
 import { buildFoodFromOff } from './normalize';
 import type { FoodItem, OffProduct } from '../types';
@@ -113,46 +113,49 @@ function continuationFor(
   return { effectiveQuery, nextPage: page + 1, italianOnly };
 }
 
-/** Initial semantic food search. Partial-match and effective-query policy remain internal. */
+/** Initial semantic food search. Text search is never retried automatically. */
 export async function searchFoods(query: string, options: SearchOptions = {}): Promise<FoodSearchPage> {
   const effectiveInput = query.trim();
   const italianOnly = options.italianOnly ?? false;
-  const result = await withSingleRetry(
-    () => searchOffWithPartialMatch(effectiveInput, { signal: options.signal, italianOnly, page: 1 }),
-    options.signal,
-  );
-  return {
-    foods: mapFoods(result.products),
-    totalCount: result.count,
-    continuation: continuationFor(result.effectiveQuery, result.page, result.pageSize, result.count, italianOnly),
-  };
+  try {
+    const result = await searchOff(effectiveInput, { signal: options.signal, italianOnly, page: 1 });
+    return {
+      foods: mapFoods(result.products),
+      totalCount: result.count,
+      continuation: continuationFor(effectiveInput, result.page, result.pageSize, result.count, italianOnly),
+    };
+  } catch (error) {
+    if (options.signal?.aborted || isAbortError(error)) throw error;
+    throw new FoodSearchError(classifyError(error), error);
+  }
 }
 
-/** Continue a previous search without exposing OFF effective-query/page mechanics to UI code. */
+/** Continue a previous search. Pagination is another explicit user action and maps to one request. */
 export async function continueFoodSearch(
   continuation: FoodSearchContinuation,
   options: Pick<SearchOptions, 'signal'> = {},
 ): Promise<FoodSearchPage> {
-  const result = await withSingleRetry(
-    () =>
-      searchOff(continuation.effectiveQuery, {
-        signal: options.signal,
-        italianOnly: continuation.italianOnly,
-        page: continuation.nextPage,
-      }),
-    options.signal,
-  );
-  return {
-    foods: mapFoods(result.products),
-    totalCount: result.count,
-    continuation: continuationFor(
-      continuation.effectiveQuery,
-      result.page,
-      result.pageSize,
-      result.count,
-      continuation.italianOnly,
-    ),
-  };
+  try {
+    const result = await searchOff(continuation.effectiveQuery, {
+      signal: options.signal,
+      italianOnly: continuation.italianOnly,
+      page: continuation.nextPage,
+    });
+    return {
+      foods: mapFoods(result.products),
+      totalCount: result.count,
+      continuation: continuationFor(
+        continuation.effectiveQuery,
+        result.page,
+        result.pageSize,
+        result.count,
+        continuation.italianOnly,
+      ),
+    };
+  } catch (error) {
+    if (options.signal?.aborted || isAbortError(error)) throw error;
+    throw new FoodSearchError(classifyError(error), error);
+  }
 }
 
 /** Remote OFF barcode lookup. Saved/local database precedence remains a UI/application concern. */

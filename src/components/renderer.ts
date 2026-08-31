@@ -23,7 +23,7 @@ import { MEAL_LABELS } from '../types';
 import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
 import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
-import { flushPendingMultiTabUpdate, resetApplicationData } from '../lib/storage';
+import { resetApplicationData } from '../lib/storage';
 
 let _mainEl: HTMLElement | null = null;
 let _appEl: HTMLElement | null = null;
@@ -417,9 +417,6 @@ function renderRecipeMealPicker(): void {
 function closeModalCleanup(): void {
   if (!document.querySelector('.modal-overlay')) {
     document.body.classList.remove('modal-open');
-    // Quando tutti i dialog sono chiusi, applica eventuali update cross-tab ricevuti
-    // durante un workflow modale.
-    flushPendingMultiTabUpdate();
   }
 }
 

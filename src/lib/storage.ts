@@ -9,6 +9,7 @@ import { BACKUP_KEY, STORAGE_KEY, STORAGE_WARN_BYTES, SCHEMA_VERSION } from './c
 import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll } from './store';
 import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
 import { migratePersistedDocument, type MigrationFailureReason } from './migrations';
+import { clearRuntimeDataCaches } from './localData';
 
 interface PersistedState {
   settings: AppState['settings'];
@@ -37,7 +38,6 @@ interface ParsedPersistedPayload {
   signature: string;
 }
 
-type PendingMultiTabUpdate = ParsedPersistedPayload;
 type DecodedPersistedPayload =
   | { ok: true; document: Record<string, unknown> }
   | { ok: false; reason: 'invalid_json' | MigrationFailureReason; version?: number };
@@ -53,7 +53,6 @@ const _tabId = createTabId();
 let _storageOK = true;
 let _currentStamp: VersionStamp = { ...LEGACY_STAMP };
 let _lastSyncedStateSignature: string | null = null;
-let _pendingMultiTabUpdate: PendingMultiTabUpdate | null = null;
 let _quotaWarnedThisSession = false;
 let _stripWarnedThisSession = false;
 
@@ -162,9 +161,6 @@ function parsePersistedRaw(raw: string): ParsedPersistedPayload | null {
 function markSynced(state: PersistedState, stamp: VersionStamp): void {
   _currentStamp = { ...stamp };
   _lastSyncedStateSignature = stateSignature(state);
-  if (_pendingMultiTabUpdate && !isRemoteNewer(_pendingMultiTabUpdate)) {
-    _pendingMultiTabUpdate = null;
-  }
 }
 
 function hasUnsyncedLocalState(): boolean {
@@ -325,7 +321,6 @@ function applyResetSnapshot(remote: ParsedPersistedPayload): void {
   resetAll();
   const state = buildStateSnapshot();
   markSynced(state, remote.stamp);
-  _pendingMultiTabUpdate = null;
   window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
 }
 
@@ -479,22 +474,8 @@ export function disableAutoSave(): void {
 
 // ============ Multi-tab sync via storage event ============
 
-function queuePendingRemote(remote: PendingMultiTabUpdate): void {
-  if (!_pendingMultiTabUpdate) {
-    _pendingMultiTabUpdate = remote;
-    return;
-  }
-  if (remote.stamp.revision === 0 && _pendingMultiTabUpdate.stamp.revision === 0) {
-    // Legacy: non esiste causalità esplicita, quindi l'ultimo storage event fisico vince.
-    _pendingMultiTabUpdate = remote;
-    return;
-  }
-  if (compareStamps(remote.stamp, _pendingMultiTabUpdate.stamp) > 0) {
-    _pendingMultiTabUpdate = remote;
-  }
-}
-
 /**
+ * Se due tab hanno prodotto la stessa revisione/**
  * Se due tab hanno prodotto la stessa revisione leggendo contemporaneamente lo stesso
  * predecessore, syncKind reset prevale su state e originTabId risolve il restante tie-break.
  * Se il localStorage fisico contiene il perdente, il vincitore viene riscritto con revision+1.
@@ -541,10 +522,7 @@ function handleStorageEvent(e: StorageEvent): void {
   // Prima di applicare il remoto, commetti quel locale dirty in modo sincrono.
   if (hasUnsyncedLocalState()) {
     const saved = saveData();
-    if (!saved.ok) {
-      queuePendingRemote(remote);
-      return;
-    }
+    if (!saved.ok) return;
     if (!isRemoteNewer(remote)) return;
   }
 
@@ -559,27 +537,7 @@ export function initMultiTabSync(): void {
 }
 
 /**
- * Riprova ad applicare l'ultimo snapshot remoto rimasto pending dopo un precedente
- * errore di salvataggio locale. I dialog non partecipano alla causalità della sync.
- */
-export function flushPendingMultiTabUpdate(): void {
-  if (!_pendingMultiTabUpdate) return;
-
-  const pending = _pendingMultiTabUpdate;
-  _pendingMultiTabUpdate = null;
-
-  if (hasUnsyncedLocalState()) {
-    const saved = saveData();
-    if (!saved.ok) {
-      _pendingMultiTabUpdate = pending;
-      return;
-    }
-  }
-
-  if (isRemoteNewer(pending)) applyMultiTabUpdate(pending);
-}
-
-/**
+ * Reset interno per test/**
  * Reset interno per test (non usare in produzione). Rimuove anche il listener multi-tab
  * così ogni test parte da un lifecycle reale e isolato.
  */
@@ -592,7 +550,6 @@ export function __resetStorageInternalForTesting(): void {
   _storageOK = true;
   _quotaWarnedThisSession = false;
   _stripWarnedThisSession = false;
-  _pendingMultiTabUpdate = null;
   _currentStamp = { ...LEGACY_STAMP };
   _lastSyncedStateSignature = null;
 }
@@ -630,10 +587,10 @@ export function resetApplicationData(): ResetApplicationDataResult {
     return { ok: false, error: result.error };
   }
 
+  void clearRuntimeDataCaches();
   _storageOK = true;
   _quotaWarnedThisSession = false;
   _stripWarnedThisSession = false;
-  _pendingMultiTabUpdate = null;
   if (getState()._storageDisabled) setStorageDisabled(false);
   return { ok: true };
 }
@@ -657,7 +614,6 @@ export function clearAllStoredData(): void {
   }
   _quotaWarnedThisSession = false;
   _stripWarnedThisSession = false;
-  _pendingMultiTabUpdate = null;
   _currentStamp = { ...LEGACY_STAMP };
   _lastSyncedStateSignature = null;
 }
@@ -721,11 +677,13 @@ export function importDataJson(
     Object.values(importedState.diary).reduce((acc, entries) => acc + entries.length, 0);
   const skipped = Math.max(0, rawTotal - count);
 
+  const beforeState: AppState = { ...getState() };
   applyStateSnapshot(importedState);
   // Non adottare revision/origin presenti nel file importato: un import è una nuova
   // modifica locale e deve ricevere una nuova revisione rispetto allo storage corrente.
   const saveResult = saveData();
   if (!saveResult.ok) {
+    setState(beforeState);
     return { ok: false, error: saveResult.error };
   }
   emitChange();

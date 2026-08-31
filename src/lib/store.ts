@@ -17,7 +17,7 @@ import type {
   BiometricEntry,
 } from '../types';
 import { DEFAULT_SETTINGS } from './nutrition';
-import { safeId, toDateKey } from './utils';
+import { isValidDateKey, safeId, toDateKey } from './utils';
 import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
 
 const state: AppState = {
@@ -106,6 +106,7 @@ export function switchView(view: ViewName): void {
 // ============ Date navigation (dashboard) ============
 
 export function setCurrentDate(date: string): void {
+  if (!isValidDateKey(date)) return;
   state.currentDate = date;
   emitChange();
 }
