@@ -133,7 +133,11 @@ function closeModal(el: HTMLElement): void {
     if (document.querySelectorAll('.modal-overlay').length === 0) {
       document.body.classList.remove('modal-open');
     }
-    if (cb?.onClose) {
+
+    // Un modal con lo stesso id può essere stato sostituito durante il fade-out.
+    // In quel caso il vecchio onClose non deve ripulire lo stato appartenente al nuovo dialog.
+    const replacementActive = _callbacks.has(modalId);
+    if (!replacementActive && cb?.onClose) {
       try {
         cb.onClose();
       } catch (e) {
@@ -141,7 +145,7 @@ function closeModal(el: HTMLElement): void {
       }
     }
     _closing.delete(el);
-    if (_previouslyFocused && typeof _previouslyFocused.focus === 'function') {
+    if (!replacementActive && _previouslyFocused && typeof _previouslyFocused.focus === 'function') {
       try {
         _previouslyFocused.focus();
       } catch {
