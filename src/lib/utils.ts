@@ -108,6 +108,16 @@ export function isValidDateKey(key: unknown): key is string {
   return !isNaN(d.getTime());
 }
 
+/**
+ * Decide se il dashboard può avanzare automaticamente al nuovo giorno.
+ * Avanza solo quando è realmente cambiato il giorno osservato e l'utente era
+ * ancora posizionato sul giorno precedente. Se sta consultando una data storica,
+ * focus/visibility non devono riportarlo forzatamente a oggi.
+ */
+export function shouldAutoAdvanceDate(currentDate: string, lastObservedToday: string, today: string): boolean {
+  return today !== lastObservedToday && currentDate === lastObservedToday;
+}
+
 /** Debounce generico con cancel.
  *  Fix: aggiunto metodo cancel() per permettere cleanup (es. search dialog close). */
 export interface Debounced<A extends unknown[]> {
