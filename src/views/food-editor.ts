@@ -4,7 +4,7 @@ import {
   getState,
   closeFoodEditor,
   addFood,
-  updateFood,
+  updateFoodDetails,
   emitChange,
   isFoodSearchOpen,
   isRecipeEditorOpen,
@@ -454,7 +454,7 @@ function handleSave(foodId: string | null): boolean {
       );
       return false;
     }
-    updateFood(foodId, payload);
+    updateFoodDetails(foodId, payload);
     const diaryEntriesUsingFood = Object.values(getState().diary).some((entries) =>
       entries.some((e) => e.foodId === foodId),
     );

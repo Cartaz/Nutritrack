@@ -4,7 +4,7 @@
 import type { FoodItem, CustomPortion } from '../types';
 import {
   addFood,
-  updateFood,
+  setFoodCustomPortions,
   deleteFood,
   toggleFavorite,
   getState,
@@ -92,7 +92,7 @@ export function addCustomPortionToFood(foodId: string, label: string, grams: num
     label: trimmedLabel,
     grams: safeGrams,
   };
-  updateFood(foodId, { customPortions: [...existing, portion] });
+  setFoodCustomPortions(foodId, [...existing, portion]);
   return portion;
 }
 
@@ -100,7 +100,8 @@ export function addCustomPortionToFood(foodId: string, label: string, grams: num
 export function removeCustomPortionFromFood(foodId: string, portionId: string): void {
   const food = getState().foods.find((f) => f.id === foodId);
   if (!food || !food.customPortions) return;
-  updateFood(foodId, {
-    customPortions: food.customPortions.filter((p) => p.id !== portionId),
-  });
+  setFoodCustomPortions(
+    foodId,
+    food.customPortions.filter((p) => p.id !== portionId),
+  );
 }

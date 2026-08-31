@@ -43,7 +43,10 @@ export function getState(): AppState {
 /** Alias per chiarezza semantica nei moduli UI (renderer, views) */
 export const getStoreState = getState;
 
-/** Patch shallow dello state. NON emette direttamente (chiama emitChange). */
+/**
+ * Patch shallow riservata a hydration/persistence e test.
+ * Il normale codice applicativo deve usare operazioni semantiche che possiedono gli invarianti del relativo dominio.
+ */
 export function setState(patch: Partial<AppState>): void {
   Object.assign(state, patch);
 }
@@ -126,6 +129,11 @@ export function setMacroSplit(split: MacroSplit): void {
 
 // ============ Foods ============
 
+export type FoodDetailsUpdate = Pick<
+  FoodItem,
+  'name' | 'brand' | 'barcode' | 'source' | 'servingSize' | 'servingLabel' | 'nutrition'
+>;
+
 export function addFood(input: Omit<FoodItem, 'id' | 'createdAt'> & { id?: string }): FoodItem {
   const food: FoodItem = {
     ...input,
@@ -137,9 +145,41 @@ export function addFood(input: Omit<FoodItem, 'id' | 'createdAt'> & { id?: strin
   return food;
 }
 
-export function updateFood(id: string, patch: Partial<FoodItem>): void {
-  state.foods = state.foods.map((f) => (f.id === id ? { ...f, ...patch } : f));
+/**
+ * Sostituisce i soli dettagli editabili di un alimento.
+ * Identità, timestamp, immagine e porzioni custom restano proprietà dello store/degli owner dedicati.
+ */
+export function updateFoodDetails(id: string, details: FoodDetailsUpdate): boolean {
+  const existing = state.foods.find((food) => food.id === id);
+  if (!existing) return false;
+
+  state.foods = state.foods.map((food) =>
+    food.id === id
+      ? {
+          ...food,
+          name: details.name,
+          brand: details.brand,
+          barcode: details.barcode,
+          source: details.source,
+          servingSize: details.servingSize,
+          servingLabel: details.servingLabel,
+          nutrition: { ...details.nutrition },
+        }
+      : food,
+  );
   emitChange();
+  return true;
+}
+
+/** Unico owner della rappresentazione delle porzioni custom di un alimento salvato. */
+export function setFoodCustomPortions(id: string, portions: FoodItem['customPortions']): boolean {
+  const existing = state.foods.find((food) => food.id === id);
+  if (!existing) return false;
+
+  const canonicalPortions = portions && portions.length > 0 ? portions.map((portion) => ({ ...portion })) : undefined;
+  state.foods = state.foods.map((food) => (food.id === id ? { ...food, customPortions: canonicalPortions } : food));
+  emitChange();
+  return true;
 }
 
 export function deleteFood(id: string): void {
@@ -260,6 +300,8 @@ export function getDiaryForDate(date: string): DiaryEntry[] {
 
 // ============ Recipes ============
 
+export type RecipeDetailsUpdate = Pick<Recipe, 'name' | 'description' | 'servings' | 'ingredients'>;
+
 export function addRecipe(input: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Recipe {
   const now = Date.now();
   const recipe: Recipe = {
@@ -273,9 +315,28 @@ export function addRecipe(input: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> 
   return recipe;
 }
 
-export function updateRecipe(id: string, patch: Partial<Recipe>): void {
-  state.recipes = state.recipes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r));
+/**
+ * Sostituisce i soli dettagli editabili di una ricetta e possiede l'aggiornamento di updatedAt.
+ * Identità, createdAt e immagine non sono modificabili attraverso questo contratto.
+ */
+export function updateRecipeDetails(id: string, details: RecipeDetailsUpdate): boolean {
+  const existing = state.recipes.find((recipe) => recipe.id === id);
+  if (!existing) return false;
+
+  state.recipes = state.recipes.map((recipe) =>
+    recipe.id === id
+      ? {
+          ...recipe,
+          name: details.name,
+          description: details.description,
+          servings: details.servings,
+          ingredients: details.ingredients.map((ingredient) => ({ ...ingredient })),
+          updatedAt: Date.now(),
+        }
+      : recipe,
+  );
   emitChange();
+  return true;
 }
 
 export function deleteRecipe(id: string): void {

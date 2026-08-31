@@ -1,6 +1,6 @@
 # NutriTrack — Strategic Audit Remediation Roadmap
 
-Status: **active**  
+Status: **completed 2026-08-31**  
 Baseline audit: `main` at `e21d6575d21b96dccd5343735e9ce38a7d051cac`  
 Created: 2026-08-30
 
@@ -85,7 +85,11 @@ For every non-trivial change:
 
 # M1 — Data integrity and release integrity
 
+**Status: completed 2026-08-31.**
+
 ## M1.1 Revisioned multi-tab synchronization
+
+**Status: completed 2026-08-31.**
 
 **Root cause:** remote snapshots can be deferred while a modal is open and later overwrite newer local work because snapshots have no causal/revision metadata.
 
@@ -95,62 +99,76 @@ Use a monotonically increasing persisted revision plus a per-tab origin id.
 
 Avoid CRDT/operation-log machinery: it would be disproportionate for the current local-first single-user application.
 
-- [ ] Add persisted `revision` metadata without duplicating domain data.
-- [ ] Increment revision on committed local state changes.
-- [ ] Ignore stale remote snapshots.
-- [ ] Preserve pending updates only when they are newer than local state.
-- [ ] Add deterministic two-tab race regression tests.
-- [ ] Document conflict semantics.
+**Conflict semantics:** persisted snapshots are totally ordered by `revision`; at equal revision a `reset` tombstone wins over normal state, then `originTabId` provides the deterministic tie-break. Stale physical snapshots are repaired rather than adopted.
+
+- [x] Add persisted `revision` metadata without duplicating domain data.
+- [x] Increment revision on committed local state changes.
+- [x] Ignore stale remote snapshots.
+- [x] Preserve pending updates only when they are newer than local state.
+- [x] Add deterministic two-tab race regression tests.
+- [x] Document conflict semantics.
 
 **Done when:** a stale remote state cannot overwrite a newer local mutation.
 
 ## M1.2 Deploy must depend on validation
 
-- [ ] Make GitHub Pages deployment depend on the complete quality gate.
-- [ ] Avoid duplicating validation logic in two independent workflows.
-- [ ] Ensure tests/lint/format failure prevents deployment.
-- [ ] Keep manual deployment possible only through the same validated artifact/path.
+**Status: completed 2026-08-31.**
+
+- [x] Make GitHub Pages deployment depend on the complete quality gate.
+- [x] Avoid duplicating validation logic in two independent workflows.
+- [x] Ensure tests/lint/format failure prevents deployment.
+- [x] Keep manual deployment possible only through the same validated artifact/path.
 
 **Done when:** a commit that fails CI cannot deploy.
 
 ## M1.3 Coverage policy must be real or removed
 
-- [ ] Run coverage in CI if thresholds are intended as a gate; otherwise remove misleading thresholds.
-- [ ] Prefer risk-based integration tests over increasing coverage numbers for their own sake.
+**Status: completed 2026-08-31.**
+
+- [x] Run coverage in CI if thresholds are intended as a gate; otherwise remove misleading thresholds.
+- [x] Prefer risk-based integration tests over increasing coverage numbers for their own sake.
 
 ---
 
 # M2 — Store API and persistence ownership
 
+**Status: completed 2026-08-31.**
+
 ## M2.1 Narrow the store interface
+
+**Status: completed 2026-08-31.**
 
 **Root cause:** generic mutation functions push invariants and failure handling to callers.
 
-- [ ] Inventory external calls to `setState`, `updateFood`, `updateRecipe`, `updateDiaryEntry`.
-- [ ] Introduce semantic operations only where they remove real caller knowledge.
-- [ ] Start with diary mutations: amount change, move entry, delete entry, add recipe atomically.
-- [ ] Return explicit outcomes for semantic failures instead of partial silent success.
-- [ ] Restrict direct generic mutation usage to hydration/testing/internal implementation.
+- [x] Inventory external calls to generic store mutations; `setState` is confined to persistence/hydration and tests, while generic food/recipe updates were removed.
+- [x] Introduce semantic operations only where they remove real caller knowledge.
+- [x] Protect diary mutations with semantic amount/snapshot operations and transactional multi-entry insertion used by atomic recipe adds.
+- [x] Return explicit outcomes for semantic failures instead of partial silent success.
+- [x] Restrict direct generic mutation usage to hydration/testing/internal implementation.
 
 **Done when:** normal UI code does not need to understand store representation invariants.
 
 ## M2.2 Separate persistence from domain state
 
+**Status: completed 2026-08-31.**
+
 **Root cause:** `store.ts` knows localStorage details because `storage.ts` already depends on the store.
 
-- [ ] Define a one-way snapshot persistence boundary.
-- [ ] Remove direct localStorage deletion from the store.
-- [ ] Keep browser/storage details owned by persistence.
-- [ ] Remove circular-import workarounds made unnecessary by the new ownership.
+- [x] Define a one-way snapshot persistence boundary.
+- [x] Remove direct localStorage deletion from the store.
+- [x] Keep browser/storage details owned by persistence.
+- [x] Remove circular-import workarounds made unnecessary by the new ownership.
 
 **Done when:** the domain store can exist and be tested without knowing localStorage keys.
 
 ## M2.3 Real schema migrations
 
-- [ ] Keep normalization and schema migration as separate concepts.
-- [ ] Introduce sequential migration functions before the first breaking schema change.
-- [ ] Reject unsupported future schema versions instead of best-effort silent coercion.
-- [ ] Add migration fixture tests.
+**Status: completed 2026-08-31.**
+
+- [x] Keep normalization and schema migration as separate concepts.
+- [x] Introduce sequential migration functions before the first breaking schema change.
+- [x] Reject unsupported future schema versions instead of best-effort silent coercion.
+- [x] Add migration fixture tests.
 
 ---
 
@@ -306,6 +324,6 @@ Every milestone must finish with:
 
 ## Current execution order
 
-`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 ✅ → M6.3 ✅ → M6.4 ✅`
+`M0 ✅ → M1 ✅ → M2 ✅ → M3 ✅ → M4 ✅ → M5 ✅ → M6 ✅`
 
 The order can change only when a later dependency must be pulled forward to fix a correctness or integrity problem cleanly.

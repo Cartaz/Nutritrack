@@ -4,7 +4,7 @@ import {
   getState,
   closeRecipeEditor,
   addRecipe,
-  updateRecipe,
+  updateRecipeDetails,
   openFoodEditor,
   emitChange,
   isRecipeEditorOpen,
@@ -667,7 +667,7 @@ function handleSave(recipeId: string | null): boolean {
       );
       return false;
     }
-    updateRecipe(recipeId, payload);
+    updateRecipeDetails(recipeId, payload);
     showToast('Ricetta aggiornata', 'success');
   } else {
     addRecipe(payload);
