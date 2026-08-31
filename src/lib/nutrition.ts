@@ -119,7 +119,9 @@ export function weeklyDeltaToDailyKcal(weeklyDeltaKg: number): number {
   return Math.round((weeklyDeltaKg * KCAL_PER_KG_BODYWEIGHT) / 7);
 }
 
-export interface GoalCaloriesValue {
+export interface GoalCaloriesResult {
+  /** false significa che non esiste alcuna stima valida da applicare. */
+  valid: boolean;
   kcal: number;
   weeklyDeltaKg: number;
   dailyAdjustment: number;
@@ -130,13 +132,10 @@ export interface GoalCaloriesValue {
   kcalClamped: boolean;
 }
 
-export type GoalCaloriesResult =
-  | ({ ok: true } & GoalCaloriesValue)
-  | { ok: false; reason: 'invalid-tdee' };
-
 /**
  * Calcola l'obiettivo calorico aggiustato. Un TDEE invalido NON viene convertito
- * in un numero plausibile: l'assenza di una stima resta esplicita nel contratto.
+ * in un target plausibile: ritorna valid=false e kcal=0, che i caller trattano
+ * come errore senza modificare l'obiettivo esistente.
  */
 export function calcGoalAdjustedCalories(
   tdee: number,
@@ -145,7 +144,18 @@ export function calcGoalAdjustedCalories(
   weeklyRateKg: number | undefined,
   goalType: WeightGoalType | undefined,
 ): GoalCaloriesResult {
-  if (!Number.isFinite(tdee) || tdee <= 0) return { ok: false, reason: 'invalid-tdee' };
+  if (!Number.isFinite(tdee) || tdee <= 0) {
+    return {
+      valid: false,
+      kcal: 0,
+      weeklyDeltaKg: 0,
+      dailyAdjustment: 0,
+      weeksToTarget: 0,
+      totalDeltaKg: 0,
+      rateClamped: false,
+      kcalClamped: false,
+    };
+  }
 
   const rateClamped = weeklyRateKg != null && Number.isFinite(weeklyRateKg) && weeklyRateKg > MAX_WEEKLY_KG_RATE;
   const weeklyDeltaKg = calcWeeklyDeltaKg(weeklyRateKg, goalType);
@@ -159,7 +169,7 @@ export function calcGoalAdjustedCalories(
   const kcalClamped = raw < min || raw > max;
   const kcal = Math.max(min, Math.min(max, Math.round(raw)));
   return {
-    ok: true,
+    valid: true,
     kcal,
     weeklyDeltaKg,
     dailyAdjustment,
