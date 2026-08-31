@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { addRecipeToDiary } from '../src/lib/diary';
+import { addFoodToDiary, addRecipeToDiary, changeEntryQuantity } from '../src/lib/diary';
 import { addDiaryEntries, getState, setDiaryEntryAmount, setDiaryEntryFoodSnapshot, setState } from '../src/lib/store';
 import { MAX_DIARY_ENTRIES_PER_DAY } from '../src/lib/constants';
 import type { DiaryEntry, FoodItem, Recipe } from '../src/types';
@@ -75,6 +75,17 @@ describe('semantic diary entry mutations', () => {
     expect(updated.foodId).toBe('food-0');
     expect(updated.quantity).toBe(1);
   });
+
+  it('preserva i grammi per porzione quando cambia la quantità in modalità grammi', () => {
+    const current = { ...entry('entry-1'), quantity: 2, gramsOverride: 100 };
+    setState({ diary: { [DATE]: [current] } });
+
+    changeEntryQuantity(current.id, 0.5, current.quantity, current.gramsOverride);
+
+    const updated = getState().diary[DATE][0];
+    expect(updated.quantity).toBe(2.5);
+    expect(updated.gramsOverride).toBe(125);
+  });
 });
 
 describe('atomic diary insertion', () => {
@@ -124,5 +135,44 @@ describe('atomic diary insertion', () => {
 
     expect(getState().diary[DATE]).toHaveLength(MAX_DIARY_ENTRIES_PER_DAY - 1);
     expect(getState().diary[DATE].some((item) => item.foodId === 'a' || item.foodId === 'b')).toBe(false);
+  });
+
+  it('scala i grammi di tutti gli ingredienti in base alle porzioni richieste', () => {
+    const ingredientA = food('a', 'Ingrediente A');
+    const ingredientB = food('b', 'Ingrediente B');
+    const recipe: Recipe = {
+      id: 'recipe-1',
+      name: 'Ricetta scalabile',
+      servings: 2,
+      ingredients: [
+        { id: 'ing-a', foodId: ingredientA.id, foodSnapshot: ingredientA, grams: 100 },
+        { id: 'ing-b', foodId: ingredientB.id, foodSnapshot: ingredientB, grams: 40 },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    setState({ recipes: [recipe] });
+
+    addRecipeToDiary('dinner', recipe.id, 3);
+
+    expect(getState().diary[DATE]).toHaveLength(2);
+    expect(getState().diary[DATE].map((item) => item.gramsOverride)).toEqual([150, 60]);
+    expect(getState().diary[DATE].every((item) => item.quantity === 1)).toBe(true);
+  });
+});
+
+describe('diary input validation', () => {
+  it('rifiuta una data invalida prima di persistere un alimento remoto', () => {
+    const remote = { ...food('off-temp', 'Remote'), source: 'openfoodfacts' as const, barcode: '8000000000001' };
+
+    addFoodToDiary({
+      date: '2026-02-30',
+      meal: 'lunch',
+      food: remote,
+      quantity: 1,
+    });
+
+    expect(getState().foods).toEqual([]);
+    expect(getState().diary).toEqual({});
   });
 });
