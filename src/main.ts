@@ -8,7 +8,7 @@ import { render, bindGlobalEvents, applyInitialTheme } from './components/render
 import { showToast } from './components/toast';
 import { showModal } from './components/modal';
 import { terminateWorker } from './worker/client';
-import { toDateKey } from './lib/utils';
+import { shouldAutoAdvanceDate, toDateKey } from './lib/utils';
 import { initKeyboardShortcuts } from './lib/keyboardShortcuts';
 
 function init(): void {
@@ -55,31 +55,30 @@ function init(): void {
     terminateWorker();
   });
 
-  // Fix 2.12 (T2): auto-advance della data a mezzanotte + su visibilitychange/focus.
-  // Se l'app resta aperta overnight, state.currentDate resta su ieri → badge "Oggi" sbagliato,
-  // nuove entry vanno alla data sbagliata, week stats non includono il nuovo giorno.
+  // Avanza automaticamente al nuovo giorno solo se l'app attraversa davvero la mezzanotte
+  // mentre il dashboard era ancora sul giorno precedente. Se l'utente sta consultando
+  // intenzionalmente una data storica, focus/visibility non devono riportarlo a oggi.
+  let lastObservedToday = toDateKey(new Date());
   const checkMidnightRollover = (): void => {
     const today = toDateKey(new Date());
-    if (getState().currentDate !== today) {
+    if (shouldAutoAdvanceDate(getState().currentDate, lastObservedToday, today)) {
       setCurrentDate(today);
     }
+    lastObservedToday = today;
   };
-  // Check su visibilitychange (tab torna attivo)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') checkMidnightRollover();
   });
-  // Check su focus (window torna in primo piano)
   window.addEventListener('focus', checkMidnightRollover);
-  // Timer che scatta a mezzanotte (setTimeout calcolato al primo caricamento)
   const scheduleMidnightCheck = (): void => {
     const now = new Date();
     const midnight = new Date(now);
-    midnight.setHours(24, 0, 0, 0); // prossima mezzanotte
+    midnight.setHours(24, 0, 0, 0);
     const msUntilMidnight = midnight.getTime() - now.getTime();
     setTimeout(() => {
       checkMidnightRollover();
-      scheduleMidnightCheck(); // rischedule per il giorno dopo
-    }, msUntilMidnight + 1000); // +1s per sicurezza
+      scheduleMidnightCheck();
+    }, msUntilMidnight + 1000);
   };
   scheduleMidnightCheck();
 }
