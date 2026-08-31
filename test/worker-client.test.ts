@@ -129,18 +129,28 @@ describe('stats worker client', () => {
     vi.stubGlobal('Worker', FakeWorker);
     const { computeStatsAsync, terminateWorker } = await import('../src/worker/client');
     const entries = [makeEntry('e1', '2026-08-31', 1)];
+    const warmupResult: StatsResult = {
+      days: [],
+      avgCalories: 0,
+      avgProtein: 0,
+      avgCarbs: 0,
+      avgFat: 0,
+      totalEntries: 0,
+      daysTracked: 0,
+    };
 
-    const promise = computeStatsAsync(entries, ['2026-08-31']);
-    FakeWorker.instances[0].postMessage.mockImplementationOnce(() => {
+    const warmup = computeStatsAsync([], []);
+    const worker = FakeWorker.instances[0];
+    const warmupRequest = worker.postMessage.mock.calls[0][0] as { reqId: number };
+    worker.emit({ type: 'stats', reqId: warmupRequest.reqId, result: warmupResult });
+    await warmup;
+
+    worker.postMessage.mockImplementationOnce(() => {
       throw new Error('clone failed');
     });
-
-    // La chiamata precedente ha già eseguito postMessage; ripetiamo su una nuova richiesta
-    // usando lo stesso worker, con il mock ora attivo.
     const fallbackPromise = computeStatsAsync(entries, ['2026-08-31']);
 
-    await expect(promise).resolves.toMatchObject({ avgCalories: 200 });
-    await expect(fallbackPromise).resolves.toMatchObject({ avgCalories: 200, totalEntries: 1 });
+    await expect(fallbackPromise).resolves.toMatchObject({ avgCalories: 200, totalEntries: 1, daysTracked: 1 });
     terminateWorker();
   });
 });
