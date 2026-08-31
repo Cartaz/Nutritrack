@@ -16,18 +16,13 @@ export const STORAGE_WARN_BYTES = 4.5 * 1024 * 1024;
 
 /** Timeout default per fetch API (ms).
  *  Allineato al networkTimeoutSeconds del Service Worker (10s) per evitare
- *  race condition: prima apiGetJson abortiva a 8s mentre il SW NetworkFirst
- *  aspettava 10s, impedendo il fallback su cache. */
+ *  che il client abortisca prima del fallback su cache del SW. */
 export const API_TIMEOUT_MS = 10_000;
 
-/** Deadline globale cumulativo per tutte le istanze OFF + retry (ms).
- *  Bumpato da 15s a 20s per permettere al retry con backoff di completare
- *  almeno 2 tentativi sulla prima istanza. */
+/** Deadline globale cumulativa per tutte le istanze OFF + retry (ms). */
 export const API_GLOBAL_DEADLINE_MS = 20_000;
 
-/** Numero di retry per la stessa istanza OFF in caso di errore transitorio
- *  (network failure, timeout, 5xx, 429). Risolve il caso tipico in cui
- *  OFF ha un blip transitorio e "riprovare dopo un secondo funziona". */
+/** Numero di retry per la stessa istanza OFF in caso di errore transitorio. */
 export const API_RETRY_PER_INSTANCE = 1;
 
 /** Delay iniziale tra retry della stessa istanza (ms).
@@ -37,22 +32,11 @@ export const API_RETRY_DELAY_MS = 500;
 /** Debounce ricerca OFF (ms) */
 export const SEARCH_DEBOUNCE_MS = 500;
 
-/** Auto-retry UI-level della ricerca OFF dopo fallimento transitorio (ms).
- *  Se la prima ricerca fallisce con NetworkError/TimeoutError, ritenta una
- *  volta sola dopo questo delay. Mostra toast "Riprovo la ricerca...". */
+/** Retry del dominio search dopo un fallimento transitorio (ms). */
 export const SEARCH_AUTO_RETRY_DELAY_MS = 800;
 
 /** Suffissi italiani da provare quando una query parziale ritorna 0 risultati.
- *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`
- *  ritorna 0 risultati). Quindi se l'utente cerca "melanzan" (incompleto)
- *  riceve 0 risultati, anche se "melanzane" ne ha 417.
- *
- *  Ordinati per frequenza nei nomi dei prodotti alimentari italiani:
- *    'e' = plurale femminile (melanzane, patate, mele — il più comune)
- *    'i' = plurale maschile (pomodori, biscotti, salumi)
- *    'a' = singolare femminile (pasta, carota, cipolla)
- *    'o' = singolare maschile (pomodoro, formaggio, olio)
- */
+ *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`). */
 export const PARTIAL_MATCH_SUFFIXES = ['e', 'i', 'a', 'o'] as const;
 
 /** Lunghezza minima query per avviare ricerca OFF */
@@ -69,9 +53,6 @@ export const OFF_INSTANCES = [
   'https://es.openfoodfacts.org',
   'https://de.openfoodfacts.org',
 ] as const;
-
-/** User-Agent identificativo per OFF (best practice loro docs) */
-export const OFF_USER_AGENT = 'NutriTrack/1.0 (PWA)';
 
 /** Timeout worker (ms) prima di fallback main-thread */
 export const WORKER_TIMEOUT_MS = 500;

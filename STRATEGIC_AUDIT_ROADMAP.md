@@ -241,10 +241,12 @@ Deterministic coverage now protects:
 
 ## M6.2 Dead/stale code removal
 
-- [ ] Remove unused constants/imports and speculative placeholders.
-- [ ] Remove compatibility re-exports with no current caller.
-- [ ] Replace historical `Fix BUG #...` comments with current invariants/rationale where the comment still adds value.
-- [ ] Remove shallow wrappers that provide no information hiding.
+**Status: completed 2026-08-31.**
+
+- [x] Remove unused constants/imports and speculative placeholders.
+- [x] Remove compatibility re-exports with no current caller.
+- [x] Replace historical `Fix BUG #...` comments with current invariants/rationale in the modules touched by cleanup.
+- [x] Remove shallow wrappers that provide no information hiding.
 
 ## M6.3 Security/CSP hardening
 
@@ -292,6 +294,6 @@ Every milestone must finish with:
 
 ## Current execution order
 
-`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 → M6.3 → M6.4`
+`M0 ✅ → M1.1 → M1.2 → M1.3 → M2 → M3 ✅ → M4 ✅ → M5 ✅ → M6.1 ✅ → M6.2 ✅ → M6.3 → M6.4`
 
 The order can change only when a later dependency must be pulled forward to fix a correctness or integrity problem cleanly.

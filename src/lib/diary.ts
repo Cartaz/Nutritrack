@@ -11,11 +11,8 @@ import {
 } from './store';
 import { showToast } from '../components/toast';
 import { MEAL_LABELS } from '../types';
-import { clamp, isValidDateKey } from './utils';
+import { isValidDateKey } from './utils';
 import { saveOffFood } from './foods';
-
-// Re-export per backward compat (vecchi callers possono usare addFood direttamente)
-export { addFood } from './store';
 
 export interface AddDiaryInput {
   date: string;
@@ -128,6 +125,3 @@ export function addRecipeToDiary(meal: MealType, recipeId: string, servings: num
 
   showToast(`${recipe.name} (${servings} porz.) aggiunto a ${MEAL_LABELS[meal]}`, 'success');
 }
-
-// Esposizione per compatibilità (alcuni caller possono usare clamp indirettamente)
-export { clamp };
