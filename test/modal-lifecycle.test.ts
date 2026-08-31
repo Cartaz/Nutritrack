@@ -45,9 +45,7 @@ describe('modal lifecycle regressions', () => {
       onConfirm,
     });
 
-    const button = document.querySelector<HTMLElement>(
-      '[data-modal-id="double-click"] [data-modal-action="confirm"]',
-    );
+    const button = document.querySelector<HTMLElement>('[data-modal-id="double-click"] [data-modal-action="confirm"]');
     button?.click();
     button?.click();
 
