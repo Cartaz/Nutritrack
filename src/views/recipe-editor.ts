@@ -13,11 +13,10 @@ import { showToast } from '../components/toast';
 import { showModal, closeModalById } from '../components/modal';
 import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
-import { searchOffWithPartialMatch } from '../lib/api';
-import { buildFoodFromOff } from '../lib/normalize';
+import { FoodSearchError, searchFoods } from '../lib/food-search';
 import { saveOffFood } from '../lib/foods';
 import { imgTag } from '../components/img';
-import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY, SEARCH_AUTO_RETRY_DELAY_MS } from '../lib/constants';
+import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
 import type { FoodItem, Recipe, RecipeIngredient } from '../types';
 
 interface EditorState {
@@ -31,8 +30,6 @@ interface EditorState {
   searchLoading: boolean;
   searchResults: FoodItem[];
   searchAbort: AbortController | null;
-  searchAutoRetryDone: boolean;
-  searchEffectiveQuery: string;
 }
 
 const _recipeEditorState: EditorState = {
@@ -46,8 +43,6 @@ const _recipeEditorState: EditorState = {
   searchLoading: false,
   searchResults: [],
   searchAbort: null,
-  searchAutoRetryDone: false,
-  searchEffectiveQuery: '',
 };
 
 let _recipeEditorBound = false;
@@ -65,8 +60,6 @@ function resetRecipeEditorState(): void {
     searchLoading: false,
     searchResults: [],
     searchAbort: null,
-    searchAutoRetryDone: false,
-    searchEffectiveQuery: '',
   });
 }
 
@@ -469,39 +462,20 @@ const runSubSearch = debounce(async (query: string) => {
   const ctrl = new AbortController();
   _recipeEditorState.searchAbort = ctrl;
   try {
-    const data = await searchOffWithPartialMatch(query.trim(), { signal: ctrl.signal });
+    const data = await searchFoods(query, { signal: ctrl.signal });
     if (ctrl.signal.aborted) return;
-    _recipeEditorState.searchResults = data.products.map(buildFoodFromOff).filter((f): f is FoodItem => f !== null);
-    _recipeEditorState.searchEffectiveQuery = data.effectiveQuery;
-    _recipeEditorState.searchAutoRetryDone = false;
+    _recipeEditorState.searchResults = data.foods;
   } catch (e) {
     if (ctrl.signal.aborted) return;
-    const errName = e instanceof Error ? e.name : '';
-    const errStatus = (e as { status?: number })?.status;
-    const isTransient =
-      errName === 'NetworkError' ||
-      errName === 'TimeoutError' ||
-      errName === 'OfflineError' ||
-      (errStatus !== undefined && (errStatus >= 500 || errStatus === 429));
-    if (isTransient && !_recipeEditorState.searchAutoRetryDone) {
-      _recipeEditorState.searchAutoRetryDone = true;
-      _recipeEditorState.searchLoading = true;
-      updateSubSearchList();
-      setTimeout(() => {
-        if (!document.querySelector('[data-modal-id="recipe-editor"]')) return;
-        runSubSearch(query);
-      }, SEARCH_AUTO_RETRY_DELAY_MS);
-      return;
-    }
-
+    const kind = e instanceof FoodSearchError ? e.kind : 'unknown';
     const msg =
-      errName === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)
+      kind === 'offline'
         ? 'Sei offline. Verifica la connessione.'
-        : errName === 'NetworkError'
+        : kind === 'network'
           ? 'Open Food Facts non raggiungibile. Riprova tra qualche secondo.'
-          : errName === 'TimeoutError'
+          : kind === 'timeout'
             ? 'Risposta di Open Food Facts troppo lenta. Riprova tra poco.'
-            : e instanceof Error && e.message.includes('non disponibile')
+            : kind === 'unavailable'
               ? 'Open Food Facts non disponibile. Riprova tra poco.'
               : 'Errore nella ricerca ingredienti. Riprova.';
     showToast(msg, 'error', 5000);
@@ -547,8 +521,6 @@ function bindRecipeEditorModalEvents(): void {
     }
     if (t.id === 're-search-input') {
       _recipeEditorState.searchQuery = (t as HTMLInputElement).value;
-      _recipeEditorState.searchAutoRetryDone = false;
-      _recipeEditorState.searchEffectiveQuery = '';
       if (_recipeEditorState.searchQuery.trim().length < SEARCH_MIN_QUERY) {
         _recipeEditorState.searchResults = [];
         _recipeEditorState.searchLoading = false;

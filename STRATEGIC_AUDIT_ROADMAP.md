@@ -189,10 +189,12 @@ Avoid CRDT/operation-log machinery: it would be disproportionate for the current
 
 ## M4.2 Shared Open Food Facts search policy
 
-- [ ] Centralize transient-error classification.
-- [ ] Centralize partial-match expansion/effective-query/pagination policy.
-- [ ] Keep search UI rendering and recipe ingredient UI separate.
-- [ ] Expose a small search-domain API rather than another generic service layer.
+**Status: completed 2026-08-31.**
+
+- [x] Centralize transient-error classification.
+- [x] Centralize partial-match expansion/effective-query/pagination policy.
+- [x] Keep search UI rendering and recipe ingredient UI separate.
+- [x] Expose a small search-domain API rather than another generic service layer.
 
 ## M4.3 Clarify debounce contracts
 

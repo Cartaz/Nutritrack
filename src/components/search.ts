@@ -8,8 +8,13 @@
 // MAI toccato dopo la creazione per non perdere focus e cursore (causa del bug flickering).
 
 import { escapeHtml, escapeAttr, debounce, safeId } from '../lib/utils';
-import { searchOff, searchOffWithPartialMatch, getOffByBarcode } from '../lib/api';
-import { buildFoodFromOff } from '../lib/normalize';
+import {
+  continueFoodSearch,
+  FoodSearchError,
+  lookupFoodByBarcode,
+  searchFoods,
+  type FoodSearchContinuation,
+} from '../lib/food-search';
 import { getItOverrideByBarcode } from '../lib/itOverride';
 import { getState, getActiveDialog, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
@@ -17,8 +22,8 @@ import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood
 import { showToast } from './toast';
 import { imgTag } from './img';
 import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';
-import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY, SEARCH_AUTO_RETRY_DELAY_MS } from '../lib/constants';
-import type { FoodItem, CustomPortion, OffProduct } from '../types';
+import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
+import type { FoodItem, CustomPortion } from '../types';
 import { MEAL_ICONS, MEAL_LABELS } from '../types';
 
 // ============ Internal dialog state (NON in store globale) ============
@@ -38,16 +43,8 @@ interface SearchDialogState {
   newPortionLabel: string;
   newPortionGrams: string;
   abortController: AbortController | null;
-  // Fix MEDIUM bug: paginazione OFF — page corrente e totale risultati da OFF (count)
-  page: number;
   totalCount: number;
-  // Fix OFF-RETRY (issue #1): flag che indica se l'auto-retry UI-level è già stato
-  // tentato per la query corrente. Evita retry infiniti su errori persistenti.
-  autoRetryDone: boolean;
-  // Fix PARTIAL-MATCH: query che ha effettivamente prodotto i risultati (può differire
-  // da `query` se è stato applicato il suffix expansion, es. "melanzan" → "melanzane").
-  // Usata per la paginazione (page > 1) per garantire coerenza dei risultati.
-  effectiveQuery: string;
+  continuation: FoodSearchContinuation | null;
 }
 
 const _searchState: SearchDialogState = {
@@ -62,10 +59,8 @@ const _searchState: SearchDialogState = {
   newPortionLabel: '',
   newPortionGrams: '',
   abortController: null,
-  page: 1,
   totalCount: 0,
-  autoRetryDone: false,
-  effectiveQuery: '',
+  continuation: null,
 };
 
 function getSearchDialog() {
@@ -98,21 +93,50 @@ function resetSearchState(): void {
   _searchState.newPortionLabel = '';
   _searchState.newPortionGrams = '';
   _searchState.abortController = null;
-  _searchState.page = 1;
   _searchState.totalCount = 0;
-  _searchState.autoRetryDone = false;
-  _searchState.effectiveQuery = '';
+  _searchState.continuation = null;
 }
 
-// ============ Debounced search ============
+function showFoodSearchError(error: unknown, context: 'search' | 'barcode'): void {
+  const kind = error instanceof FoodSearchError ? error.kind : 'unknown';
+  if (kind === 'offline') {
+    showToast('Sei offline. Verifica la connessione e riprova.', 'error');
+    return;
+  }
+  if (kind === 'network') {
+    showToast('Open Food Facts non raggiungibile. Riprova tra qualche secondo.', 'error', 5000);
+    return;
+  }
+  if (kind === 'timeout') {
+    showToast('Risposta di Open Food Facts troppo lenta. Riprova tra poco.', 'error', 5000);
+    return;
+  }
+  if (kind === 'unavailable') {
+    showToast(
+      context === 'search'
+        ? 'Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.'
+        : 'Servizio Open Food Facts non disponibile. Riprova tra poco.',
+      'error',
+      5000,
+    );
+    return;
+  }
+  showToast(
+    context === 'search' ? 'Errore nella ricerca. Riprova tra poco.' : 'Errore nella ricerca del prodotto.',
+    'error',
+    5000,
+  );
+}
 
-const runSearch = debounce(async (query: string, page: number = 1) => {
+// ============ Debounced initial search ============
+
+const runSearch = debounce(async (query: string) => {
   if (!isSearchOpen()) return;
   if (query.trim().length < SEARCH_MIN_QUERY) {
     _searchState.results = [];
     _searchState.loading = false;
-    _searchState.page = 1;
     _searchState.totalCount = 0;
+    _searchState.continuation = null;
     emitChange();
     return;
   }
@@ -126,86 +150,17 @@ const runSearch = debounce(async (query: string, page: number = 1) => {
   const ctrl = new AbortController();
   _searchState.abortController = ctrl;
   try {
-    const trimmedQuery = query.trim();
-    let products: OffProduct[];
-    let count: number;
-    if (page === 1) {
-      const data = await searchOffWithPartialMatch(trimmedQuery, {
-        signal: ctrl.signal,
-        italianOnly: true,
-        page,
-      });
-      _searchState.effectiveQuery = data.effectiveQuery;
-      products = data.products;
-      count = data.count;
-    } else {
-      const data = await searchOff(_searchState.effectiveQuery || trimmedQuery, {
-        signal: ctrl.signal,
-        italianOnly: true,
-        page,
-      });
-      products = data.products;
-      count = data.count;
-    }
-    if (ctrl.signal.aborted) return;
-    if (!isSearchOpen()) return;
-    const items: FoodItem[] = [];
-    for (const p of products) {
-      const f = buildFoodFromOff(p);
-      if (f) items.push(f);
-    }
-    if (page === 1) {
-      _searchState.results = items;
-    } else {
-      const existingIds = new Set(_searchState.results.map((r) => r.id));
-      const newItems = items.filter((it) => !existingIds.has(it.id));
-      _searchState.results = [..._searchState.results, ...newItems];
-    }
-    _searchState.page = page;
-    _searchState.totalCount = count;
-  } catch (e) {
-    if (ctrl.signal.aborted) return;
-    if (!isSearchOpen()) return;
-    const err = e as { name?: string; message?: string };
-    const msg = err?.message ?? (e instanceof Error ? e.message : String(e));
-    const errName = err?.name ?? '';
-    const errStatus = (e as { status?: number })?.status;
-    const isTransient =
-      errName === 'NetworkError' ||
-      errName === 'TimeoutError' ||
-      errName === 'OfflineError' ||
-      (errStatus !== undefined && (errStatus >= 500 || errStatus === 429));
-    if (isTransient && !_searchState.autoRetryDone && page === 1) {
-      _searchState.autoRetryDone = true;
-      _searchState.loading = true;
-      emitChange();
-      setTimeout(() => {
-        if (!isSearchOpen()) return;
-        _searchState.loading = true;
-        emitChange();
-        runSearch(query, 1);
-      }, SEARCH_AUTO_RETRY_DELAY_MS);
-      return;
-    }
-
-    if (errName === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
-      showToast('Sei offline. Verifica la connessione e riprova.', 'error');
-    } else if (errName === 'NetworkError') {
-      showToast('Open Food Facts non raggiungibile. Riprova tra qualche secondo.', 'error', 5000);
-    } else if (errName === 'TimeoutError') {
-      showToast('Risposta di Open Food Facts troppo lenta. Riprova tra poco.', 'error', 5000);
-    } else if (msg && (msg.includes('non disponibile') || msg.includes('non JSON') || msg.includes('non valida'))) {
-      showToast(
-        'Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.',
-        'error',
-        5000,
-      );
-    } else {
-      showToast('Errore nella ricerca. Riprova tra poco.', 'error');
-    }
+    const data = await searchFoods(query, { signal: ctrl.signal, italianOnly: true });
+    if (ctrl.signal.aborted || !isSearchOpen()) return;
+    _searchState.results = data.foods;
+    _searchState.totalCount = data.totalCount;
+    _searchState.continuation = data.continuation;
+  } catch (error) {
+    if (ctrl.signal.aborted || !isSearchOpen()) return;
+    showFoodSearchError(error, 'search');
     _searchState.results = [];
-    _searchState.page = 1;
     _searchState.totalCount = 0;
+    _searchState.continuation = null;
   } finally {
     if (_searchState.abortController === ctrl) {
       _searchState.abortController = null;
@@ -215,17 +170,30 @@ const runSearch = debounce(async (query: string, page: number = 1) => {
   }
 }, SEARCH_DEBOUNCE_MS);
 
-/** Carica la pagina successiva di risultati OFF (paginazione load-more). */
+/** Carica semanticamente la pagina successiva senza esporre query effettiva o page index alla UI. */
 async function loadMoreResults(): Promise<void> {
-  if (!isSearchOpen()) return;
-  if (_searchState.loading) return;
-  if (_searchState.query.trim().length < SEARCH_MIN_QUERY) return;
-  const nextPage = _searchState.page + 1;
-  const loaded = _searchState.results.length;
-  if (_searchState.totalCount > 0 && loaded >= _searchState.totalCount) return;
+  if (!isSearchOpen() || _searchState.loading || !_searchState.continuation) return;
+  const continuation = _searchState.continuation;
+  const ctrl = new AbortController();
+  _searchState.abortController = ctrl;
   _searchState.loading = true;
   emitChange();
-  await runSearch(_searchState.query, nextPage);
+  try {
+    const data = await continueFoodSearch(continuation, { signal: ctrl.signal });
+    if (ctrl.signal.aborted || !isSearchOpen()) return;
+    const existingIds = new Set(_searchState.results.map((food) => food.id));
+    const newFoods = data.foods.filter((food) => !existingIds.has(food.id));
+    _searchState.results = [..._searchState.results, ...newFoods];
+    _searchState.totalCount = data.totalCount;
+    _searchState.continuation = data.continuation;
+  } catch (error) {
+    if (ctrl.signal.aborted || !isSearchOpen()) return;
+    showFoodSearchError(error, 'search');
+  } finally {
+    if (_searchState.abortController === ctrl) _searchState.abortController = null;
+    _searchState.loading = false;
+    if (isSearchOpen()) emitChange();
+  }
 }
 
 // ============ Event bindings (una sola volta) ============
@@ -368,8 +336,8 @@ export function bindSearchEvents(): void {
         abortInFlightSearch();
         _searchState.query = '';
         _searchState.results = [];
-        _searchState.page = 1;
         _searchState.totalCount = 0;
+        _searchState.continuation = null;
         const input = document.querySelector<HTMLInputElement>('#search-input');
         if (input) {
           input.value = '';
@@ -446,8 +414,8 @@ export function bindSearchEvents(): void {
       _searchState.selectedId = null;
       _searchState.gramsOverride = '';
       _searchState.pendingCustomPortions = [];
-      _searchState.autoRetryDone = false;
-      _searchState.effectiveQuery = '';
+      _searchState.totalCount = 0;
+      _searchState.continuation = null;
       if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
         abortInFlightSearch();
         _searchState.results = [];
@@ -519,42 +487,42 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
   _searchState.selectedId = null;
   _searchState.gramsOverride = '';
   _searchState.pendingCustomPortions = [];
-  _searchState.autoRetryDone = false;
-  _searchState.effectiveQuery = '';
+  _searchState.totalCount = 0;
+  _searchState.continuation = null;
   const inputEl = document.querySelector<HTMLInputElement>('#search-input');
   if (inputEl) inputEl.value = barcode;
   emitChange();
 
+  const s = getState();
+  const savedByBarcode = s.foods.find((f) => f.barcode === barcode);
+  if (savedByBarcode) {
+    _searchState.results = [savedByBarcode];
+    _searchState.selectedId = savedByBarcode.id;
+    _searchState.gramsOverride = String(savedByBarcode.servingSize || 100);
+    _searchState.loading = false;
+    emitChange();
+    showToast(`${savedByBarcode.name} (tuo salvato)`, 'success', 2200);
+    return;
+  }
+
+  const itFood = getItOverrideByBarcode(barcode);
+  if (itFood) {
+    _searchState.results = [itFood];
+    _searchState.selectedId = itFood.id;
+    _searchState.gramsOverride = String(itFood.servingSize || 100);
+    _searchState.loading = false;
+    emitChange();
+    showToast(`${itFood.name} (DB italiano)`, 'success', 2200);
+    return;
+  }
+
+  const ctrl = new AbortController();
+  _searchState.abortController = ctrl;
   try {
-    const s = getState();
-    const savedByBarcode = s.foods.find((f) => f.barcode === barcode);
-    if (savedByBarcode) {
-      _searchState.results = [savedByBarcode];
-      _searchState.selectedId = savedByBarcode.id;
-      _searchState.gramsOverride = String(savedByBarcode.servingSize || 100);
-      _searchState.loading = false;
-      emitChange();
-      showToast(`${savedByBarcode.name} (tuo salvato)`, 'success', 2200);
-      return;
-    }
-
-    const itFood = getItOverrideByBarcode(barcode);
-    if (itFood) {
-      _searchState.results = [itFood];
-      _searchState.selectedId = itFood.id;
-      _searchState.gramsOverride = String(itFood.servingSize || 100);
-      _searchState.loading = false;
-      emitChange();
-      showToast(`${itFood.name} (DB italiano)`, 'success', 2200);
-      return;
-    }
-
-    const product = await getOffByBarcode(barcode);
-    if (!isSearchOpen()) return;
-    if (!product) {
-      _searchState.loading = false;
+    const result = await lookupFoodByBarcode(barcode, ctrl.signal);
+    if (ctrl.signal.aborted || !isSearchOpen()) return;
+    if (result.kind === 'not-found') {
       _searchState.results = [];
-      emitChange();
       showToast(
         `Nessun prodotto trovato per il codice ${barcode}. Puoi cercare per nome o creare un ingrediente custom.`,
         'info',
@@ -562,55 +530,24 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
       );
       return;
     }
-    const food = buildFoodFromOff(product);
-    if (!food) {
-      _searchState.loading = false;
+    if (result.kind === 'incomplete') {
       _searchState.results = [];
-      emitChange();
       showToast(`Prodotto trovato ma con dati nutrizionali incompleti (codice ${barcode}).`, 'info', 4500);
       return;
     }
+    const food = result.food;
     _searchState.results = [food];
     _searchState.selectedId = food.id;
     _searchState.gramsOverride = String(food.servingSize || 100);
-    _searchState.loading = false;
-    emitChange();
     showToast(`${food.name} trovato`, 'success', 2200);
-  } catch (e) {
-    if (!isSearchOpen()) return;
-
-    const errName = e instanceof Error ? e.name : '';
-    const errStatus = (e as { status?: number })?.status;
-    const isTransient =
-      errName === 'NetworkError' ||
-      errName === 'TimeoutError' ||
-      errName === 'OfflineError' ||
-      (errStatus !== undefined && (errStatus >= 500 || errStatus === 429));
-    if (isTransient && !_searchState.autoRetryDone) {
-      _searchState.autoRetryDone = true;
-      _searchState.loading = true;
-      emitChange();
-      setTimeout(() => {
-        if (!isSearchOpen()) return;
-        void handleBarcodeDetected(barcode);
-      }, SEARCH_AUTO_RETRY_DELAY_MS);
-      return;
-    }
-
-    _searchState.loading = false;
+  } catch (error) {
+    if (ctrl.signal.aborted || !isSearchOpen()) return;
     _searchState.results = [];
-    emitChange();
-    const msg =
-      errName === 'OfflineError' || (typeof navigator !== 'undefined' && navigator.onLine === false)
-        ? 'Sei offline. Verifica la connessione e riprova.'
-        : errName === 'NetworkError'
-          ? 'Open Food Facts non raggiungibile. Riprova tra qualche secondo.'
-          : errName === 'TimeoutError'
-            ? 'Risposta di Open Food Facts troppo lenta. Riprova tra poco.'
-            : e instanceof Error
-              ? `Errore nella ricerca del prodotto: ${e.message}`
-              : 'Servizio Open Food Facts non disponibile. Riprova tra poco.';
-    showToast(msg, 'error', 5000);
+    showFoodSearchError(error, 'barcode');
+  } finally {
+    if (_searchState.abortController === ctrl) _searchState.abortController = null;
+    _searchState.loading = false;
+    if (isSearchOpen()) emitChange();
   }
 }
 
@@ -794,11 +731,12 @@ export function updateSearchContent(overlay: HTMLElement): void {
       listHtml = list.map((f) => renderFoodRow(f)).join('');
       if (
         _searchState.tab === 'search' &&
-        _searchState.totalCount > list.length &&
+        _searchState.continuation &&
         _searchState.query.trim().length >= SEARCH_MIN_QUERY
       ) {
-        const remaining = _searchState.totalCount - list.length;
-        listHtml += `<div class="search-load-more"><button type="button" class="btn btn-outline btn-sm btn-block" data-search-action="loadMore">Carica altri risultati (${remaining} restanti)</button></div>`;
+        const remaining = Math.max(0, _searchState.totalCount - list.length);
+        const suffix = remaining > 0 ? ` (${remaining} restanti)` : '';
+        listHtml += `<div class="search-load-more"><button type="button" class="btn btn-outline btn-sm btn-block" data-search-action="loadMore">Carica altri risultati${suffix}</button></div>`;
       }
     }
     if (listEl.innerHTML !== listHtml) listEl.innerHTML = listHtml;
