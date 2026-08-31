@@ -1,32 +1,24 @@
 // Store observer minimale con RAF batching.
-// Pattern 1 dello standard: singolo oggetto state, Set<Listener>, emitChange su RAF.
-// Anti-pattern rispettati: niente Proxy, niente librerie esterne, niente emit sincrono.
+// Lo store possiede le invarianti in-memory; storage può sostituire solo PersistedState.
 
 import type {
   AppState,
+  BiometricEntry,
+  Biometrics,
   DayDiary,
   DiaryEntry,
   FoodItem,
+  MacroSplit,
   MealType,
+  PersistedState,
   Recipe,
   UserSettings,
   ViewName,
-  MacroSplit,
-  Biometrics,
-  BiometricEntry,
 } from '../types';
 import { DEFAULT_SETTINGS } from './nutrition';
-import { safeId, toDateKey } from './utils';
-import { MAX_DIARY_ENTRIES_PER_DAY, STORAGE_KEY, BACKUP_KEY } from './constants';
+import { isValidDateKey, safeId, toDateKey } from './utils';
+import { BACKUP_KEY, MAX_DIARY_ENTRIES_PER_DAY, STORAGE_KEY } from './constants';
 
-/**
- * Fix HIGH bug (privacy): cancella sia STORAGE_KEY che BACKUP_KEY da localStorage.
- * Implementato qui in store.ts (invece di importare da storage.ts) per evitare
- * circular import: storage.ts importa già da store.ts (getState, setState, ecc.).
- *
- * Prima resetAll() sovrascriveva solo STORAGE_KEY con payload vuoto, ma BACKUP_KEY
- * conservava il payload precedente e loadData() poteva resuscitarlo come fallback.
- */
 function clearAllStoredDataLocal(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
@@ -40,14 +32,20 @@ function clearAllStoredDataLocal(): void {
   }
 }
 
+function createDefaultPersistedState(): PersistedState {
+  return {
+    settings: { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } },
+    foods: [],
+    diary: {},
+    recipes: [],
+    favoriteFoodIds: [],
+    biometrics: {},
+  };
+}
+
+const initialPersisted = createDefaultPersistedState();
 const state: AppState = {
-  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
-  settings: { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } },
-  foods: [],
-  diary: {},
-  recipes: [],
-  favoriteFoodIds: [],
-  biometrics: {},
+  ...initialPersisted,
   currentView: 'dashboard',
   currentDate: toDateKey(new Date()),
   _storageDisabled: false,
@@ -70,10 +68,41 @@ export function getState(): AppState {
   return state;
 }
 
-/** Alias per chiarezza semantica nei moduli UI (renderer, views) */
+/** Alias per chiarezza semantica nei moduli UI (renderer, views). */
 export const getStoreState = getState;
 
-/** Patch shallow dello state. NON emette direttamente (chiama emitChange). */
+/**
+ * Vista esplicita dei soli dati persistenti. Storage/import/export non devono
+ * dipendere dai dettagli di UiState.
+ */
+export function getPersistedState(): PersistedState {
+  return {
+    settings: state.settings,
+    foods: state.foods,
+    diary: state.diary,
+    recipes: state.recipes,
+    favoriteFoodIds: state.favoriteFoodIds,
+    biometrics: state.biometrics,
+  };
+}
+
+/**
+ * Sostituisce in un'unica operazione l'intero dominio persistente.
+ * Non emette: il chiamante decide quando notificare (load, import, multi-tab).
+ */
+export function replacePersistedState(next: PersistedState): void {
+  state.settings = next.settings;
+  state.foods = next.foods;
+  state.diary = next.diary;
+  state.recipes = next.recipes;
+  state.favoriteFoodIds = next.favoriteFoodIds;
+  state.biometrics = next.biometrics;
+}
+
+/**
+ * Patch generica mantenuta per test e compatibilità legacy. Il codice di
+ * produzione deve preferire operazioni semantiche o replacePersistedState().
+ */
 export function setState(patch: Partial<AppState>): void {
   Object.assign(state, patch);
 }
@@ -87,15 +116,15 @@ export function subscribe(fn: () => void): () => void {
 
 let _rafScheduled = false;
 
-/** Emissione batched su RAF (dedupe tramite flag) */
+/** Emissione batched su RAF (dedupe tramite flag). */
 export function emitChange(): void {
   if (_rafScheduled) return;
   _rafScheduled = true;
   requestAnimationFrame(() => {
     _rafScheduled = false;
-    listeners.forEach((l) => {
+    listeners.forEach((listener) => {
       try {
-        l();
+        listener();
       } catch (e) {
         console.error('[store] listener error', e);
       }
@@ -106,9 +135,6 @@ export function emitChange(): void {
 // ============ View navigation ============
 
 export function switchView(view: ViewName): void {
-  // Fix MEDIUM bug: chiudi tutti i modal UI aperti quando si cambia vista.
-  // Prima switchView lasciava aperti modal come search-dialog/food-editor/recipe-editor,
-  // che rimanevano floating sopra la nuova vista creando confusione UX.
   state._searchOpen = false;
   state._editingFoodId = null;
   state._editingRecipeId = null;
@@ -125,6 +151,10 @@ export function switchView(view: ViewName): void {
 // ============ Date navigation (dashboard) ============
 
 export function setCurrentDate(date: string): void {
+  if (!isValidDateKey(date)) {
+    console.warn('[store] data dashboard non valida ignorata', date);
+    return;
+  }
   state.currentDate = date;
   emitChange();
 }
@@ -137,6 +167,7 @@ export function updateSettings(patch: Partial<UserSettings>): void {
 }
 
 export function setCalorieGoal(kcal: number): void {
+  if (!Number.isFinite(kcal) || kcal < 500 || kcal > 10_000) return;
   state.settings = { ...state.settings, calorieGoal: kcal };
   emitChange();
 }
@@ -149,9 +180,11 @@ export function setMacroSplit(split: MacroSplit): void {
 // ============ Foods ============
 
 export function addFood(input: Omit<FoodItem, 'id' | 'createdAt'> & { id?: string }): FoodItem {
+  let id = input.id || safeId('food_');
+  while (state.foods.some((food) => food.id === id)) id = safeId('food_');
   const food: FoodItem = {
     ...input,
-    id: input.id || safeId('food_'),
+    id,
     createdAt: Date.now(),
   };
   state.foods = [food, ...state.foods];
@@ -160,103 +193,141 @@ export function addFood(input: Omit<FoodItem, 'id' | 'createdAt'> & { id?: strin
 }
 
 export function updateFood(id: string, patch: Partial<FoodItem>): void {
-  state.foods = state.foods.map((f) => (f.id === id ? { ...f, ...patch } : f));
+  const { id: _ignoredId, createdAt: _ignoredCreatedAt, ...safePatch } = patch;
+  void _ignoredId;
+  void _ignoredCreatedAt;
+  state.foods = state.foods.map((food) => (food.id === id ? { ...food, ...safePatch } : food));
   emitChange();
 }
 
 export function deleteFood(id: string): void {
-  state.foods = state.foods.filter((f) => f.id !== id);
-  state.favoriteFoodIds = state.favoriteFoodIds.filter((fid) => fid !== id);
+  state.foods = state.foods.filter((food) => food.id !== id);
+  state.favoriteFoodIds = state.favoriteFoodIds.filter((foodId) => foodId !== id);
   emitChange();
 }
 
 export function getFood(id: string): FoodItem | undefined {
-  return state.foods.find((f) => f.id === id);
+  return state.foods.find((food) => food.id === id);
 }
 
 export function toggleFavorite(id: string): void {
-  // Fix BUG #18 (T5): pulisci id stale che non corrispondono a nessun food salvato
-  // (previene accumulo di id orfani da OFF food non salvati favoritati per errore)
-  if (!state.foods.some((f) => f.id === id)) {
-    // Food non esiste: rimuovi da preferiti se presente, non aggiungere
-    state.favoriteFoodIds = state.favoriteFoodIds.filter((fid) => fid !== id);
+  if (!state.foods.some((food) => food.id === id)) {
+    state.favoriteFoodIds = state.favoriteFoodIds.filter((foodId) => foodId !== id);
     emitChange();
     return;
   }
   state.favoriteFoodIds = state.favoriteFoodIds.includes(id)
-    ? state.favoriteFoodIds.filter((fid) => fid !== id)
+    ? state.favoriteFoodIds.filter((foodId) => foodId !== id)
     : [...state.favoriteFoodIds, id];
   emitChange();
 }
 
 // ============ Diary ============
 
-export function addDiaryEntry(input: Omit<DiaryEntry, 'id' | 'createdAt'>): DiaryEntry | null {
-  const todayList = state.diary[input.date] || [];
-  if (todayList.length >= MAX_DIARY_ENTRIES_PER_DAY) {
-    console.warn('[store] diario pieno per la data', input.date);
+export type DiaryEntryInput = Omit<DiaryEntry, 'id' | 'createdAt'>;
+
+function isValidDiaryInput(input: DiaryEntryInput): boolean {
+  if (!isValidDateKey(input.date)) return false;
+  if (!Number.isFinite(input.quantity) || input.quantity <= 0) return false;
+  if (input.gramsOverride != null && (!Number.isFinite(input.gramsOverride) || input.gramsOverride <= 0)) return false;
+  return true;
+}
+
+/**
+ * Inserimento batch atomico. Se una qualsiasi data supererebbe il limite o un
+ * input è invalido, non viene scritto nulla.
+ */
+export function addDiaryEntries(inputs: DiaryEntryInput[]): DiaryEntry[] | null {
+  if (inputs.length === 0) return [];
+  if (!inputs.every(isValidDiaryInput)) {
+    console.warn('[store] batch diario invalido');
     return null;
   }
-  const entry: DiaryEntry = {
-    ...input,
-    id: safeId('entry_'),
-    createdAt: Date.now(),
-  };
-  state.diary = {
-    ...state.diary,
-    [entry.date]: [...todayList, entry],
-  };
+
+  const additionsByDate = new Map<string, number>();
+  for (const input of inputs) {
+    additionsByDate.set(input.date, (additionsByDate.get(input.date) ?? 0) + 1);
+  }
+  for (const [date, additions] of additionsByDate) {
+    if ((state.diary[date]?.length ?? 0) + additions > MAX_DIARY_ENTRIES_PER_DAY) {
+      console.warn('[store] diario pieno per la data', date);
+      return null;
+    }
+  }
+
+  const now = Date.now();
+  const usedIds = new Set(Object.values(state.diary).flatMap((entries) => entries.map((entry) => entry.id)));
+  const created = inputs.map((input, index) => {
+    let id = safeId('entry_');
+    while (usedIds.has(id)) id = safeId('entry_');
+    usedIds.add(id);
+    return { ...input, id, createdAt: now + index } satisfies DiaryEntry;
+  });
+
+  const nextDiary: DayDiary = { ...state.diary };
+  for (const entry of created) {
+    nextDiary[entry.date] = [...(nextDiary[entry.date] ?? []), entry];
+  }
+  state.diary = nextDiary;
   emitChange();
-  return entry;
+  return created;
+}
+
+export function addDiaryEntry(input: DiaryEntryInput): DiaryEntry | null {
+  const created = addDiaryEntries([input]);
+  return created?.[0] ?? null;
 }
 
 export function updateDiaryEntry(id: string, patch: Partial<DiaryEntry>): void {
-  // Fix Bug #6 (T1): se patch.date cambia, sposta l'entry nell'array della nuova data
-  // (prima l'entry restava nell'array originale → worker stats la contava nel giorno sbagliato)
-  // Fix MEDIUM bug: se la destinazione ha già MAX_DIARY_ENTRIES_PER_DAY entries, non spostare
-  // (silently skip il move, mantieni l'entry nella data originale con gli altri campi aggiornati).
-  if (patch.date && patch.date !== getCurrentEntryDate(id)) {
-    const destCount = state.diary[patch.date]?.length ?? 0;
+  const { id: _ignoredId, createdAt: _ignoredCreatedAt, ...safePatch } = patch;
+  void _ignoredId;
+  void _ignoredCreatedAt;
+
+  const currentDate = getCurrentEntryDate(id);
+  if (!currentDate) return;
+
+  let effectivePatch = safePatch;
+  if (safePatch.date && safePatch.date !== currentDate) {
+    if (!isValidDateKey(safePatch.date)) return;
+    const destCount = state.diary[safePatch.date]?.length ?? 0;
     if (destCount >= MAX_DIARY_ENTRIES_PER_DAY) {
-      console.warn('[store] diario destinazione pieno per la data', patch.date, '— move skipped');
-      // Rimuovi patch.date per applicare solo gli altri campi nella data originale
-      const { date: _omitted, ...restPatch } = patch;
+      console.warn('[store] diario destinazione pieno per la data', safePatch.date, '— move skipped');
+      const { date: _omitted, ...restPatch } = safePatch;
       void _omitted;
-      patch = restPatch;
+      effectivePatch = restPatch;
     }
   }
+
   const newDiary: DayDiary = {};
   let movedEntry: DiaryEntry | null = null;
   let movedToDate: string | null = null;
   for (const [date, entries] of Object.entries(state.diary)) {
     const filtered: DiaryEntry[] = [];
-    for (const e of entries) {
-      if (e.id === id) {
-        const updated = { ...e, ...patch };
-        if (patch.date && patch.date !== date) {
-          // L'entry sta cambiando data: estraila per inserirla nel nuovo contenitore
-          movedEntry = updated;
-          movedToDate = patch.date;
-          continue;
-        }
-        filtered.push(updated);
+    for (const entry of entries) {
+      if (entry.id !== id) {
+        filtered.push(entry);
+        continue;
+      }
+      const updated = { ...entry, ...effectivePatch };
+      if (effectivePatch.date && effectivePatch.date !== date) {
+        movedEntry = updated;
+        movedToDate = effectivePatch.date;
       } else {
-        filtered.push(e);
+        filtered.push(updated);
       }
     }
-    newDiary[date] = filtered;
+    if (filtered.length > 0) newDiary[date] = filtered;
   }
   if (movedEntry && movedToDate) {
-    newDiary[movedToDate] = [...(newDiary[movedToDate] || []), movedEntry];
+    newDiary[movedToDate] = [...(newDiary[movedToDate] ?? []), movedEntry];
   }
   state.diary = newDiary;
   emitChange();
 }
 
-/** Helper: ritorna la data corrente di un entry, o undefined se non trovata. */
 function getCurrentEntryDate(id: string): string | undefined {
   for (const [date, entries] of Object.entries(state.diary)) {
-    if (entries.some((e) => e.id === id)) return date;
+    if (entries.some((entry) => entry.id === id)) return date;
   }
   return undefined;
 }
@@ -264,13 +335,8 @@ function getCurrentEntryDate(id: string): string | undefined {
 export function deleteDiaryEntry(id: string): void {
   const newDiary: DayDiary = {};
   for (const [date, entries] of Object.entries(state.diary)) {
-    const filtered = entries.filter((e) => e.id !== id);
-    // Fix LOW bug: rimuovi le chiavi date con array vuoto, altrimenti rimangono in memoria
-    // come `diary[date] = []`. normalizeDayDiary le pulirebbe su rehydrate, ma in-memory
-    // potrebbero causare over-count in futuri consumer che iterano Object.keys.
-    if (filtered.length > 0) {
-      newDiary[date] = filtered;
-    }
+    const filtered = entries.filter((entry) => entry.id !== id);
+    if (filtered.length > 0) newDiary[date] = filtered;
   }
   state.diary = newDiary;
   emitChange();
@@ -284,9 +350,11 @@ export function getDiaryForDate(date: string): DiaryEntry[] {
 
 export function addRecipe(input: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Recipe {
   const now = Date.now();
+  let id = input.id || safeId('recipe_');
+  while (state.recipes.some((recipe) => recipe.id === id)) id = safeId('recipe_');
   const recipe: Recipe = {
     ...input,
-    id: input.id || safeId('recipe_'),
+    id,
     createdAt: now,
     updatedAt: now,
   };
@@ -296,33 +364,33 @@ export function addRecipe(input: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> 
 }
 
 export function updateRecipe(id: string, patch: Partial<Recipe>): void {
-  state.recipes = state.recipes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r));
+  const { id: _ignoredId, createdAt: _ignoredCreatedAt, updatedAt: _ignoredUpdatedAt, ...safePatch } = patch;
+  void _ignoredId;
+  void _ignoredCreatedAt;
+  void _ignoredUpdatedAt;
+  state.recipes = state.recipes.map((recipe) =>
+    recipe.id === id ? { ...recipe, ...safePatch, updatedAt: Date.now() } : recipe,
+  );
   emitChange();
 }
 
 export function deleteRecipe(id: string): void {
-  state.recipes = state.recipes.filter((r) => r.id !== id);
+  state.recipes = state.recipes.filter((recipe) => recipe.id !== id);
   emitChange();
 }
 
 export function getRecipe(id: string): Recipe | undefined {
-  return state.recipes.find((r) => r.id === id);
+  return state.recipes.find((recipe) => recipe.id === id);
 }
 
-// ============ Biometrics (acqua / sonno / peso) — P1 #3 Step 02 ============
+// ============ Biometrics ============
 
-/** Restituisce la biometrica di una data (oggetto vuoto se non registrata). */
 export function getBiometric(date: string): BiometricEntry {
   return state.biometrics[date] ?? {};
 }
 
-/** Patch parziale della biometrica di una data.
- *  Solo i campi ESPPLICITAMENTE presenti nel patch vengono toccati (usa `in`).
- *  Passa `undefined` come valore di un campo presente nel patch per cancellarlo.
- *  I campi assenti dal patch restano invariati (merge semantica corretta).
- *  Se dopo il merge la entry risulta vuota, la chiave viene rimossa per non
- *  lasciare rumore nel payload (coerenza con deleteDiaryEntry). */
 export function setBiometric(date: string, patch: Partial<BiometricEntry>): void {
+  if (!isValidDateKey(date)) return;
   const current = state.biometrics[date] ?? {};
   const merged: BiometricEntry = { ...current };
   if ('waterMl' in patch) {
@@ -347,15 +415,15 @@ export function setBiometric(date: string, patch: Partial<BiometricEntry>): void
   emitChange();
 }
 
-/** Sostituisce l'intera mappa biometrics (usato da loadData/reconcile/import). */
-export function setAllBiometrics(b: Biometrics): void {
-  state.biometrics = b;
+export function setAllBiometrics(biometrics: Biometrics): void {
+  state.biometrics = biometrics;
   emitChange();
 }
 
-// ============ Search dialog (modal state) ============
+// ============ Search dialog ============
 
 export function openFoodSearch(meal: MealType, date: string): void {
+  if (!isValidDateKey(date)) return;
   state._searchMeal = meal;
   state._searchDate = date;
   state._searchOpen = true;
@@ -441,7 +509,7 @@ export function closeResetConfirm(): void {
   emitChange();
 }
 
-// ============ Entry editor dialog (modifica quantità di una entry del diario) ============
+// ============ Entry editor dialog ============
 
 export function openEntryEditor(entryId: string): void {
   state._editingEntryId = entryId;
@@ -456,17 +524,7 @@ export function closeEntryEditor(): void {
 // ============ Bulk operations ============
 
 export function resetAll(): void {
-  // Fix Bug #7 (T1): resetta anche i flag UI/modal per evitare modal aperti su UI vuota
-  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference
-  // Fix HIGH bug (privacy): cancella anche BACKUP_KEY da localStorage, non solo lo state in-memory.
-  //   Prima saveData() sovrascriveva STORAGE_KEY con payload vuoto, ma BACKUP_KEY conservava
-  //   il payload precedente e loadData() poteva resuscitarlo come fallback.
-  state.settings = { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } };
-  state.foods = [];
-  state.diary = {};
-  state.recipes = [];
-  state.favoriteFoodIds = [];
-  state.biometrics = {};
+  replacePersistedState(createDefaultPersistedState());
   state._storageDisabled = false;
   state._searchOpen = false;
   state._editingFoodId = null;
@@ -477,11 +535,10 @@ export function resetAll(): void {
   state._confirmReset = false;
   state._addRecipeToMealPickerId = null;
   state._editingEntryId = null;
-  // Fix HIGH bug: pulisci entrambe le chiavi localStorage per evitare resurrezione dati
   try {
     clearAllStoredDataLocal();
   } catch (e) {
-    console.warn('[store] clearAllStoredDataLocal fallito durante resetAll', e);
+    console.warn('[store] pulizia storage fallita durante resetAll', e);
   }
   emitChange();
 }
