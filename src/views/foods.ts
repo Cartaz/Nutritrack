@@ -5,16 +5,11 @@ import { requestDeleteFood, toggleFoodFavorite } from '../lib/foods';
 import { escapeHtml, escapeAttr, debounce } from '../lib/utils';
 import { imgTag } from '../components/img';
 import type { FoodItem } from '../types';
-// Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
-import { getFoodsRenderSig, setFoodsRenderSig, resetFoodsSignature as resetFoodsSig } from './signatures';
-// Re-export per compatibilità (renderer importava resetFoodsSignature da qui)
-export { resetFoodsSig as resetFoodsSignature };
 
 let _foodsBound = false;
 let _foodsQuery = '';
 
 const _filterFoods = debounce(() => {
-  setFoodsRenderSig('');
   emitChange();
 }, 80);
 
@@ -26,21 +21,6 @@ export function renderFoods(main: HTMLElement): void {
     return f.name.toLowerCase().includes(q) || (f.brand || '').toLowerCase().includes(q);
   });
 
-  // Fix BUG #1 (T3): signature cache completa — include tutti i campi visualizzati (protein, carbs, fat, servingSize, servingLabel, customPortions)
-  // Prima: solo id:name:brand:calories → card stale dopo edit di protein/servingSize (calorie invariate)
-  const renderSig = JSON.stringify({
-    q: _foodsQuery,
-    foods: state.foods
-      .map(
-        (f) =>
-          `${f.id}:${f.name}:${f.brand ?? ''}:${f.nutrition.calories}:${f.nutrition.protein}:${f.nutrition.carbs}:${f.nutrition.fat}:${f.servingSize}:${f.servingLabel ?? ''}:${(f.customPortions || []).map((p) => p.id).join(',')}`,
-      )
-      .join('|'),
-    favs: state.favoriteFoodIds.slice().sort().join(','),
-  });
-  if (renderSig === getFoodsRenderSig()) return;
-  setFoodsRenderSig(renderSig);
-
   const sorted = [...filtered].sort((a, b) => {
     const aFav = state.favoriteFoodIds.includes(a.id) ? 0 : 1;
     const bFav = state.favoriteFoodIds.includes(b.id) ? 0 : 1;
@@ -48,7 +28,6 @@ export function renderFoods(main: HTMLElement): void {
     return b.createdAt - a.createdAt;
   });
 
-  // Fix BUG #8 (T3): nascondi search box nell'empty state (nessun food salvato)
   const searchBoxHtml =
     state.foods.length > 0
       ? `<div class="search-input-wrap">
@@ -71,7 +50,7 @@ export function renderFoods(main: HTMLElement): void {
         ? `<section class="card empty-state muted">Nessun alimento trovato per "${escapeHtml(_foodsQuery)}"</section>`
         : `<div class="foods-list">${sorted.map((f) => foodCard(f, state.favoriteFoodIds.includes(f.id))).join('')}</div>`;
 
-  // Fix BUG #2 (T3): preserva focus e selection della search box attraverso il re-render
+  // Il filtro usa un full render intenzionale; conserva focus e selezione dell'input.
   const activeEl = document.activeElement;
   const isSearchFocused = activeEl && activeEl.id === 'foods-search';
   const searchSelectionStart = isSearchFocused ? (activeEl as HTMLInputElement).selectionStart : null;
@@ -91,7 +70,6 @@ export function renderFoods(main: HTMLElement): void {
     </div>
   `;
 
-  // Fix BUG #2 (T3): ripristina focus e selection della search box
   if (isSearchFocused) {
     const newInput = main.querySelector<HTMLInputElement>('#foods-search');
     if (newInput) {

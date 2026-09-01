@@ -252,6 +252,11 @@ describe('debounce', () => {
 
     vi.useRealTimers();
   });
+
+  it('rifiuta callback Promise-returning nel contratto TypeScript', () => {
+    // @ts-expect-error debounce è un trigger void: le operazioni async vanno invocate esplicitamente dal callback.
+    debounce(() => Promise.resolve(), 100);
+  });
 });
 
 describe('clamp', () => {

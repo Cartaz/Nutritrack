@@ -3,6 +3,7 @@
 // Anti-pattern rispettati: niente Proxy, niente librerie esterne, niente emit sincrono.
 
 import type {
+  AppDialog,
   AppState,
   DayDiary,
   DiaryEntry,
@@ -16,29 +17,8 @@ import type {
   BiometricEntry,
 } from '../types';
 import { DEFAULT_SETTINGS } from './nutrition';
-import { safeId, toDateKey } from './utils';
-import { MAX_DIARY_ENTRIES_PER_DAY, STORAGE_KEY, BACKUP_KEY } from './constants';
-
-/**
- * Fix HIGH bug (privacy): cancella sia STORAGE_KEY che BACKUP_KEY da localStorage.
- * Implementato qui in store.ts (invece di importare da storage.ts) per evitare
- * circular import: storage.ts importa già da store.ts (getState, setState, ecc.).
- *
- * Prima resetAll() sovrascriveva solo STORAGE_KEY con payload vuoto, ma BACKUP_KEY
- * conservava il payload precedente e loadData() poteva resuscitarlo come fallback.
- */
-function clearAllStoredDataLocal(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-  try {
-    localStorage.removeItem(BACKUP_KEY);
-  } catch {
-    /* ignore */
-  }
-}
+import { isValidDateKey, safeId, toDateKey } from './utils';
+import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
 
 const state: AppState = {
   // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
@@ -51,17 +31,7 @@ const state: AppState = {
   currentView: 'dashboard',
   currentDate: toDateKey(new Date()),
   _storageDisabled: false,
-  _searchOpen: false,
-  _searchMeal: 'breakfast',
-  _searchDate: toDateKey(new Date()),
-  _editingFoodId: null,
-  _editingRecipeId: null,
-  _viewingRecipeId: null,
-  _confirmDeleteFoodId: null,
-  _confirmDeleteRecipeId: null,
-  _confirmReset: false,
-  _addRecipeToMealPickerId: null,
-  _editingEntryId: null,
+  dialog: null,
 };
 
 const listeners = new Set<() => void>();
@@ -73,9 +43,29 @@ export function getState(): AppState {
 /** Alias per chiarezza semantica nei moduli UI (renderer, views) */
 export const getStoreState = getState;
 
-/** Patch shallow dello state. NON emette direttamente (chiama emitChange). */
+/**
+ * Patch shallow riservata a hydration/persistence e test.
+ * Il normale codice applicativo deve usare operazioni semantiche che possiedono gli invarianti del relativo dominio.
+ */
 export function setState(patch: Partial<AppState>): void {
   Object.assign(state, patch);
+}
+
+export function getActiveDialog(): AppDialog | null {
+  return state.dialog;
+}
+
+/** Unico check globale per i consumer che devono sapere se esiste un workflow modale attivo. */
+export function isAnyDialogOpen(): boolean {
+  return state.dialog !== null;
+}
+
+export function isFoodSearchOpen(): boolean {
+  return state.dialog?.type === 'food-search';
+}
+
+export function isRecipeEditorOpen(): boolean {
+  return state.dialog?.type === 'recipe-editor';
 }
 
 export function subscribe(fn: () => void): () => void {
@@ -106,18 +96,9 @@ export function emitChange(): void {
 // ============ View navigation ============
 
 export function switchView(view: ViewName): void {
-  // Fix MEDIUM bug: chiudi tutti i modal UI aperti quando si cambia vista.
-  // Prima switchView lasciava aperti modal come search-dialog/food-editor/recipe-editor,
-  // che rimanevano floating sopra la nuova vista creando confusione UX.
-  state._searchOpen = false;
-  state._editingFoodId = null;
-  state._editingRecipeId = null;
-  state._viewingRecipeId = null;
-  state._confirmDeleteFoodId = null;
-  state._confirmDeleteRecipeId = null;
-  state._confirmReset = false;
-  state._addRecipeToMealPickerId = null;
-  state._editingEntryId = null;
+  // Un cambio vista termina il workflow modale globale corrente. Eventuali sub-dialog
+  // appartengono al modulo del parent e vengono ripuliti dal renderer/UI owner.
+  state.dialog = null;
   state.currentView = view;
   emitChange();
 }
@@ -125,6 +106,7 @@ export function switchView(view: ViewName): void {
 // ============ Date navigation (dashboard) ============
 
 export function setCurrentDate(date: string): void {
+  if (!isValidDateKey(date)) return;
   state.currentDate = date;
   emitChange();
 }
@@ -148,6 +130,11 @@ export function setMacroSplit(split: MacroSplit): void {
 
 // ============ Foods ============
 
+export type FoodDetailsUpdate = Pick<
+  FoodItem,
+  'name' | 'brand' | 'barcode' | 'source' | 'servingSize' | 'servingLabel' | 'nutrition'
+>;
+
 export function addFood(input: Omit<FoodItem, 'id' | 'createdAt'> & { id?: string }): FoodItem {
   const food: FoodItem = {
     ...input,
@@ -159,9 +146,41 @@ export function addFood(input: Omit<FoodItem, 'id' | 'createdAt'> & { id?: strin
   return food;
 }
 
-export function updateFood(id: string, patch: Partial<FoodItem>): void {
-  state.foods = state.foods.map((f) => (f.id === id ? { ...f, ...patch } : f));
+/**
+ * Sostituisce i soli dettagli editabili di un alimento.
+ * Identità, timestamp, immagine e porzioni custom restano proprietà dello store/degli owner dedicati.
+ */
+export function updateFoodDetails(id: string, details: FoodDetailsUpdate): boolean {
+  const existing = state.foods.find((food) => food.id === id);
+  if (!existing) return false;
+
+  state.foods = state.foods.map((food) =>
+    food.id === id
+      ? {
+          ...food,
+          name: details.name,
+          brand: details.brand,
+          barcode: details.barcode,
+          source: details.source,
+          servingSize: details.servingSize,
+          servingLabel: details.servingLabel,
+          nutrition: { ...details.nutrition },
+        }
+      : food,
+  );
   emitChange();
+  return true;
+}
+
+/** Unico owner della rappresentazione delle porzioni custom di un alimento salvato. */
+export function setFoodCustomPortions(id: string, portions: FoodItem['customPortions']): boolean {
+  const existing = state.foods.find((food) => food.id === id);
+  if (!existing) return false;
+
+  const canonicalPortions = portions && portions.length > 0 ? portions.map((portion) => ({ ...portion })) : undefined;
+  state.foods = state.foods.map((food) => (food.id === id ? { ...food, customPortions: canonicalPortions } : food));
+  emitChange();
+  return true;
 }
 
 export function deleteFood(id: string): void {
@@ -191,74 +210,74 @@ export function toggleFavorite(id: string): void {
 
 // ============ Diary ============
 
-export function addDiaryEntry(input: Omit<DiaryEntry, 'id' | 'createdAt'>): DiaryEntry | null {
-  const todayList = state.diary[input.date] || [];
-  if (todayList.length >= MAX_DIARY_ENTRIES_PER_DAY) {
-    console.warn('[store] diario pieno per la data', input.date);
-    return null;
+export type DiaryEntryInput = Omit<DiaryEntry, 'id' | 'createdAt'>;
+export type AddDiaryEntriesResult =
+  { ok: true; entries: DiaryEntry[] } | { ok: false; reason: 'day_full'; date: string };
+
+/**
+ * Inserisce una o più entry come singola transazione di store.
+ * La capacità di tutte le date coinvolte viene verificata prima di generare id o mutare lo state.
+ */
+export function addDiaryEntries(inputs: DiaryEntryInput[]): AddDiaryEntriesResult {
+  if (inputs.length === 0) return { ok: true, entries: [] };
+
+  const incomingPerDate = new Map<string, number>();
+  for (const input of inputs) {
+    incomingPerDate.set(input.date, (incomingPerDate.get(input.date) ?? 0) + 1);
   }
-  const entry: DiaryEntry = {
+  for (const [date, incoming] of incomingPerDate) {
+    const current = state.diary[date]?.length ?? 0;
+    if (current + incoming > MAX_DIARY_ENTRIES_PER_DAY) {
+      return { ok: false, reason: 'day_full', date };
+    }
+  }
+
+  const now = Date.now();
+  const entries = inputs.map((input) => ({
     ...input,
     id: safeId('entry_'),
-    createdAt: Date.now(),
-  };
-  state.diary = {
-    ...state.diary,
-    [entry.date]: [...todayList, entry],
-  };
+    createdAt: now,
+  }));
+  const next: DayDiary = { ...state.diary };
+  for (const entry of entries) {
+    next[entry.date] = [...(next[entry.date] ?? []), entry];
+  }
+  state.diary = next;
   emitChange();
-  return entry;
+  return { ok: true, entries };
 }
 
-export function updateDiaryEntry(id: string, patch: Partial<DiaryEntry>): void {
-  // Fix Bug #6 (T1): se patch.date cambia, sposta l'entry nell'array della nuova data
-  // (prima l'entry restava nell'array originale → worker stats la contava nel giorno sbagliato)
-  // Fix MEDIUM bug: se la destinazione ha già MAX_DIARY_ENTRIES_PER_DAY entries, non spostare
-  // (silently skip il move, mantieni l'entry nella data originale con gli altri campi aggiornati).
-  if (patch.date && patch.date !== getCurrentEntryDate(id)) {
-    const destCount = state.diary[patch.date]?.length ?? 0;
-    if (destCount >= MAX_DIARY_ENTRIES_PER_DAY) {
-      console.warn('[store] diario destinazione pieno per la data', patch.date, '— move skipped');
-      // Rimuovi patch.date per applicare solo gli altri campi nella data originale
-      const { date: _omitted, ...restPatch } = patch;
-      void _omitted;
-      patch = restPatch;
-    }
-  }
-  const newDiary: DayDiary = {};
-  let movedEntry: DiaryEntry | null = null;
-  let movedToDate: string | null = null;
-  for (const [date, entries] of Object.entries(state.diary)) {
-    const filtered: DiaryEntry[] = [];
-    for (const e of entries) {
-      if (e.id === id) {
-        const updated = { ...e, ...patch };
-        if (patch.date && patch.date !== date) {
-          // L'entry sta cambiando data: estraila per inserirla nel nuovo contenitore
-          movedEntry = updated;
-          movedToDate = patch.date;
-          continue;
-        }
-        filtered.push(updated);
-      } else {
-        filtered.push(e);
-      }
-    }
-    newDiary[date] = filtered;
-  }
-  if (movedEntry && movedToDate) {
-    newDiary[movedToDate] = [...(newDiary[movedToDate] || []), movedEntry];
-  }
-  state.diary = newDiary;
-  emitChange();
+export function addDiaryEntry(input: DiaryEntryInput): DiaryEntry | null {
+  const result = addDiaryEntries([input]);
+  return result.ok ? result.entries[0] : null;
 }
 
-/** Helper: ritorna la data corrente di un entry, o undefined se non trovata. */
-function getCurrentEntryDate(id: string): string | undefined {
+function replaceDiaryEntry(id: string, replace: (entry: DiaryEntry) => DiaryEntry): boolean {
+  let found = false;
+  const next: DayDiary = {};
   for (const [date, entries] of Object.entries(state.diary)) {
-    if (entries.some((e) => e.id === id)) return date;
+    next[date] = entries.map((entry) => {
+      if (entry.id !== id) return entry;
+      found = true;
+      return replace(entry);
+    });
   }
-  return undefined;
+  if (!found) return false;
+  state.diary = next;
+  emitChange();
+  return true;
+}
+
+/** Aggiorna soltanto il modo in cui una entry rappresenta la quantità consumata. */
+export function setDiaryEntryAmount(id: string, quantity: number, gramsOverride?: number): boolean {
+  if (!Number.isFinite(quantity) || quantity <= 0) return false;
+  if (gramsOverride != null && (!Number.isFinite(gramsOverride) || gramsOverride <= 0)) return false;
+  return replaceDiaryEntry(id, (entry) => ({ ...entry, quantity, gramsOverride }));
+}
+
+/** Aggiorna lo snapshot storico del food senza esporre un patch generico della DiaryEntry. */
+export function setDiaryEntryFoodSnapshot(id: string, foodSnapshot: FoodItem): boolean {
+  return replaceDiaryEntry(id, (entry) => ({ ...entry, foodSnapshot }));
 }
 
 export function deleteDiaryEntry(id: string): void {
@@ -282,6 +301,8 @@ export function getDiaryForDate(date: string): DiaryEntry[] {
 
 // ============ Recipes ============
 
+export type RecipeDetailsUpdate = Pick<Recipe, 'name' | 'description' | 'servings' | 'ingredients'>;
+
 export function addRecipe(input: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Recipe {
   const now = Date.now();
   const recipe: Recipe = {
@@ -295,9 +316,28 @@ export function addRecipe(input: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> 
   return recipe;
 }
 
-export function updateRecipe(id: string, patch: Partial<Recipe>): void {
-  state.recipes = state.recipes.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r));
+/**
+ * Sostituisce i soli dettagli editabili di una ricetta e possiede l'aggiornamento di updatedAt.
+ * Identità, createdAt e immagine non sono modificabili attraverso questo contratto.
+ */
+export function updateRecipeDetails(id: string, details: RecipeDetailsUpdate): boolean {
+  const existing = state.recipes.find((recipe) => recipe.id === id);
+  if (!existing) return false;
+
+  state.recipes = state.recipes.map((recipe) =>
+    recipe.id === id
+      ? {
+          ...recipe,
+          name: details.name,
+          description: details.description,
+          servings: details.servings,
+          ingredients: details.ingredients.map((ingredient) => ({ ...ingredient })),
+          updatedAt: Date.now(),
+        }
+      : recipe,
+  );
   emitChange();
+  return true;
 }
 
 export function deleteRecipe(id: string): void {
@@ -353,136 +393,128 @@ export function setAllBiometrics(b: Biometrics): void {
   emitChange();
 }
 
-// ============ Search dialog (modal state) ============
+// ============ Dialog state ============
+
+function closeRootDialog(type: AppDialog['type']): void {
+  if (state.dialog?.type !== type) return;
+  state.dialog = null;
+  emitChange();
+}
 
 export function openFoodSearch(meal: MealType, date: string): void {
-  state._searchMeal = meal;
-  state._searchDate = date;
-  state._searchOpen = true;
+  state.dialog = { type: 'food-search', meal, date };
   emitChange();
 }
 
 export function closeFoodSearch(): void {
-  state._searchOpen = false;
-  emitChange();
+  closeRootDialog('food-search');
 }
 
-// ============ Food editor dialog ============
-
-export function openFoodEditor(foodId: string | null): void {
-  state._editingFoodId = foodId;
+/**
+ * Apre l'editor alimento. Da ricerca alimenti o editor ricetta diventa l'unico
+ * child dialog supportato; altrove è un dialog standalone.
+ */
+export function openFoodEditor(foodId: string): void {
+  const child = { type: 'food-editor', foodId } as const;
+  if (state.dialog?.type === 'food-search') {
+    state.dialog = { ...state.dialog, child };
+  } else if (state.dialog?.type === 'recipe-editor') {
+    state.dialog = { ...state.dialog, child };
+  } else {
+    state.dialog = child;
+  }
   emitChange();
 }
 
 export function closeFoodEditor(): void {
-  state._editingFoodId = null;
+  const dialog = state.dialog;
+  if (!dialog) return;
+  if (dialog.type === 'food-editor') {
+    state.dialog = null;
+  } else if (dialog.type === 'food-search' && dialog.child) {
+    state.dialog = { type: 'food-search', meal: dialog.meal, date: dialog.date };
+  } else if (dialog.type === 'recipe-editor' && dialog.child) {
+    state.dialog = { type: 'recipe-editor', recipeId: dialog.recipeId };
+  } else {
+    return;
+  }
   emitChange();
 }
 
-// ============ Recipe editor / viewer / delete ============
-
-export function openRecipeEditor(recipeId: string | null): void {
-  state._editingRecipeId = recipeId;
+export function openRecipeEditor(recipeId: string): void {
+  state.dialog = { type: 'recipe-editor', recipeId };
   emitChange();
 }
 
 export function closeRecipeEditor(): void {
-  state._editingRecipeId = null;
-  emitChange();
+  closeRootDialog('recipe-editor');
 }
 
 export function openRecipeViewer(recipeId: string): void {
-  state._viewingRecipeId = recipeId;
+  state.dialog = { type: 'recipe-viewer', recipeId };
   emitChange();
 }
 
 export function closeRecipeViewer(): void {
-  state._viewingRecipeId = null;
-  emitChange();
+  closeRootDialog('recipe-viewer');
 }
 
 export function openAddRecipeToMeal(recipeId: string): void {
-  state._addRecipeToMealPickerId = recipeId;
+  state.dialog = { type: 'recipe-meal-picker', recipeId };
   emitChange();
 }
 
 export function closeAddRecipeToMeal(): void {
-  state._addRecipeToMealPickerId = null;
-  emitChange();
+  closeRootDialog('recipe-meal-picker');
 }
 
 export function openDeleteFoodConfirm(foodId: string): void {
-  state._confirmDeleteFoodId = foodId;
+  state.dialog = { type: 'confirm-delete-food', foodId };
   emitChange();
 }
 
 export function closeDeleteFoodConfirm(): void {
-  state._confirmDeleteFoodId = null;
-  emitChange();
+  closeRootDialog('confirm-delete-food');
 }
 
 export function openDeleteRecipeConfirm(recipeId: string): void {
-  state._confirmDeleteRecipeId = recipeId;
+  state.dialog = { type: 'confirm-delete-recipe', recipeId };
   emitChange();
 }
 
 export function closeDeleteRecipeConfirm(): void {
-  state._confirmDeleteRecipeId = null;
-  emitChange();
+  closeRootDialog('confirm-delete-recipe');
 }
 
 export function openResetConfirm(): void {
-  state._confirmReset = true;
+  state.dialog = { type: 'confirm-reset' };
   emitChange();
 }
 
 export function closeResetConfirm(): void {
-  state._confirmReset = false;
-  emitChange();
+  closeRootDialog('confirm-reset');
 }
 
-// ============ Entry editor dialog (modifica quantità di una entry del diario) ============
-
 export function openEntryEditor(entryId: string): void {
-  state._editingEntryId = entryId;
+  state.dialog = { type: 'entry-editor', entryId };
   emitChange();
 }
 
 export function closeEntryEditor(): void {
-  state._editingEntryId = null;
-  emitChange();
+  closeRootDialog('entry-editor');
 }
 
 // ============ Bulk operations ============
 
+/** Reset esclusivamente in-memory. La persistenza del reset appartiene a storage.ts. */
 export function resetAll(): void {
-  // Fix Bug #7 (T1): resetta anche i flag UI/modal per evitare modal aperti su UI vuota
-  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference
-  // Fix HIGH bug (privacy): cancella anche BACKUP_KEY da localStorage, non solo lo state in-memory.
-  //   Prima saveData() sovrascriveva STORAGE_KEY con payload vuoto, ma BACKUP_KEY conservava
-  //   il payload precedente e loadData() poteva resuscitarlo come fallback.
   state.settings = { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } };
   state.foods = [];
   state.diary = {};
   state.recipes = [];
   state.favoriteFoodIds = [];
   state.biometrics = {};
-  state._storageDisabled = false;
-  state._searchOpen = false;
-  state._editingFoodId = null;
-  state._editingRecipeId = null;
-  state._viewingRecipeId = null;
-  state._confirmDeleteFoodId = null;
-  state._confirmDeleteRecipeId = null;
-  state._confirmReset = false;
-  state._addRecipeToMealPickerId = null;
-  state._editingEntryId = null;
-  // Fix HIGH bug: pulisci entrambe le chiavi localStorage per evitare resurrezione dati
-  try {
-    clearAllStoredDataLocal();
-  } catch (e) {
-    console.warn('[store] clearAllStoredDataLocal fallito durante resetAll', e);
-  }
+  state.dialog = null;
   emitChange();
 }
 

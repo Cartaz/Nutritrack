@@ -2,7 +2,13 @@
 // Permette di modificare la quantità di un cibo già inserito cliccando sulla riga.
 // Supporta grammi liberi + porzioni personalizzate salvate sul food.
 
-import { getState, closeEntryEditor, updateDiaryEntry } from '../lib/store';
+import {
+  getState,
+  getActiveDialog,
+  closeEntryEditor,
+  setDiaryEntryAmount,
+  setDiaryEntryFoodSnapshot,
+} from '../lib/store';
 import { addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
 import { showToast } from '../components/toast';
 import { showModal } from '../components/modal';
@@ -27,6 +33,14 @@ const _entryEditorState: EntryEditorState = {
 };
 
 let _entryEditorBound = false;
+let _entryAmountBaseline: string | null = null;
+
+function entryAmountSignature(entry: DiaryEntry): string {
+  return JSON.stringify({
+    quantity: entry.quantity,
+    gramsOverride: entry.gramsOverride ?? null,
+  });
+}
 
 function loadFromEntry(entryId: string): boolean {
   const entry = findEntryById(entryId);
@@ -50,25 +64,27 @@ function findEntryById(entryId: string): DiaryEntry | null {
 
 export function renderEntryEditorModal(entryId: string): void {
   if (!loadFromEntry(entryId)) {
-    // Fix 2.5 (T2): entry non esiste più (eliminata in altro tab o resetAll)
+    _entryAmountBaseline = null;
     showToast('La voce del diario non esiste più', 'info');
     closeEntryEditor();
     return;
   }
   const entry = findEntryById(entryId)!;
+  _entryAmountBaseline = entryAmountSignature(entry);
 
   showModal({
     modalId: 'entry-editor',
     title: 'Modifica quantità',
-    bodyHtml: renderFormBody(entry),
+    trustedBodyHtml: renderFormBody(entry),
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Salva', action: 'confirm', variant: 'primary' },
     ],
-    onConfirm: () => {
-      return handleSave(entryId);
+    onConfirm: () => handleSave(entryId),
+    onClose: () => {
+      _entryAmountBaseline = null;
+      closeEntryEditor();
     },
-    onClose: () => closeEntryEditor(),
   });
 
   bindEntryEditorModalEvents();
@@ -162,11 +178,10 @@ function renderStatBox(label: string, value: string): string {
   return `<div class="stat-box"><p class="stat-label">${escapeHtml(label)}</p><p class="stat-value">${escapeHtml(value)}</p></div>`;
 }
 
-/** Ritorna la entry attualmente in modifica, oppure null. */
 function currentEntry(): DiaryEntry | null {
-  const id = getState()._editingEntryId;
-  if (!id) return null;
-  return findEntryById(id);
+  const dialog = getActiveDialog();
+  if (dialog?.type !== 'entry-editor') return null;
+  return findEntryById(dialog.entryId);
 }
 
 function rerenderModalBody(): void {
@@ -176,7 +191,6 @@ function rerenderModalBody(): void {
   const entry = currentEntry();
   if (!entry) return;
   body.innerHTML = renderFormBody(entry);
-  // Preserva il focus sull'input grams se era attivo
   const gramsInput = document.querySelector<HTMLInputElement>('#ee-grams-input');
   if (gramsInput) gramsInput.focus();
 }
@@ -190,7 +204,6 @@ function bindEntryEditorModalEvents(): void {
     if (!document.querySelector('[data-modal-id="entry-editor"]')) return;
     if (t.id === 'ee-grams-input') {
       _entryEditorState.grams = (t as HTMLInputElement).value;
-      // Aggiorna solo la stat row (cheap) — re-render del body per semplicità
       rerenderModalBodyKeepInput(t as HTMLInputElement);
       return;
     }
@@ -224,7 +237,6 @@ function bindEntryEditorModalEvents(): void {
         _entryEditorState.newPortionLabel = '';
         _entryEditorState.newPortionGrams = _entryEditorState.grams || '';
         rerenderModalBody();
-        // Fix BUG #15-equivalent (T5): requestAnimationFrame con guard per non rubare focus
         requestAnimationFrame(() => {
           if (!document.querySelector('[data-modal-id="entry-editor"]')) return;
           const inp = document.querySelector<HTMLInputElement>('#ee-new-portion-label');
@@ -254,18 +266,15 @@ function bindEntryEditorModalEvents(): void {
 
   document.addEventListener('keydown', (e) => {
     if (!document.querySelector('[data-modal-id="entry-editor"]')) return;
-    if (e.key !== 'Enter') return;
     const t = e.target as HTMLElement;
-    if (t.id === 'ee-new-portion-label' || t.id === 'ee-new-portion-grams') {
+    if (e.key === 'Enter' && (t.id === 'ee-new-portion-label' || t.id === 'ee-new-portion-grams')) {
       e.preventDefault();
       createCustomPortion();
       return;
     }
-    // Fix 2.6 (T2): keyboard activation per delete-portion (span role=button)
     if ((e.key === 'Enter' || e.key === ' ') && t.closest('[data-ee-action="deleteCustomPortion"]')) {
       e.preventDefault();
       (t.closest('[data-ee-action="deleteCustomPortion"]') as HTMLElement).click();
-      return;
     }
   });
 }
@@ -277,7 +286,6 @@ function rerenderModalBodyKeepInput(activeInput: HTMLInputElement): void {
   const body = overlay.querySelector('.modal-body') as HTMLElement;
   const entry = currentEntry();
   if (!entry) return;
-  // Aggiorna solo la stat row senza toccare l'input
   const grams = Number(_entryEditorState.grams) || 0;
   const f = entry.foodSnapshot;
   const nutrition = {
@@ -295,14 +303,12 @@ function rerenderModalBodyKeepInput(activeInput: HTMLInputElement): void {
       ${renderStatBox('Grassi', `${nutrition.fat}g`)}
     `;
   }
-  // Aggiorna stato active dei portion chips
   const chips = body.querySelectorAll<HTMLElement>('.portion-chip');
   chips.forEach((chip) => {
     const chipGrams = Number(chip.dataset.grams || '0');
     if (chipGrams === grams) chip.classList.add('active');
     else chip.classList.remove('active');
   });
-  // Mantieni focus sull'input (non toccarlo)
   void activeInput;
 }
 
@@ -320,9 +326,6 @@ function createCustomPortion(): void {
     showToast('Inserisci i grammi della porzione', 'info');
     return;
   }
-  // Se il food è salvato: persisti prima via store (genera l'id reale),
-  // poi aggiorna lo snapshot con la porzione ritornata (stesso id).
-  // Se non è salvato: genera id locale per lo snapshot.
   const isSaved = getState().foods.some((x) => x.id === f.id);
   let portion: CustomPortion;
   if (isSaved) {
@@ -337,9 +340,9 @@ function createCustomPortion(): void {
     };
   }
   const newCustomPortions = [...(f.customPortions || []), portion];
-  // Aggiorna lo snapshot della entry (così la UI si aggiorna e l'id è coerente)
-  updateDiaryEntry(entry.id, {
-    foodSnapshot: { ...f, customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined },
+  setDiaryEntryFoodSnapshot(entry.id, {
+    ...f,
+    customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined,
   });
   _entryEditorState.creatingPortion = false;
   _entryEditorState.newPortionLabel = '';
@@ -352,11 +355,10 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
   if (!entry) return;
   const f = entry.foodSnapshot;
   const newCustomPortions = (f.customPortions || []).filter((p) => p.id !== portionId);
-  // Aggiorna lo snapshot della entry (undefined se vuoto, per consistenza col normalizer)
-  updateDiaryEntry(entry.id, {
-    foodSnapshot: { ...f, customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined },
+  setDiaryEntryFoodSnapshot(entry.id, {
+    ...f,
+    customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined,
   });
-  // Se il food è salvato, rimuovi la porzione anche dai foods
   const isSaved = getState().foods.some((x) => x.id === foodId);
   if (isSaved) {
     removeCustomPortionFromFood(foodId, portionId);
@@ -366,27 +368,30 @@ function deleteCustomPortion(foodId: string, portionId: string): void {
 
 function handleSave(entryId: string): boolean {
   const entry = findEntryById(entryId);
-  // Fix 2.5 (T2): se la entry non esiste più (eliminata in altro tab), chiudi il modal con feedback
   if (!entry) {
     showToast('La voce del diario non esiste più', 'info');
     closeEntryEditor();
-    return true; // permetti chiusura
+    return true;
   }
   const grams = Number(_entryEditorState.grams);
   if (!Number.isFinite(grams) || grams <= 0) {
     showToast('Inserisci i grammi', 'info');
     return false;
   }
-  // Fix 2.14 (T2): upper bound su grammi (max 10kg per singola entry)
   const MAX_GRAMS = 10_000;
   if (grams > MAX_GRAMS) {
     showToast(`Grammi eccessivi (max ${MAX_GRAMS}g = 10kg)`, 'error');
     return false;
   }
-  updateDiaryEntry(entry.id, {
-    quantity: 1,
-    gramsOverride: grams,
-  });
+  if (_entryAmountBaseline === null || entryAmountSignature(entry) !== _entryAmountBaseline) {
+    showToast(
+      "La quantità è stata modificata in un altro tab. Le modifiche locali non sono state applicate: riapri l'editor sui dati aggiornati.",
+      'warning',
+      6500,
+    );
+    return false;
+  }
+  setDiaryEntryAmount(entry.id, 1, grams);
   showToast('Quantità aggiornata', 'success');
   return true;
 }

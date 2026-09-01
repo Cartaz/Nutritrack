@@ -3,6 +3,7 @@
 
 import {
   getState,
+  getActiveDialog,
   emitChange,
   switchView,
   closeAddRecipeToMeal,
@@ -10,7 +11,6 @@ import {
   closeDeleteRecipeConfirm,
   closeResetConfirm,
   getStoreState,
-  resetAll,
 } from '../lib/store';
 import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
@@ -18,15 +18,12 @@ import { bindSearchEvents, renderSearchShell, updateSearchContent } from './sear
 import { showToast } from './toast';
 import { showModal, closeModalById } from './modal';
 import { escapeHtml, escapeAttr, formatDateIT } from '../lib/utils';
-import type { ViewName, FoodItem, Recipe } from '../types';
+import type { AppDialog, ViewName, FoodItem, Recipe } from '../types';
 import { MEAL_LABELS } from '../types';
 import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
 import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
-import { flushPendingMultiTabUpdate } from '../lib/storage';
-// Fix CI: import solo del modulo leggero signatures (NO import delle viste, rompe code-splitting)
-// Le viste sono caricate lazy sotto via dynamic import, mantenedo i chunk separati.
-import { resetAllViewSignatures } from '../views/signatures';
+import { resetApplicationData } from '../lib/storage';
 
 let _mainEl: HTMLElement | null = null;
 let _appEl: HTMLElement | null = null;
@@ -89,8 +86,6 @@ async function doRender(): Promise<void> {
   const viewChanged = main.dataset.view !== state.currentView;
   if (viewChanged) {
     main.dataset.view = state.currentView;
-    // Reset signature cache delle viste per forzare re-render completo al cambio vista
-    resetViewSignatures();
     main.innerHTML = `<div class="view-skeleton"><div class="spinner" aria-hidden="true"></div></div>`;
   }
 
@@ -136,18 +131,19 @@ function renderOverlays(): void {
   renderConfirmDeleteFood();
   renderConfirmDeleteRecipe();
   renderConfirmReset();
-  void renderFoodEditor();
   void renderRecipeEditor();
   void renderRecipeViewer();
   renderRecipeMealPicker();
   void renderEntryEditor();
+  // Il food editor viene renderizzato per ultimo perché può essere figlio di search/recipe editor.
+  void renderFoodEditor();
 }
 
 function renderSearchOverlay(): void {
-  const state = getState();
+  const open = getActiveDialog()?.type === 'food-search';
   const existing = document.querySelector<HTMLElement>('[data-modal-id="search-dialog"]');
 
-  if (state._searchOpen && !existing) {
+  if (open && !existing) {
     // Crea shell una volta sola
     const wrap = document.createElement('div');
     wrap.innerHTML = renderSearchShell();
@@ -157,11 +153,11 @@ function renderSearchOverlay(): void {
     bindSearchEvents();
     // Popola il contenuto iniziale
     updateSearchContent(overlay);
-  } else if (!state._searchOpen && existing) {
+  } else if (!open && existing) {
     // Elimina overlay
     existing.remove();
     closeModalCleanup();
-  } else if (state._searchOpen && existing) {
+  } else if (open && existing) {
     // Aggiorna SOLO il contenuto dinamico (NON tocca l'input — preserva focus)
     updateSearchContent(existing);
   }
@@ -169,16 +165,14 @@ function renderSearchOverlay(): void {
 
 // ============ Confirm dialog renders ============
 
-/** Fix MEDIUM bug: traccia l'id associato al modal confirm-delete attualmente aperto.
- *  Prima, se l'utente clickava "delete" su un secondo food mentre il primo modal era aperto,
- *  `_confirmDeleteFoodId` veniva aggiornato a B ma il body mostrava ancora A (perché il
- *  check `if (!id || existing) return;` skippava la creazione). Ora confrontiamo l'id
- *  attuale con quello associato al modal esistente e forziamo re-open se diverso. */
+/** Traccia l'id associato al confirm attualmente renderizzato per gestire una nuova richiesta
+ *  arrivata prima che il vecchio overlay abbia completato la chiusura. */
 let _openConfirmDeleteFoodId: string | null = null;
 let _openConfirmDeleteRecipeId: string | null = null;
 
 function renderConfirmDeleteFood(): void {
-  const id = getStoreState()._confirmDeleteFoodId;
+  const dialog = getActiveDialog();
+  const id = dialog?.type === 'confirm-delete-food' ? dialog.foodId : null;
   const existing = document.querySelector('[data-modal-id="confirm-delete-food"]');
   if (!id && existing) {
     existing.remove();
@@ -190,13 +184,11 @@ function renderConfirmDeleteFood(): void {
     _openConfirmDeleteFoodId = null;
     return;
   }
-  // Fix MEDIUM bug: se il modal esiste ma l'id è cambiato, chiudilo e riaprilo con il nuovo food.
   if (existing && _openConfirmDeleteFoodId !== id) {
     closeModalById('confirm-delete-food');
     _openConfirmDeleteFoodId = null;
-    // Non return — continua a creare il nuovo modal sotto
   } else if (existing && _openConfirmDeleteFoodId === id) {
-    return; // stesso id, modal già corretto
+    return;
   }
   const food = getStoreState().foods.find((f: FoodItem) => f.id === id);
   if (!food) {
@@ -207,7 +199,7 @@ function renderConfirmDeleteFood(): void {
   showModal({
     modalId: 'confirm-delete-food',
     title: "Eliminare l'alimento?",
-    bodyHtml: `<p>Stai per eliminare <strong>${escapeHtml(food.name)}</strong>. Le voci del diario che lo utilizzano manterranno uno snapshot dei dati nutrizionali, quindi non verranno perse.</p>`,
+    bodyText: `Stai per eliminare ${food.name}. Le voci del diario che lo utilizzano manterranno uno snapshot dei dati nutrizionali, quindi non verranno perse.`,
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Elimina', action: 'confirm', variant: 'danger' },
@@ -224,7 +216,8 @@ function renderConfirmDeleteFood(): void {
 }
 
 function renderConfirmDeleteRecipe(): void {
-  const id = getStoreState()._confirmDeleteRecipeId;
+  const dialog = getActiveDialog();
+  const id = dialog?.type === 'confirm-delete-recipe' ? dialog.recipeId : null;
   const existing = document.querySelector('[data-modal-id="confirm-delete-recipe"]');
   if (!id && existing) {
     existing.remove();
@@ -236,7 +229,6 @@ function renderConfirmDeleteRecipe(): void {
     _openConfirmDeleteRecipeId = null;
     return;
   }
-  // Fix MEDIUM bug: se il modal esiste ma l'id è cambiato, chiudilo e riaprilo.
   if (existing && _openConfirmDeleteRecipeId !== id) {
     closeModalById('confirm-delete-recipe');
     _openConfirmDeleteRecipeId = null;
@@ -252,7 +244,7 @@ function renderConfirmDeleteRecipe(): void {
   showModal({
     modalId: 'confirm-delete-recipe',
     title: 'Eliminare la ricetta?',
-    bodyHtml: `<p>Stai per eliminare <strong>${escapeHtml(recipe.name)}</strong>. Questa azione non può essere annullata.</p>`,
+    bodyText: `Stai per eliminare ${recipe.name}. Questa azione non può essere annullata.`,
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Elimina', action: 'confirm', variant: 'danger' },
@@ -269,7 +261,7 @@ function renderConfirmDeleteRecipe(): void {
 }
 
 function renderConfirmReset(): void {
-  const open = getStoreState()._confirmReset;
+  const open = getActiveDialog()?.type === 'confirm-reset';
   const existing = document.querySelector('[data-modal-id="confirm-reset"]');
   if (!open && existing) {
     existing.remove();
@@ -280,48 +272,57 @@ function renderConfirmReset(): void {
   showModal({
     modalId: 'confirm-reset',
     title: 'Resettare tutti i dati?',
-    bodyHtml: `<p>Verranno cancellati definitivamente alimenti, ricette, diario e impostazioni. Fai prima un backup se vuoi conservarli.</p>`,
+    bodyText:
+      'Verranno cancellati definitivamente alimenti, ricette, diario e impostazioni. Fai prima un backup se vuoi conservarli.',
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Reset', action: 'confirm', variant: 'danger' },
     ],
     onConfirm: () => {
-      resetAll();
-      closeResetConfirm();
+      const result = resetApplicationData();
+      if (!result.ok) {
+        showToast(result.error, 'error', 6000);
+        return false;
+      }
       showToast('Dati resettati', 'success');
-      closeModalCleanup();
+      return true;
     },
     onClose: () => closeResetConfirm(),
   });
 }
 
 // ============ Lazy-rendered complex modals ============
-// Fix B4: 'new' è sentinel per "crea nuovo"; null = chiuso; string = modifica esistente.
-// Fix B16: dopo l'await import, re-check di existing + id corrente per evitare doppio modal / phantom modal.
+
+function activeFoodEditorId(dialog: AppDialog | null = getActiveDialog()): string | null {
+  if (!dialog) return null;
+  if (dialog.type === 'food-editor') return dialog.foodId;
+  if ((dialog.type === 'food-search' || dialog.type === 'recipe-editor') && dialog.child) {
+    return dialog.child.foodId;
+  }
+  return null;
+}
 
 async function renderFoodEditor(): Promise<void> {
-  const id = getStoreState()._editingFoodId;
+  const id = activeFoodEditorId();
   const existing = document.querySelector('[data-modal-id="food-editor"]');
   if (id === null) {
-    // Modal chiuso: rimuovi se esiste (la cleanup del state avviene via onClose callback)
     if (existing) {
       existing.remove();
       closeModalCleanup();
     }
     return;
   }
-  // id è 'new' o un food id esistente: se il modal esiste già, skip
   if (existing) return;
   const { renderFoodEditorModal } = await import('../views/food-editor');
-  // Fix B16: re-check dopo await — lo stato potrebbe essere cambiato (es. resetAll, close da altro path)
-  const idAfter = getStoreState()._editingFoodId;
+  const idAfter = activeFoodEditorId();
   if (idAfter !== id) return;
   if (document.querySelector('[data-modal-id="food-editor"]')) return;
   renderFoodEditorModal(id);
 }
 
 async function renderRecipeEditor(): Promise<void> {
-  const id = getStoreState()._editingRecipeId;
+  const dialog = getActiveDialog();
+  const id = dialog?.type === 'recipe-editor' ? dialog.recipeId : null;
   const existing = document.querySelector('[data-modal-id="recipe-editor"]');
   if (id === null) {
     if (existing) {
@@ -332,15 +333,16 @@ async function renderRecipeEditor(): Promise<void> {
   }
   if (existing) return;
   const { renderRecipeEditorModal } = await import('../views/recipe-editor');
-  // Fix B16: re-check dopo await
-  const idAfter = getStoreState()._editingRecipeId;
+  const dialogAfter = getActiveDialog();
+  const idAfter = dialogAfter?.type === 'recipe-editor' ? dialogAfter.recipeId : null;
   if (idAfter !== id) return;
   if (document.querySelector('[data-modal-id="recipe-editor"]')) return;
   renderRecipeEditorModal(id);
 }
 
 async function renderRecipeViewer(): Promise<void> {
-  const id = getStoreState()._viewingRecipeId;
+  const dialog = getActiveDialog();
+  const id = dialog?.type === 'recipe-viewer' ? dialog.recipeId : null;
   const existing = document.querySelector('[data-modal-id="recipe-viewer"]');
   if (!id && existing) {
     existing.remove();
@@ -349,15 +351,16 @@ async function renderRecipeViewer(): Promise<void> {
   }
   if (!id || existing) return;
   const { renderRecipeViewerModal } = await import('../views/recipe-viewer');
-  // Fix B16: re-check dopo await
-  const idAfter = getStoreState()._viewingRecipeId;
+  const dialogAfter = getActiveDialog();
+  const idAfter = dialogAfter?.type === 'recipe-viewer' ? dialogAfter.recipeId : null;
   if (idAfter !== id) return;
   if (document.querySelector('[data-modal-id="recipe-viewer"]')) return;
   renderRecipeViewerModal(id);
 }
 
 async function renderEntryEditor(): Promise<void> {
-  const id = getStoreState()._editingEntryId;
+  const dialog = getActiveDialog();
+  const id = dialog?.type === 'entry-editor' ? dialog.entryId : null;
   const existing = document.querySelector('[data-modal-id="entry-editor"]');
   if (!id && existing) {
     existing.remove();
@@ -366,8 +369,8 @@ async function renderEntryEditor(): Promise<void> {
   }
   if (!id || existing) return;
   const { renderEntryEditorModal } = await import('../views/entry-editor');
-  // Re-check dopo await
-  const idAfter = getStoreState()._editingEntryId;
+  const dialogAfter = getActiveDialog();
+  const idAfter = dialogAfter?.type === 'entry-editor' ? dialogAfter.entryId : null;
   if (idAfter !== id) return;
   if (document.querySelector('[data-modal-id="entry-editor"]')) return;
   renderEntryEditorModal(id);
@@ -375,7 +378,8 @@ async function renderEntryEditor(): Promise<void> {
 
 function renderRecipeMealPicker(): void {
   const s = getStoreState();
-  const id = s._addRecipeToMealPickerId;
+  const dialog = getActiveDialog();
+  const id = dialog?.type === 'recipe-meal-picker' ? dialog.recipeId : null;
   const existing = document.querySelector('[data-modal-id="recipe-meal-picker"]');
   if (!id && existing) {
     existing.remove();
@@ -388,8 +392,6 @@ function renderRecipeMealPicker(): void {
     closeAddRecipeToMeal();
     return;
   }
-  // Fix R4 (T4): mostra la data corrente del dashboard (non hardcoded "per oggi")
-  // Fix C1 (CRITICAL): la data passata ad addRecipeToDiary è ora state.currentDate (vedi diary.ts)
   const dateLabel = formatDateIT(s.currentDate);
   const buttons = (['breakfast', 'lunch', 'dinner', 'snack'] as const)
     .map(
@@ -397,7 +399,6 @@ function renderRecipeMealPicker(): void {
         `<button type="button" class="btn btn-outline btn-block" data-action="addRecipeMeal" data-recipe-id="${escapeAttr(recipe.id)}" data-meal="${m}">${escapeHtml(MEAL_LABELS[m])}</button>`,
     )
     .join('');
-  // Fix R4 (T4): aggiungi selettore porzioni (servings) di default 1
   const servingsInput = `
     <div class="recipe-meal-servings">
       <label for="recipe-servings" class="field-label">Porzioni</label>
@@ -407,7 +408,7 @@ function renderRecipeMealPicker(): void {
   showModal({
     modalId: 'recipe-meal-picker',
     title: 'Aggiungi a quale pasto?',
-    bodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per ${escapeHtml(dateLabel)}</p>${servingsInput}<div class="grid-2">${buttons}</div>`,
+    trustedBodyHtml: `<p class="muted">${escapeHtml(recipe.name)} · per ${escapeHtml(dateLabel)}</p>${servingsInput}<div class="grid-2">${buttons}</div>`,
     actions: [{ label: 'Annulla', action: 'close', variant: 'outline' }],
     onClose: () => closeAddRecipeToMeal(),
   });
@@ -416,18 +417,7 @@ function renderRecipeMealPicker(): void {
 function closeModalCleanup(): void {
   if (!document.querySelector('.modal-overlay')) {
     document.body.classList.remove('modal-open');
-    // Fix C3 (CRITICAL): quando tutti i modali sono chiusi, applica eventuali
-    // update cross-tab ricevuti mentre un modale era aperto (altrimenti lo stato
-    // stale verrebbe scritto su localStorage al prossimo autosave).
-    flushPendingMultiTabUpdate();
   }
-}
-
-/** Reset signature cache di tutte le viste (chiamato al cambio vista).
- *  Fix 9.2 (T9): sincrono (prima era async con race → skeleton perpetuo su navigazione rapida).
- *  Fix CI: usa resetAllViewSignatures da modulo leggero signatures (no import delle viste, code-splitting preservato). */
-function resetViewSignatures(): void {
-  resetAllViewSignatures();
 }
 
 // ============ Global event delegation (Pattern 3) ============
@@ -462,7 +452,6 @@ function handleAction(action: string, el: HTMLElement): void {
     case 'addRecipeMeal': {
       const recipeId = el.dataset.recipeId || '';
       const meal = el.dataset.meal as 'breakfast' | 'lunch' | 'dinner' | 'snack' | undefined;
-      // Fix R4 (T4): leggi servings dal modal input (di default 1)
       const servingsInput = document.querySelector<HTMLInputElement>('#recipe-servings');
       let servings = 1;
       if (servingsInput) {

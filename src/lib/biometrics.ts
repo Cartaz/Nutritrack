@@ -12,8 +12,7 @@ import { round, isValidDateKey } from './utils';
 /** Volume di un bicchiere standard per il quick-add (200 ml = bicchiere medio italiano). */
 export const WATER_GLASS_ML = 200;
 
-/** Obiettivo idratazione giornaliero di riferimento (EFSA: 2.5 L per uomini, 2 L donne).
- *  Usato solo come riferimento visivo (progress bar), non come hard target. */
+/** Riferimento visivo per la progress bar dell'acqua; non è un target clinico individuale. */
 export const WATER_GOAL_ML = 2500;
 
 /** Range di input validi (defense in depth — l'UI valida già). */
@@ -23,12 +22,13 @@ const SLEEP_HOURS_MIN = 0;
 const SLEEP_HOURS_MAX = 24;
 const WEIGHT_KG_MIN = 20;
 const WEIGHT_KG_MAX = 500;
+const MS_PER_DAY = 86_400_000;
 
 // ============ Setters con validazione + toast ============
 
 /** Imposta i millilitri di acqua per una data.
  *  - Valore <= 0 → cancella il campo (azzeramento intenzionale).
- *  - Valore > MAX → clampato al massimo (hai bevuto tanto, cap a 20 L).
+ *  - Valore > MAX → clampato al massimo.
  *  - NaN/non finito → toast errore, nessuna modifica. */
 export function setWater(date: string, waterMl: number): void {
   if (!isValidDateKey(date)) {
@@ -82,8 +82,7 @@ export function setSleep(date: string, sleepHours: number): void {
 
 /** Imposta il peso corporeo per una data.
  *  - Valore <= 0 → cancella il campo.
- *  - Valore < 20 (sotto il minimo realistico) → toast warning, nessuna modifica
- *    (NON clampiamo silenziosamente a 20: sarebbe fuorviante).
+ *  - Valore < 20 → toast warning, nessuna modifica.
  *  - Valore > 500 → clampato a 500.
  *  - NaN/non finito → toast errore, nessuna modifica. */
 export function setWeight(date: string, weightKg: number): void {
@@ -115,15 +114,7 @@ export interface WeightPoint {
   weightKg: number;
 }
 
-/** Media mobile centrata su 7 giorni: per ogni punto con dati, media il valore
- *  del punto stesso con i precedenti (fino a 6) per un massimo di 7 giorni.
- *  Usiamo una media mobile "trailing" (guarda indietro) invece che centrata,
- *  perché per un trend personale ha senso confrontare il valore odierno con la
- *  media degli ultimi 7 giorni, non con giorni futuri che non sono ancora accaduti.
- *
- *  Giorni senza peso registrato vengono saltati (non conteggiati come 0):
- *  la media mobile viene calcolata solo sui giorni che hanno effettivamente un valore,
- *  raggruppando su una finestra di 7 punti temporali consecutivi con dato. */
+/** Estrae i rilevamenti di peso validi ordinati cronologicamente. */
 export function computeWeightTrend(biometrics: Biometrics): WeightPoint[] {
   const points: WeightPoint[] = [];
   for (const [date, entry] of Object.entries(biometrics)) {
@@ -131,52 +122,94 @@ export function computeWeightTrend(biometrics: Biometrics): WeightPoint[] {
     if (entry.weightKg == null || !Number.isFinite(entry.weightKg) || entry.weightKg <= 0) continue;
     points.push({ date, weightKg: entry.weightKg });
   }
-  // Ordina cronologicamente per data
   points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   return points;
 }
 
-/** Calcola la media mobile a 7 giorni (trailing) sul trend peso.
- *  Ritorna un array allineato a computeWeightTrend: ogni elemento ha
- *  { date, weightKg (grezzo), ma7 (media mobile) }.
- *  Se ci sono meno di 7 punti, la media è sulla disponibilità (min 1 punto). */
-export interface WeightTrendPoint extends WeightPoint {
-  ma7: number | null; // null se nessun punto disponibile (non dovrebbe accadere qui)
+/** Converte YYYY-MM-DD in un indice di giorno UTC, indipendente da timezone e DST. */
+function dateKeyToEpochDay(date: string): number | null {
+  if (!isValidDateKey(date)) return null;
+  const [year, month, day] = date.split('-').map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day) / MS_PER_DAY);
 }
 
-export function computeWeightMovingAverage(points: WeightPoint[], window = 7): WeightTrendPoint[] {
+/**
+ * Media mobile trailing su giorni di calendario.
+ *
+ * Con `windowDays=7`, ogni punto usa le misurazioni comprese tra il giorno del punto
+ * e i 6 giorni precedenti. I giorni senza rilevamento vengono ignorati, non trattati
+ * come zero; una misurazione di 7 giorni prima è invece fuori dalla finestra.
+ *
+ * `points` è atteso in ordine cronologico, come l'output di computeWeightTrend().
+ */
+export interface WeightTrendPoint extends WeightPoint {
+  ma7: number | null;
+}
+
+export function computeWeightMovingAverage(points: WeightPoint[], windowDays = 7): WeightTrendPoint[] {
   if (points.length === 0) return [];
-  const w = Math.max(1, window);
+  const days = Number.isFinite(windowDays) ? Math.max(1, Math.floor(windowDays)) : 7;
   const out: WeightTrendPoint[] = [];
+
   for (let i = 0; i < points.length; i++) {
-    const start = Math.max(0, i - w + 1);
-    const slice = points.slice(start, i + 1);
-    const sum = slice.reduce((acc, p) => acc + p.weightKg, 0);
-    const ma = sum / slice.length;
-    out.push({ ...points[i], ma7: round(ma, 1) });
+    const currentDay = dateKeyToEpochDay(points[i].date);
+    if (currentDay == null) {
+      out.push({ ...points[i], ma7: null });
+      continue;
+    }
+
+    const firstIncludedDay = currentDay - days + 1;
+    let sum = 0;
+    let count = 0;
+
+    for (let j = i; j >= 0; j--) {
+      const pointDay = dateKeyToEpochDay(points[j].date);
+      if (pointDay == null) continue;
+      if (pointDay < firstIncludedDay) break;
+      if (pointDay > currentDay) continue;
+      sum += points[j].weightKg;
+      count++;
+    }
+
+    out.push({ ...points[i], ma7: count > 0 ? round(sum / count, 1) : null });
   }
+
   return out;
 }
 
-/** Estrae il peso più recente registrato (utile per pre-compilare l'input odierno
- *  con l'ultimo valore noto, dato che il peso varia lentamente). */
+/** Estrae il peso più recente registrato nell'intero dataset. */
 export function getLatestWeight(biometrics: Biometrics): WeightPoint | null {
   const points = computeWeightTrend(biometrics);
   if (points.length === 0) return null;
   return points[points.length - 1];
 }
 
-/** Helper per la UI: ritorna l'entry biometrica di una data con fallback intelligente
- *  per il peso (precompila con l'ultimo valore noto se la data odierna non ne ha). */
+/**
+ * Estrae il peso più recente disponibile alla data richiesta.
+ *
+ * Questa è l'operazione corretta per una vista storica: un valore registrato
+ * dopo `date` non deve influenzare ciò che l'utente vede nel passato.
+ */
+export function getLatestWeightOnOrBefore(biometrics: Biometrics, date: string): WeightPoint | null {
+  if (!isValidDateKey(date)) return null;
+  const points = computeWeightTrend(biometrics);
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (points[i].date <= date) return points[i];
+  }
+  return null;
+}
+
+/** Helper per la UI: ritorna l'entry biometrica di una data con fallback temporale
+ *  per il peso. Se il giorno non contiene un peso, suggerisce soltanto l'ultimo
+ *  valore noto registrato in quella data o in una data precedente. */
 export function getBiometricForDisplay(
   biometrics: Biometrics,
   date: string,
 ): BiometricEntry & { weightKgInferred?: boolean } {
   const entry = biometrics[date] ?? {};
-  // Se manca il peso odierno, suggerisci l'ultimo noto (l'utente può confermare)
   if (entry.weightKg == null) {
-    const latest = getLatestWeight(biometrics);
-    if (latest && latest.date !== date) {
+    const latest = getLatestWeightOnOrBefore(biometrics, date);
+    if (latest) {
       return { ...entry, weightKg: latest.weightKg, weightKgInferred: true };
     }
   }

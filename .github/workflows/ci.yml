@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,7 +21,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -35,44 +36,114 @@ jobs:
       - name: Format check (Prettier)
         run: npm run format:check
 
-      - name: Unit tests (Vitest)
-        run: npm run test
+      - name: Unit tests + coverage gate (Vitest)
+        run: npm run test:coverage
+
+      - name: Compute Pages base path
+        id: basepath
+        shell: bash
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          if [[ "$REPO" == *.github.io ]]; then
+            echo "base=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=/$REPO/" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build (Vite)
+        env:
+          VITE_BASE_PATH: ${{ steps.basepath.outputs.base }}
         run: npm run build
 
-      - name: Verify PWA assets
+      - name: Verify PWA assets and offline shell
+        env:
+          VITE_BASE_PATH: ${{ steps.basepath.outputs.base }}
+        shell: bash
         run: |
+          set -euo pipefail
           test -f dist/index.html
           test -f dist/manifest.webmanifest
           test -f dist/sw.js
-          # Con injectRegister: false (Pattern 10), la registrazione SW è inline in index-*.js
-          # come riferimento al chunk virtual_pwa-register-*.js
-          grep -l "pwa-register" dist/assets/index-*.js > /dev/null
+
+          # injectManifest must have replaced the source placeholder with a real precache manifest.
+          if grep -q '__WB_MANIFEST' dist/sw.js; then
+            echo 'Service worker precache manifest was not injected'
+            exit 1
+          fi
+          grep -q 'index.html' dist/sw.js
+          grep -q 'manifest.webmanifest' dist/sw.js
+
+          # Runtime offline/cache behavior from src/sw.ts must survive the production build.
+          grep -q 'nutritrack-nav' dist/sw.js
+          grep -q 'nutritrack-off-api' dist/sw.js
+          grep -q 'nutritrack-off-img' dist/sw.js
+
+          # The generated manifest must retain the GitHub Pages base path used by the build.
+          node --input-type=module - <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('dist/manifest.webmanifest', 'utf8'));
+          const base = process.env.VITE_BASE_PATH;
+          if (manifest.start_url !== base || manifest.scope !== base) {
+            throw new Error(`Unexpected PWA scope: start_url=${manifest.start_url}, scope=${manifest.scope}, expected=${base}`);
+          }
+          NODE
+
+          # With injectRegister: false, application code owns service-worker registration.
+          grep -l 'pwa-register' dist/assets/index-*.js > /dev/null
           ls dist/assets/virtual_pwa-register-*.js > /dev/null
-          # Verifica code-splitting: ogni vista in chunk separato
+
+          # Preserve intentional view/worker/API code splitting after the Vite 8 migration.
           ls dist/assets/dashboard-*.js > /dev/null
           ls dist/assets/foods-*.js > /dev/null
           ls dist/assets/recipes-*.js > /dev/null
           ls dist/assets/settings-*.js > /dev/null
-          # Verifica worker
           ls dist/assets/stats.worker-*.js > /dev/null
-          # Verifica manualChunks (api)
           ls dist/assets/api-*.js > /dev/null
-          echo "PWA assets OK"
+          echo 'PWA/offline build contract OK'
 
-      - name: Upload build artifact
+      - name: Upload validated build artifact
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
           retention-days: 7
 
-      - name: Upload coverage artifact (if present)
+      - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage
           path: coverage/
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: warn
+
+  deploy:
+    name: Deploy validated build to GitHub Pages
+    needs: quality
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download validated build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -50,7 +50,7 @@ export function renderRecipeViewerModal(recipeId: string): void {
   showModal({
     modalId: 'recipe-viewer',
     title: recipe.name,
-    bodyHtml,
+    trustedBodyHtml: bodyHtml,
     // Fix R10 (T4): aggiunto bottone "Modifica" per editare direttamente dal viewer
     // P2 #1: aggiunto bottone "Copia" per esportare la ricetta come markdown
     actions: [

@@ -8,42 +8,34 @@ import {
   normalizeMacroSplit,
   kcalFromMacros,
   calcGoalAdjustedCalories,
+  assessAutomaticCalorieGoal,
+  AUTOMATIC_CALORIE_MIN_KCAL,
 } from '../lib/nutrition';
+import type { EstimatedGoalCalories, AutomaticCalorieGoalAssessment } from '../lib/nutrition';
 import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
 import { handleExport, handleImport } from '../components/exportImport';
 import { showToast } from '../components/toast';
 import { applyTheme } from '../components/renderer';
 import { MACRO_PRESETS, ACTIVITY_LABELS, WEIGHT_GOAL_LABELS, MAX_WEEKLY_KG_RATE } from '../types';
 import type { MacroSplit, Theme, Sex, ActivityLevel, WeightGoalType } from '../types';
-// Fix CI: signature cache spostate in modulo condiviso per non rompere code-splitting
-import {
-  getSettingsRenderSig,
-  setSettingsRenderSig,
-  resetSettingsSignature as resetSettingsSig,
-  registerViewReset,
-} from './signatures';
 
 let _settingsBound = false;
 let _pendingMacroSplit: MacroSplit | null = null;
+let _pendingCalorieGoal: number | null = null;
 
-/**
- * Default conservativo per weeklyRateKg quando l'utente attiva lose/gain senza averlo impostato.
- * Fix MEDIUM bug: prima era MAX_WEEKLY_KG_RATE (0.5 kg/sett) che è aggressivo e potrebbe
- * causare perdita di massa magra. 0.25 kg/sett è più sicuro come default iniziale.
- */
+/** Default conservativo di prodotto per weeklyRateKg quando lose/gain viene attivato senza un valore precedente. */
 const DEFAULT_WEEKLY_RATE_KG = 0.25;
 
-// Fix CI: registra il reset di _pendingMacroSplit nel registry del modulo signatures
-// (così resetAllViewSignatures lo resetta senza che signatures.ts importi settings.ts)
-registerViewReset(() => {
-  _pendingMacroSplit = null;
-});
-
-/** Reset signature cache + _pendingMacroSplit (chiamato dal renderer al cambio vista).
- *  Fix B6.4 (T6): resetta anche _pendingMacroSplit per evitare valori stale dopo resetAll. */
-export function resetSettingsSignature(): void {
-  resetSettingsSig();
-  _pendingMacroSplit = null;
+/** Testo UI derivato dalla policy automatica. La formula resta priva di messaggi/policy di presentazione. */
+function automaticGoalWarning(assessment: AutomaticCalorieGoalAssessment): string | null {
+  if (assessment.status === 'accepted') return null;
+  if (assessment.status === 'invalid') {
+    return 'Impossibile calcolare un obiettivo automatico con i dati correnti.';
+  }
+  if (assessment.reason === 'below_automatic_minimum') {
+    return `La stima è ${assessment.estimate.kcal} kcal/giorno, sotto il minimo di ${assessment.limitKcal} kcal/giorno che NutriTrack consente di applicare automaticamente. Riduci il ritmo o modifica il target.`;
+  }
+  return `La stima è ${assessment.estimate.kcal} kcal/giorno e supera il limite tecnico di ${assessment.limitKcal} kcal/giorno supportato dall'app.`;
 }
 
 /** Update mirato del DOM per i display macro — preserva focus su input/slider.
@@ -52,7 +44,8 @@ export function resetSettingsSignature(): void {
 function updateMacroDisplayLive(): void {
   const s = getState().settings;
   const split = _pendingMacroSplit ?? s.macroSplit;
-  const macroGrams = calcMacroGrams(s.calorieGoal, split);
+  const calorieGoal = _pendingCalorieGoal ?? s.calorieGoal;
+  const macroGrams = calcMacroGrams(calorieGoal, split);
   const splitSum = split.proteinPct + split.carbsPct + split.fatPct;
   const kcalCheck = kcalFromMacros(macroGrams);
 
@@ -102,34 +95,17 @@ function updateMacroDisplayLive(): void {
   }
 }
 
-/** Update mirato del DOM per il calorie goal dopo calcTdee.
- *  Fix auto-refresh: il renderSig in renderSettings NON include calorieGoal (per non
- *  distruggere il focus sul calorie-input durante la digitazione), quindi quando calcTdee
- *  chiama setCalorieGoal() + updateSettings() l'emitChange triggera render() ma renderSettings
- *  ritorna subito (signature cache hit) e l'input calorie / slider / macro preview NON si
- *  aggiornano. L'utente era costretto a cambiare pagina e tornare per vedere il nuovo valore.
- *  Questa funzione aggiorna direttamente i nodi DOM senza re-render. */
-function updateCalorieGoalLive(
-  newKcal: number,
-  goalType: WeightGoalType,
-  goal: {
-    weeklyDeltaKg: number;
-    dailyAdjustment: number;
-    weeksToTarget: number;
-    totalDeltaKg: number;
-    kcalClamped: boolean;
-  },
-): void {
+/** Update mirato del DOM per il calorie goal dopo calcTdee. */
+function updateCalorieGoalLive(goalType: WeightGoalType, goal: EstimatedGoalCalories): void {
   const scope = document.querySelector('.settings-view');
   if (!scope) return;
+  const newKcal = goal.kcal;
 
-  // Aggiorna input calorie + slider
   const calInput = scope.querySelector<HTMLInputElement>('#calorie-input');
   if (calInput) calInput.value = String(newKcal);
   const calSlider = scope.querySelector<HTMLInputElement>('#calorie-slider');
   if (calSlider) calSlider.value = String(clamp(newKcal, 500, 10000));
 
-  // Aggiorna macro preview (grammi target) coerenti con il nuovo obiettivo
   const s = getState().settings;
   const split = s.macroSplit;
   const macroGrams = calcMacroGrams(newKcal, split);
@@ -143,12 +119,9 @@ function updateCalorieGoalLive(
     previewCheck.textContent = `Verifica kcal da macro: ${Math.round(kcalCheck)} kcal`;
   }
 
-  // Aggiorna anche la goal-preview (se presente) con i nuovi valori
   const goalPreview = scope.querySelector<HTMLElement>('.goal-preview');
   if (!goalPreview) return;
   if (goalType === 'maintain') {
-    // Per maintain la preview mostra solo il TDEE; non possiamo recuperarlo dal goal object
-    // (maintain non ha adjustment), lo ricaviamo dal current calorieGoal che == tdee in maintain.
     goalPreview.innerHTML = `
       <p class="preview-label">Anteprima obiettivo</p>
       <p class="preview-values">TDEE: <strong>${newKcal} kcal/giorno</strong> (mantenimento)</p>
@@ -179,22 +152,11 @@ function updateCalorieGoalLive(
           ? `<p class="hint-text">Sei già al peso target.</p>`
           : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
     }
-    ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
   `;
 }
 
-/** Costruisce il messaggio toast contestuale per calcTdee. */
-function buildGoalToast(
-  goalType: WeightGoalType,
-  goal: {
-    kcal: number;
-    weeklyDeltaKg: number;
-    dailyAdjustment: number;
-    weeksToTarget: number;
-    totalDeltaKg: number;
-    kcalClamped: boolean;
-  },
-): string {
+/** Costruisce il messaggio toast contestuale per un obiettivo già accettato dalla policy. */
+function buildGoalToast(goalType: WeightGoalType, goal: EstimatedGoalCalories): string {
   if (goalType === 'maintain') {
     return `Obiettivo calorie aggiornato a ${goal.kcal} kcal/giorno (mantenimento)`;
   }
@@ -204,9 +166,6 @@ function buildGoalToast(
   let msg = `Obiettivo: ${goal.kcal} kcal/giorno · ${verb} ${adjSign}${goal.dailyAdjustment} kcal · ${deltaSign}${goal.weeklyDeltaKg} kg/sett`;
   if (goal.weeksToTarget > 0) {
     msg += ` · ${goal.weeksToTarget} settimane al target`;
-  }
-  if (goal.kcalClamped) {
-    msg += ` (kcal clampate a range sicuro)`;
   }
   return msg;
 }
@@ -222,9 +181,8 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
 
   const s = getState().settings;
   const goalType: WeightGoalType = s.weightGoalType ?? 'maintain';
-  if (goalType === 'maintain') return; // preview per maintain è statica
+  if (goalType === 'maintain') return;
 
-  // Leggi i valori correnti dai campi UI
   const twEl = scope.querySelector<HTMLInputElement>('#tdee-target-weight');
   const cwEl = scope.querySelector<HTMLInputElement>('#tdee-current-weight');
   const wEl = scope.querySelector<HTMLInputElement>('#tdee-weight');
@@ -242,7 +200,6 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
   const sex = sexEl?.value as Sex | undefined;
   const activity = activityEl?.value as ActivityLevel | undefined;
 
-  // Se mancano dati, lascia la preview così com'è (sarà replaced al prossimo render)
   if (!Number.isFinite(cw) || !Number.isFinite(h) || !Number.isFinite(a) || cw <= 0 || h <= 0 || a <= 0) return;
   if (!sex || !activity) return;
   if (!Number.isFinite(tw) || tw <= 0) return;
@@ -250,7 +207,14 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
   const tdee = calcTDEE(calcBMR(cw, h, a, sex), activity);
   if (tdee <= 0) return;
 
-  const goal = calcGoalAdjustedCalories(tdee, cw, tw, liveRate, goalType);
+  const assessment = assessAutomaticCalorieGoal(calcGoalAdjustedCalories(tdee, cw, tw, liveRate, goalType));
+  if (assessment.status === 'invalid') {
+    const warning = automaticGoalWarning(assessment);
+    goalPreviewEl.innerHTML = `<p class="warning-text">${escapeHtml(warning ?? 'Calcolo non disponibile.')}</p>`;
+    return;
+  }
+
+  const goal = assessment.estimate;
   const delta = goal.weeklyDeltaKg;
   const adj = goal.dailyAdjustment;
   const weeks = goal.weeksToTarget;
@@ -264,9 +228,10 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
   const dateStr = targetDate
     ? targetDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })
     : '';
+  const policyWarning = automaticGoalWarning(assessment);
   goalPreviewEl.innerHTML = `
     <p class="preview-label">Anteprima obiettivo</p>
-    <p class="preview-values">TDEE base: <strong>${tdee} kcal</strong> · Obiettivo: <strong>${goal.kcal} kcal/giorno</strong></p>
+    <p class="preview-values">TDEE base: <strong>${tdee} kcal</strong> · Stima: <strong>${goal.kcal} kcal/giorno</strong></p>
     <p class="preview-check">Variazione: <strong>${sign}${delta} kg/settimana</strong> · ${direction} ${adjSign}${adj} kcal/giorno</p>
     ${
       weeks > 0
@@ -275,41 +240,26 @@ function updateGoalPreviewLive(main: HTMLElement, liveRate: number): void {
           ? `<p class="hint-text">Sei già al peso target.</p>`
           : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
     }
-    ${goal.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
+    ${policyWarning ? `<p class="warning-text">${escapeHtml(policyWarning)}</p>` : ''}
   `;
 }
 
 export function renderSettings(main: HTMLElement): void {
+  // Il renderer inserisce uno skeleton quando si entra nella vista: l'assenza della
+  // root identifica quindi un nuovo mount senza richiedere un registry cross-module.
+  if (!main.querySelector('.settings-view')) {
+    _pendingMacroSplit = null;
+    _pendingCalorieGoal = null;
+  }
+
   const s = getState().settings;
   const split = _pendingMacroSplit ?? s.macroSplit;
+  const calorieGoal = _pendingCalorieGoal ?? s.calorieGoal;
 
-  // Signature cache: skip se niente è cambiato.
-  // Importante: NON includere cal qui — altrimenti ogni keystroke nel calorie input
-  // distrugge il focus. cal viene gestito via input handler con update mirato del DOM.
-  // split È incluso: i preset e "Salva split" devono triggerare il re-render.
-  // Il drag dei macro slider usa update mirato (updateMacroDisplayLive) invece di emit,
-  // quindi non triggera re-render e non interrompe il drag.
-  const renderSig = JSON.stringify({
-    split,
-    theme: s.theme,
-    sex: s.sex ?? '',
-    activity: s.activityLevel ?? '',
-    weight: s.weightKg ?? '',
-    height: s.heightCm ?? '',
-    age: s.ageYears ?? '',
-    weightGoalType: s.weightGoalType ?? 'maintain',
-    targetWeightKg: s.targetWeightKg ?? '',
-    weeklyRateKg: s.weeklyRateKg ?? '',
-  });
-  if (renderSig === getSettingsRenderSig()) return;
-  setSettingsRenderSig(renderSig);
-
-  const macroGrams = calcMacroGrams(s.calorieGoal, split);
+  const macroGrams = calcMacroGrams(calorieGoal, split);
   const splitSum = split.proteinPct + split.carbsPct + split.fatPct;
   const kcalCheck = kcalFromMacros(macroGrams);
 
-  // Preview dell'obiettivo calorico con adjustment per peso (lose/gain).
-  // Ricalcolato qui per mostrare un riepilogo coerente con i dati attuali.
   const goalType: WeightGoalType = s.weightGoalType ?? 'maintain';
   const tdeePreview = (() => {
     const w = s.weightKg;
@@ -322,7 +272,9 @@ export function renderSettings(main: HTMLElement): void {
     if (!s.activityLevel) return 0;
     return calcTDEE(calcBMR(w, h, a, s.sex), s.activityLevel);
   })();
-  const goalPreview = calcGoalAdjustedCalories(tdeePreview, s.weightKg, s.targetWeightKg, s.weeklyRateKg, goalType);
+  const goalAssessment = assessAutomaticCalorieGoal(
+    calcGoalAdjustedCalories(tdeePreview, s.weightKg, s.targetWeightKg, s.weeklyRateKg, goalType),
+  );
 
   main.innerHTML = `
     <div class="settings-view">
@@ -334,11 +286,12 @@ export function renderSettings(main: HTMLElement): void {
       <section class="card setting-card">
         <h2 class="setting-title">Obiettivo calorie giornaliere</h2>
         <div class="calorie-input">
-          <input id="calorie-input" type="number" min="500" max="10000" value="${s.calorieGoal}" inputmode="numeric" />
+          <input id="calorie-input" type="number" min="500" max="10000" value="${calorieGoal}" inputmode="numeric" />
           <span class="calorie-unit">kcal/giorno</span>
         </div>
-        <input id="calorie-slider" type="range" min="500" max="10000" step="50" value="${clamp(s.calorieGoal, 500, 10000)}" />
+        <input id="calorie-slider" type="range" min="500" max="10000" step="50" value="${clamp(calorieGoal, 500, 10000)}" />
         <div class="slider-range"><span>500</span><span>10000</span></div>
+        <p class="hint-text">Il valore manuale non è una raccomandazione medica. Il calcolatore automatico non applica stime inferiori a ${AUTOMATIC_CALORIE_MIN_KCAL} kcal/giorno.</p>
       </section>
 
       <section class="card setting-card">
@@ -367,7 +320,8 @@ export function renderSettings(main: HTMLElement): void {
 
       <section class="card setting-card">
         <h2 class="setting-title">Calcolatore TDEE (Mifflin-St Jeor)</h2>
-        <p class="setting-subtitle">Calcola automaticamente il fabbisogno calorico in base ai tuoi dati</p>
+        <p class="setting-subtitle">Stima il fabbisogno calorico in base ai dati inseriti</p>
+        <p class="hint-text">È una stima orientativa basata su un modello semplificato e non sostituisce indicazioni mediche o nutrizionali personalizzate.</p>
         <div class="tdee-grid">
           <label class="field"><span>Peso (kg)</span><input id="tdee-weight" type="number" inputmode="decimal" min="0" max="500" value="${s.weightKg ?? ''}" placeholder="70" /></label>
           <label class="field"><span>Altezza (cm)</span><input id="tdee-height" type="number" inputmode="decimal" value="${s.heightCm ?? ''}" placeholder="175" /></label>
@@ -415,9 +369,9 @@ export function renderSettings(main: HTMLElement): void {
                 <span class="rate-slider-direction">${goalType === 'lose' ? '↓ perdita' : '↑ aumento'}</span>
               </div>
               <input id="tdee-rate" type="range" min="0.1" max="${MAX_WEEKLY_KG_RATE}" step="0.05" value="${s.weeklyRateKg ?? DEFAULT_WEEKLY_RATE_KG}" data-action="slideRate" />
-              <div class="slider-range"><span>0.10 (lento)</span><span>${MAX_WEEKLY_KG_RATE.toFixed(2)} (max sicuro)</span></div>
+              <div class="slider-range"><span>0.10 (lento)</span><span>${MAX_WEEKLY_KG_RATE.toFixed(2)} (limite app)</span></div>
             </div>
-            <p class="hint-text">Scegli quanto velocemente perdere/aumentare peso. Il sistema calcolerà automaticamente le settimane necessarie. Massimo ${MAX_WEEKLY_KG_RATE} kg/settimana (linea guida WHO/ACSM).</p>
+            <p class="hint-text">Il rateo massimo di ${MAX_WEEKLY_KG_RATE} kg/settimana è un limite applicativo del modello lineare di NutriTrack, non una linea guida clinica.</p>
           `
               : ''
           }
@@ -429,6 +383,10 @@ export function renderSettings(main: HTMLElement): void {
           <div class="goal-preview">
             <p class="preview-label">Anteprima obiettivo</p>
             ${(() => {
+              if (goalAssessment.status === 'invalid') {
+                return `<p class="warning-text">${escapeHtml(automaticGoalWarning(goalAssessment) ?? 'Calcolo non disponibile.')}</p>`;
+              }
+              const goalPreview = goalAssessment.estimate;
               const delta = goalPreview.weeklyDeltaKg;
               const adj = goalPreview.dailyAdjustment;
               const weeks = goalPreview.weeksToTarget;
@@ -438,13 +396,13 @@ export function renderSettings(main: HTMLElement): void {
               const totalSign = totalDelta > 0 ? '+' : '';
               const direction = delta < 0 ? 'deficit' : 'surplus';
               const verb = goalType === 'lose' ? 'perdere' : 'aumentare';
-              // Data stimata di raggiungimento (oggi + weeks*7 giorni)
               const targetDate = weeks > 0 ? new Date(Date.now() + weeks * 7 * 24 * 60 * 60 * 1000) : null;
               const dateStr = targetDate
                 ? targetDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })
                 : '';
+              const policyWarning = automaticGoalWarning(goalAssessment);
               return `
-                <p class="preview-values">TDEE base: <strong>${tdeePreview} kcal</strong> · Obiettivo: <strong>${goalPreview.kcal} kcal/giorno</strong></p>
+                <p class="preview-values">TDEE base: <strong>${tdeePreview} kcal</strong> · Stima: <strong>${goalPreview.kcal} kcal/giorno</strong></p>
                 <p class="preview-check">Variazione: <strong>${sign}${delta} kg/settimana</strong> · ${direction} ${adjSign}${adj} kcal/giorno</p>
                 ${
                   weeks > 0
@@ -453,7 +411,7 @@ export function renderSettings(main: HTMLElement): void {
                       ? `<p class="hint-text">Sei già al peso target.</p>`
                       : `<p class="hint-text">Inserisci un peso target diverso da quello attuale.</p>`
                 }
-                ${goalPreview.kcalClamped ? `<p class="warning-text">⚠ Obiettivo calorico clampato al range sicuro [500..10000] kcal.</p>` : ''}
+                ${policyWarning ? `<p class="warning-text">${escapeHtml(policyWarning)}</p>` : ''}
               `;
             })()}
           </div>
@@ -463,6 +421,10 @@ export function renderSettings(main: HTMLElement): void {
           <div class="goal-preview">
             <p class="preview-label">Anteprima obiettivo</p>
             <p class="preview-values">TDEE: <strong>${tdeePreview} kcal/giorno</strong> (mantenimento)</p>
+            ${(() => {
+              const warning = automaticGoalWarning(goalAssessment);
+              return warning ? `<p class="warning-text">${escapeHtml(warning)}</p>` : '';
+            })()}
           </div>
         `
               : ''
@@ -542,8 +504,6 @@ function bindSettingsEvents(main: HTMLElement): void {
       const id = target.dataset.presetId;
       const preset = MACRO_PRESETS.find((p) => p.id === id);
       if (preset) {
-        // Fix MEDIUM bug: se l'utente aveva modifiche custom non salvate in _pendingMacroSplit,
-        // chiedi conferma prima di sovrascrivere con il preset.
         if (_pendingMacroSplit) {
           const current = getState().settings.macroSplit;
           const hasCustomMods =
@@ -556,8 +516,6 @@ function bindSettingsEvents(main: HTMLElement): void {
             }
           }
         }
-        // Fix B6.3 (T6): applica il preset solo a _pendingMacroSplit, NON persistere immediatamente
-        // (prima: setMacroSplit persisteva in localStorage senza undo)
         _pendingMacroSplit = { ...preset.split };
         showToast(`Preset "${preset.name}" applicato. Clicca "Salva split macro" per confermare.`, 'info', 3500);
         emitChange();
@@ -570,7 +528,7 @@ function bindSettingsEvents(main: HTMLElement): void {
         return;
       }
       const normalized = normalizeMacroSplit(_pendingMacroSplit);
-      _pendingMacroSplit = normalized;
+      _pendingMacroSplit = null;
       setMacroSplit(normalized);
       showToast('Split macro aggiornato', 'success');
       return;
@@ -581,12 +539,10 @@ function bindSettingsEvents(main: HTMLElement): void {
       const a = Number((main.querySelector('#tdee-age') as HTMLInputElement).value);
       const sex = (main.querySelector('#tdee-sex') as HTMLSelectElement).value as Sex;
       const activity = (main.querySelector('#tdee-activity') as HTMLSelectElement).value as ActivityLevel;
-      // Fix B13: validazione strict — niente NaN, niente negativi, niente Infinity
       if (!Number.isFinite(w) || !Number.isFinite(h) || !Number.isFinite(a) || w <= 0 || h <= 0 || a <= 0) {
         showToast('Inserisci peso, altezza ed età validi (positivi)', 'error');
         return;
       }
-      // Range sanity check (Fix B6.2: usa >= invece di > per coerenza)
       if (w >= 500 || h >= 300 || a >= 150) {
         showToast('Valori fuori range realistico', 'error');
         return;
@@ -598,7 +554,6 @@ function bindSettingsEvents(main: HTMLElement): void {
         return;
       }
 
-      // Leggi obiettivo peso dai campi UI (se presenti) o dallo state.
       const currentGoalType = (getState().settings.weightGoalType ?? 'maintain') as WeightGoalType;
       let targetWeight: number | undefined;
       let weeklyRate: number | undefined;
@@ -606,10 +561,6 @@ function bindSettingsEvents(main: HTMLElement): void {
         const twEl = main.querySelector<HTMLInputElement>('#tdee-target-weight');
         const rateEl = main.querySelector<HTMLInputElement>('#tdee-rate');
         const tw = twEl ? Number(twEl.value) : NaN;
-        // Fix HIGH bug: peso attuale = #tdee-weight (unica fonte di verità).
-        // Prima c'erano due campi divergenti (#tdee-weight e #tdee-current-weight)
-        // che potevano andare out of sync. Ora #tdee-current-weight è disabled e
-        // mostra solo il valore di #tdee-weight come riferimento.
         const cw = w;
         const rate = rateEl ? Number(rateEl.value) : NaN;
 
@@ -622,12 +573,10 @@ function bindSettingsEvents(main: HTMLElement): void {
           return;
         }
         if (!Number.isFinite(rate) || rate <= 0) {
-          showToast('Rateo non valido. Scegli un valore tra 0.1 e 0.5 kg/settimana.', 'error');
+          showToast(`Rateo non valido. Scegli un valore tra 0.1 e ${MAX_WEEKLY_KG_RATE} kg/settimana.`, 'error');
           return;
         }
-        // Clamp rate a [0.1 .. MAX_WEEKLY_KG_RATE]
         const clampedRate = Math.max(0.1, Math.min(MAX_WEEKLY_KG_RATE, rate));
-        // Coerenza direzione: se l'utente dice "perdere" ma target >= current, avvisa.
         if (currentGoalType === 'lose' && tw >= cw) {
           showToast('Per "perdere peso" il target deve essere inferiore al peso attuale', 'error');
           return;
@@ -640,14 +589,16 @@ function bindSettingsEvents(main: HTMLElement): void {
         weeklyRate = clampedRate;
       }
 
-      // Calcola obiettivo calorico aggiustato per l'obiettivo di peso.
-      const goal = calcGoalAdjustedCalories(tdee, w, targetWeight, weeklyRate, currentGoalType);
-      if (goal.kcal <= 0) {
-        showToast('Calcolo obiettivo fallito', 'error');
+      const assessment = assessAutomaticCalorieGoal(
+        calcGoalAdjustedCalories(tdee, w, targetWeight, weeklyRate, currentGoalType),
+      );
+      if (assessment.status !== 'accepted') {
+        showToast(automaticGoalWarning(assessment) ?? 'Calcolo obiettivo non applicabile', 'warning', 6500);
         return;
       }
+      const goal = assessment.estimate;
 
-      // Persisti tutto: nuovo obiettivo calorico + dati fisici + dati obiettivo.
+      _pendingCalorieGoal = null;
       setCalorieGoal(goal.kcal);
       updateSettings({
         weightKg: w,
@@ -660,25 +611,17 @@ function bindSettingsEvents(main: HTMLElement): void {
         weeklyRateKg: currentGoalType === 'maintain' ? undefined : weeklyRate,
       });
 
-      // Fix auto-refresh: il renderSig NON include calorieGoal (per non rompere il focus
-      // sul calorie-input durante la digitazione), quindi emitChange da solo non aggiorna
-      // visivamente l'input calorie / slider / macro preview. Facciamo un update mirato del DOM.
-      updateCalorieGoalLive(goal.kcal, currentGoalType, goal);
-
+      updateCalorieGoalLive(currentGoalType, goal);
       showToast(buildGoalToast(currentGoalType, goal), 'success', 5000);
       return;
     }
     if (action === 'setGoalType') {
       const g = target.dataset.goalType as WeightGoalType;
-      // Persisti subito il tipo di obiettivo; se 'maintain', pulisci targetWeight/weeklyRateKg.
-      // Fix MEDIUM bug: default a DEFAULT_WEEKLY_RATE_KG (0.25) invece di MAX_WEEKLY_KG_RATE (0.5)
-      // — più conservativo come rateo iniziale.
       updateSettings({
         weightGoalType: g,
         targetWeightKg: g === 'maintain' ? undefined : getState().settings.targetWeightKg,
         weeklyRateKg: g === 'maintain' ? undefined : (getState().settings.weeklyRateKg ?? DEFAULT_WEEKLY_RATE_KG),
       });
-      // emitChange triggera re-render (il renderSig include i nuovi campi).
       return;
     }
     if (action === 'setTheme') {
@@ -702,17 +645,13 @@ function bindSettingsEvents(main: HTMLElement): void {
     if (target.id === 'calorie-input') {
       const raw = (target as HTMLInputElement).value;
       const parsed = Number(raw);
-      // Se l'utente sta digitando (input event), accetta stringhe vuote o numeri
-      // parziali; clamp solo se è un numero finito valido. Rifiuta silenziosamente
-      // NaN (non aggiornare il goal) — la validazione finale avviene su change.
       if (raw.trim() === '' || !Number.isFinite(parsed)) {
+        _pendingCalorieGoal = null;
         updateMacroDisplayLive();
         return;
       }
       const v = Math.max(500, Math.min(10000, parsed));
-      setCalorieGoal(v);
-      // Update mirato: aggiorna il calorie slider e i grammi macro senza re-render
-      // Fix B6.7 (T6): slider range allineato a 500-10000 (prima era 1000-4000)
+      _pendingCalorieGoal = v;
       const slider = main.querySelector<HTMLInputElement>('#calorie-slider');
       if (slider) slider.value = String(clamp(v, 500, 10000));
       updateMacroDisplayLive();
@@ -720,8 +659,7 @@ function bindSettingsEvents(main: HTMLElement): void {
     }
     if (target.id === 'calorie-slider') {
       const v = Number((target as HTMLInputElement).value);
-      setCalorieGoal(v);
-      // Update mirato: aggiorna il calorie input e i grammi macro senza re-render
+      _pendingCalorieGoal = v;
       const input = main.querySelector<HTMLInputElement>('#calorie-input');
       if (input) input.value = String(v);
       updateMacroDisplayLive();
@@ -732,22 +670,16 @@ function bindSettingsEvents(main: HTMLElement): void {
       const v = Number((target as HTMLInputElement).value);
       const base = _pendingMacroSplit ?? { ...getState().settings.macroSplit };
       _pendingMacroSplit = { ...base, [key]: v };
-      // Update mirato: aggiorna % e grammi senza re-render (preserva il drag)
       updateMacroDisplayLive();
       return;
     }
     if (target.dataset.action === 'slideRate') {
-      // Update live della label del rateo e della goal-preview mentre l'utente trascina.
-      // NON persiste nello store (lo fa solo calcTdee al click); persistere ora triggererebbe
-      // un re-render che distruggerebbe il drag dello slider.
       const v = Number((target as HTMLInputElement).value);
       const label = main.querySelector<HTMLElement>('.rate-slider-label strong');
       if (label) label.textContent = `${v.toFixed(2)} kg/settimana`;
       updateGoalPreviewLive(main, v);
       return;
     }
-    // Update live della goal-preview quando l'utente modifica peso target o peso attuale.
-    // ( NON persiste — la persistenza avviene solo al click su "Calcola e imposta" )
     if (target.id === 'tdee-target-weight' || target.id === 'tdee-current-weight') {
       const rateEl = main.querySelector<HTMLInputElement>('#tdee-rate');
       const rate = rateEl ? Number(rateEl.value) : MAX_WEEKLY_KG_RATE;
@@ -758,35 +690,49 @@ function bindSettingsEvents(main: HTMLElement): void {
     }
   });
 
-  // Fix B6.16 (T6): validazione TDEE inputs al blur (change event) per feedback immediato
   main.addEventListener('change', (e) => {
     const t = e.target as HTMLElement;
     if (t.id === 'calorie-input') {
       const input = t as HTMLInputElement;
       const raw = input.value.trim();
       if (raw === '') {
+        _pendingCalorieGoal = null;
         showToast('Inserisci un valore per le calorie', 'error');
         input.value = String(getState().settings.calorieGoal);
+        updateMacroDisplayLive();
         return;
       }
       const parsed = Number(raw);
       if (!Number.isFinite(parsed)) {
+        _pendingCalorieGoal = null;
         showToast(`Calorie: valore non valido ("${raw}")`, 'error');
         input.value = String(getState().settings.calorieGoal);
+        updateMacroDisplayLive();
         return;
       }
       if (parsed < 500 || parsed > 10000) {
+        _pendingCalorieGoal = null;
         showToast('Le calorie devono essere tra 500 e 10000', 'error');
         input.value = String(getState().settings.calorieGoal);
+        updateMacroDisplayLive();
         return;
+      }
+      _pendingCalorieGoal = null;
+      setCalorieGoal(parsed);
+      return;
+    }
+    if (t.id === 'calorie-slider') {
+      const parsed = Number((t as HTMLInputElement).value);
+      if (Number.isFinite(parsed) && parsed >= 500 && parsed <= 10000) {
+        _pendingCalorieGoal = null;
+        setCalorieGoal(parsed);
       }
       return;
     }
-    // Fix B6.16: validazione TDEE inputs al blur
     if (t.id === 'tdee-weight' || t.id === 'tdee-height' || t.id === 'tdee-age') {
       const input = t as HTMLInputElement;
       const raw = input.value.trim();
-      if (raw === '') return; // permesso (campo opzionale fino al calc)
+      if (raw === '') return;
       const parsed = Number(raw);
       if (!Number.isFinite(parsed) || parsed <= 0) {
         showToast(

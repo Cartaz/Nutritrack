@@ -288,6 +288,29 @@ export type WorkerResponse =
 
 export type ViewName = 'dashboard' | 'foods' | 'recipes' | 'settings';
 
+/** Editor alimento riusabile come dialog standalone o figlio dei due workflow che lo supportano. */
+export interface FoodEditorDialog {
+  type: 'food-editor';
+  foodId: string;
+}
+
+/**
+ * Unica sorgente di verità per i dialog applicativi.
+ *
+ * Non esiste uno stack generico: soltanto ricerca alimenti ed editor ricetta possono
+ * aprire un food editor figlio. Il tipo impedisce tutte le altre combinazioni.
+ */
+export type AppDialog =
+  | { type: 'food-search'; meal: MealType; date: string; child?: FoodEditorDialog }
+  | FoodEditorDialog
+  | { type: 'recipe-editor'; recipeId: string; child?: FoodEditorDialog }
+  | { type: 'recipe-viewer'; recipeId: string }
+  | { type: 'confirm-delete-food'; foodId: string }
+  | { type: 'confirm-delete-recipe'; recipeId: string }
+  | { type: 'confirm-reset' }
+  | { type: 'recipe-meal-picker'; recipeId: string }
+  | { type: 'entry-editor'; entryId: string };
+
 export interface AppState {
   settings: UserSettings;
   foods: FoodItem[];
@@ -299,17 +322,5 @@ export interface AppState {
   currentView: ViewName;
   currentDate: string; // YYYY-MM-DD (dashboard)
   _storageDisabled: boolean;
-  _searchOpen: boolean;
-  _searchMeal: MealType;
-  _searchDate: string;
-  /** null = chiuso, 'new' = crea nuovo, string = modifica esistente */
-  _editingFoodId: string | null;
-  /** null = chiuso, 'new' = crea nuovo, string = modifica esistente */
-  _editingRecipeId: string | null;
-  _viewingRecipeId: string | null;
-  _confirmDeleteFoodId: string | null;
-  _confirmDeleteRecipeId: string | null;
-  _confirmReset: boolean;
-  _addRecipeToMealPickerId: string | null;
-  _editingEntryId: string | null;
+  dialog: AppDialog | null;
 }

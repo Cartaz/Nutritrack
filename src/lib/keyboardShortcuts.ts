@@ -11,12 +11,10 @@
 //
 // Gli shortcut sono disattivati quando:
 //   - il focus è in un input/textarea/contenteditable (l'utente sta digitando)
-//   - un modal è aperto (esc gestisce già la chiusura)
-//   - il search dialog è aperto (esc gestisce già la chiusura)
+//   - un dialog applicativo è aperto (esc gestisce già la chiusura)
 
-import { getState, switchView, openFoodSearch } from './store';
+import { getState, switchView, openFoodSearch, isAnyDialogOpen } from './store';
 import type { ViewName } from '../types';
-import { showToast } from '../components/toast';
 import { isValidDateKey } from './utils';
 
 let _bound = false;
@@ -36,26 +34,11 @@ function isTyping(target: EventTarget | null): boolean {
   return false;
 }
 
-function isAnyModalOpen(): boolean {
-  const s = getState();
-  return (
-    s._searchOpen ||
-    s._editingFoodId !== null ||
-    s._editingRecipeId !== null ||
-    s._viewingRecipeId !== null ||
-    s._confirmReset ||
-    s._confirmDeleteFoodId !== null ||
-    s._confirmDeleteRecipeId !== null ||
-    s._addRecipeToMealPickerId !== null ||
-    s._editingEntryId !== null
-  );
-}
-
 function handleKeydown(e: KeyboardEvent): void {
   // Skip se stiamo digitando in un campo
   if (isTyping(e.target)) return;
-  // Skip se un modal è aperto (lascia che ESC/close gestiscano)
-  if (isAnyModalOpen()) return;
+  // Skip se un dialog applicativo è aperto (lascia che ESC/close gestiscano)
+  if (isAnyDialogOpen()) return;
   // Skip se l'help overlay è aperto e il tasto è ESC (gestito dal overlay)
   if (isHelpOpen() && e.key === 'Escape') {
     closeHelp();
@@ -174,6 +157,3 @@ export function __openHelpForTesting(): void {
 export function __closeHelpForTesting(): void {
   closeHelp();
 }
-
-// Evita "unused" warning per showToast (usato solo in path futuro)
-void showToast;

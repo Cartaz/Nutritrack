@@ -30,7 +30,7 @@ import {
   MEAL_ORDER,
 } from '../types';
 import { safeId, safeImageUrl, safeNum, isValidDateKey } from './utils';
-import { STORAGE_WARN_BYTES, SCHEMA_VERSION } from './constants';
+import { STORAGE_WARN_BYTES } from './constants';
 import { DEFAULT_SETTINGS, normalizeMacroSplit as normalizeMacroSplitRescale } from './nutrition';
 
 const ALLOWED_MEALS: readonly MealType[] = MEAL_ORDER;
@@ -362,13 +362,6 @@ export interface NormalizedPayload {
 }
 
 export function reconcileAll(raw: unknown): NormalizedPayload {
-  // Fix Bug 7.13 (T7): warning se versione schema non supportata (migration placeholder)
-  if (isObject(raw) && typeof raw.version === 'number' && raw.version !== SCHEMA_VERSION) {
-    console.warn(
-      `[normalize] schema version mismatch: payload=${raw.version}, expected=${SCHEMA_VERSION}. Migrating...`,
-    );
-    // Qui in futuro si aggiungerà migrate(raw) per versioni > 1
-  }
   if (!isObject(raw)) {
     return {
       settings: { ...DEFAULT_SETTINGS },

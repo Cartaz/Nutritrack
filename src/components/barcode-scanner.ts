@@ -231,7 +231,19 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   void (async () => {
     try {
       stream = await startCameraStream();
-      if (stopped) return; // cleanup avvenuto durante await getUserMedia
+      if (stopped) {
+        // cleanup() può essere eseguito mentre getUserMedia è ancora pending. In quel
+        // momento non esiste uno stream da fermare, quindi chiudilo appena la Promise risolve.
+        stream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch {
+            /* noop */
+          }
+        });
+        stream = null;
+        return;
+      }
       video.srcObject = stream;
       // Attendi metadata + play
       let playFailed = false;
@@ -300,8 +312,8 @@ function showUnsupportedToast(): void {
   showModal({
     modalId: 'barcode-unsupported',
     title: 'Scanner non disponibile',
-    bodyHtml:
-      "<p>Il tuo browser non supporta l'accesso alla fotocamera oppure non dispone di una camera. Puoi comunque cercare i prodotti per nome.</p>",
+    bodyText:
+      "Il tuo browser non supporta l'accesso alla fotocamera oppure non dispone di una camera. Puoi comunque cercare i prodotti per nome.",
     actions: [{ label: 'OK', action: 'close', variant: 'primary' }],
   });
 }

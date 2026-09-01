@@ -44,11 +44,12 @@ export default defineConfig({
     target: 'es2022',
     cssCodeSplit: true,
     sourcemap: false,
-    minify: 'esbuild',
-    rollupOptions: {
+    // Vite 8 usa Oxc per la minificazione e Rolldown per il bundle.
+    // Manteniamo il chunk API esistente tramite l'API nativa codeSplitting.
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          api: ['./src/lib/api.ts'],
+        codeSplitting: {
+          groups: [{ name: 'api', test: /[\\/]src[\\/]lib[\\/]api\.ts$/ }],
         },
       },
     },

@@ -25,7 +25,6 @@ import {
   API_RETRY_DELAY_MS,
   OFF_INSTANCES,
   OFF_PAGE_SIZE,
-  PARTIAL_MATCH_SUFFIXES,
 } from './constants';
 
 // Fix MEDIUM bug: OFF_USER_AGENT rimosso perché `User-Agent` è un forbidden header nei browser
@@ -259,15 +258,77 @@ export interface SearchOffOpts {
   signal?: AbortSignal;
 }
 
-/** Cerca prodotti su Open Food Facts con fallback multi-istanza */
+// One semantic search action maps to one remote request.
+// OFF documents a search rate limit of 10 requests/minute/IP; keep one slot of client-side margin.
+const SEARCH_WINDOW_MS = 60_000;
+const SEARCH_WINDOW_MAX = 9;
+const _searchTimestamps: number[] = [];
+
+function acquireSearchSlot(now = Date.now()): void {
+  while (_searchTimestamps.length > 0 && now - _searchTimestamps[0] >= SEARCH_WINDOW_MS) {
+    _searchTimestamps.shift();
+  }
+  if (_searchTimestamps.length >= SEARCH_WINDOW_MAX) {
+    throw new ApiError('Troppe ricerche ravvicinate. Attendi qualche secondo e riprova.', 'RateLimitError', 429);
+  }
+  _searchTimestamps.push(now);
+}
+
+async function searchGetJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) throw new ApiError('Aborted', 'AbortError');
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new ApiError('Sei offline. Verifica la connessione e riprova.', 'OfflineError');
+  }
+
+  const controller = new AbortController();
+  const onAbort = (): void => controller.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (response.status === 429) {
+      throw new ApiError('Limite richieste Open Food Facts raggiunto', 'RateLimitError', 429);
+    }
+    if (!response.ok) {
+      throw new ApiError(`Errore Open Food Facts: ${response.status}`, 'ApiError', response.status);
+    }
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new ApiError('Risposta Open Food Facts non JSON', 'ApiError');
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const err = error as { name?: string };
+    if (err?.name === 'AbortError') {
+      if (signal?.aborted) throw new ApiError('Aborted', 'AbortError');
+      throw new ApiError('Timeout Open Food Facts', 'TimeoutError');
+    }
+    if (err?.name === 'TypeError') throw new ApiError('Network', 'NetworkError');
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+/** Cerca prodotti su Open Food Facts. Una chiamata corrisponde a una sola richiesta HTTP. */
 export async function searchOff(
   query: string,
   opts: SearchOffOpts = {},
 ): Promise<{ products: OffProduct[]; count: number; page: number; pageSize: number }> {
+  const normalizedQuery = query.trim();
   const page = opts.page ?? 1;
   const pageSize = opts.pageSize ?? OFF_PAGE_SIZE;
+  if (!normalizedQuery) return { products: [], count: 0, page, pageSize };
+
+  acquireSearchSlot();
   const params = new URLSearchParams({
-    search_terms: query,
+    search_terms: normalizedQuery,
     search_simple: '1',
     action: 'process',
     json: '1',
@@ -281,21 +342,15 @@ export async function searchOff(
     params.set('tag_0', 'italia');
   }
 
-  // Fix B-8-13: guard contro data null
-  const data = (await apiGetJson<OffSearchResponse | null>((base) => `${base}/cgi/search.pl?${params.toString()}`, {
-    signal: opts.signal,
-  })) as OffSearchResponse | null;
+  const base = OFF_INSTANCES[0];
+  const data = await searchGetJson<OffSearchResponse | null>(`${base}/cgi/search.pl?${params.toString()}`, opts.signal);
+  if (!data || typeof data !== 'object') return { products: [], count: 0, page, pageSize };
 
-  if (!data || typeof data !== 'object') {
-    return { products: [], count: 0, page: 1, pageSize };
-  }
-
-  // Fix B-8-9: normalizza page/page_size/count a number (OFF a volte ritorna stringhe)
-  const normalizeNum = (v: unknown, fallback: number): number => {
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string') {
-      const n = Number(v);
-      if (Number.isFinite(n)) return n;
+  const normalizeNum = (value: unknown, fallback: number): number => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
     }
     return fallback;
   };
@@ -303,93 +358,30 @@ export async function searchOff(
   return {
     products: Array.isArray(data.products) ? data.products : [],
     count: normalizeNum(data.count, 0),
-    page: normalizeNum(data.page, 1),
+    page: normalizeNum(data.page, page),
     pageSize: normalizeNum(data.page_size, pageSize),
   };
 }
 
-// ============ Partial match (suffix expansion) ============
+// ============ Search compatibility ============
 
-/** Risultato di searchOffWithPartialMatch: include `effectiveQuery` che il caller
- *  deve usare per la paginazione (page > 1) per garantire coerenza dei risultati. */
+/** Compatibility wrapper: automatic suffix expansion was removed to preserve the OFF rate-limit contract. */
 export interface SearchOffResult {
   products: OffProduct[];
   count: number;
   page: number;
   pageSize: number;
-  /** Query che ha effettivamente prodotto i risultati (può differire da quella
-   *  originale se è stato applicato il suffix expansion). */
   effectiveQuery: string;
 }
 
-/** Verifica se una query termina già con uno dei suffissi italiani comuni.
- *  In tal caso, il suffix expansion non serve (la query è già "completa"). */
-function endsWithItalianSuffix(query: string): boolean {
-  if (query.length === 0) return false;
-  const lastChar = query.slice(-1).toLowerCase();
-  return (PARTIAL_MATCH_SUFFIXES as readonly string[]).includes(lastChar);
+export async function searchOffWithPartialMatch(query: string, opts: SearchOffOpts = {}): Promise<SearchOffResult> {
+  const result = await searchOff(query, opts);
+  return { ...result, effectiveQuery: query.trim() };
 }
 
-/** Cerca prodotti su OFF con suffix expansion automatico per query parziali.
- *
- *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`
- *  ritorna 0 risultati). Quindi "melanzan" ritorna 0 prodotti anche se
- *  "melanzane" ne ha 417.
- *
- *  Strategia:
- *  1. Prova la query originale. Se ritorna risultati, li usa.
- *  2. Se 0 risultati E la query non termina già con un suffisso italiano,
- *     prova in parallelo la query + ogni suffisso di PARTIAL_MATCH_SUFFIXES.
- *  3. Ritorna il risultato con più prodotti (o il primo non-vuoto in caso
- *     di parità). Se tutti falliscono, ritorna il risultato originale (vuoto).
- *
- *  Il caller deve usare `effectiveQuery` dal risultato per le pagine successive
- *  (paginazione coerente). Su page > 1, la funzione NON ripete il suffix
- *  expansion: usa direttamente la query passata (che dovrebbe essere
- *  `effectiveQuery` della page 1).
- *
- *  @param query Query utente (già trimmata)
- *  @param opts  Opzioni di ricerca (signal, page, pageSize, italianOnly)
- *  @returns     Risultato con effectiveQuery per paginazione */
-export async function searchOffWithPartialMatch(query: string, opts: SearchOffOpts = {}): Promise<SearchOffResult> {
-  const page = opts.page ?? 1;
-
-  // Prova la query originale
-  const original = await searchOff(query, opts);
-
-  // Se ha risultati, oppure siamo su page > 1 (paginazione: usa già effectiveQuery),
-  // oppure la query termina già con un suffisso, ritorna senza expansion
-  if (original.products.length > 0 || page > 1 || endsWithItalianSuffix(query)) {
-    return { ...original, effectiveQuery: query };
-  }
-
-  // Suffix expansion: prova ogni suffisso in parallelo.
-  // catch → null: se un suffisso fallisce (network/timeout), lo ignora e continua.
-  const suffixResults = await Promise.all(
-    PARTIAL_MATCH_SUFFIXES.map((suffix) =>
-      searchOff(query + suffix, opts)
-        .then((r) => ({ suffix, result: r }))
-        .catch(() => null),
-    ),
-  );
-
-  // Trova il risultato con più prodotti
-  let best = original;
-  let bestQuery = query;
-  for (const sr of suffixResults) {
-    if (sr && sr.result.products.length > best.products.length) {
-      best = sr.result;
-      bestQuery = query + sr.suffix;
-    }
-  }
-
-  return {
-    products: best.products,
-    count: best.count,
-    page: best.page,
-    pageSize: best.pageSize,
-    effectiveQuery: bestQuery,
-  };
+/** Test-only reset for deterministic rate-limit tests. */
+export function __resetSearchLimiterForTesting(): void {
+  _searchTimestamps.length = 0;
 }
 
 /** Recupera un prodotto per barcode.

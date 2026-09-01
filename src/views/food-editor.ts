@@ -1,10 +1,18 @@
 // Modal: editor alimento (crea/modifica). Form con valori per 100g, lock kcal da macro.
 
-import { getState, closeFoodEditor, addFood, updateFood, emitChange } from '../lib/store';
+import {
+  getState,
+  closeFoodEditor,
+  addFood,
+  updateFoodDetails,
+  emitChange,
+  isFoodSearchOpen,
+  isRecipeEditorOpen,
+} from '../lib/store';
 import { showToast } from '../components/toast';
 import { showModal } from '../components/modal';
 import { escapeAttr } from '../lib/utils';
-import { KCAL_PER_GRAM, type NutritionPer100 } from '../types';
+import { KCAL_PER_GRAM, type FoodItem, type NutritionPer100 } from '../types';
 import { refreshSearchAfterCustomFood } from '../components/search';
 
 interface FoodFormState {
@@ -21,6 +29,16 @@ interface FoodFormState {
   servingSize: string;
   servingLabel: string;
   lockFromMacros: boolean;
+}
+
+interface FoodEditBaseline {
+  name: string;
+  brand?: string;
+  barcode?: string;
+  source: FoodItem['source'];
+  servingSize: number;
+  servingLabel?: string;
+  nutrition: NutritionPer100;
 }
 
 const _foodEditorState: FoodFormState = {
@@ -40,8 +58,8 @@ const _foodEditorState: FoodFormState = {
 };
 
 let _foodEditorBound = false;
-// Fix MEDIUM bug: traccia lo stato iniziale per dirty check su close.
 let _foodEditorInitial: FoodFormState | null = null;
+let _foodEditBaseline: FoodEditBaseline | null = null;
 
 function resetFoodEditorState(): void {
   Object.assign(_foodEditorState, {
@@ -61,9 +79,40 @@ function resetFoodEditorState(): void {
   });
 }
 
-// Fix MEDIUM bug: snapshot dello stato iniziale per dirty check.
 function snapshotState(): FoodFormState {
   return { ..._foodEditorState };
+}
+
+function captureFoodEditBaseline(food: FoodItem): FoodEditBaseline {
+  return {
+    name: food.name,
+    brand: food.brand,
+    barcode: food.barcode,
+    source: food.source,
+    servingSize: food.servingSize,
+    servingLabel: food.servingLabel,
+    nutrition: { ...food.nutrition },
+  };
+}
+
+function matchesFoodEditBaseline(food: FoodItem, baseline: FoodEditBaseline): boolean {
+  const a = food.nutrition;
+  const b = baseline.nutrition;
+  return (
+    food.name === baseline.name &&
+    food.brand === baseline.brand &&
+    food.barcode === baseline.barcode &&
+    food.source === baseline.source &&
+    food.servingSize === baseline.servingSize &&
+    food.servingLabel === baseline.servingLabel &&
+    a.calories === b.calories &&
+    a.protein === b.protein &&
+    a.carbs === b.carbs &&
+    a.fat === b.fat &&
+    a.fiber === b.fiber &&
+    a.sugar === b.sugar &&
+    a.salt === b.salt
+  );
 }
 
 function isDirty(): boolean {
@@ -85,11 +134,11 @@ function isDirty(): boolean {
   );
 }
 
-function loadFromFood(foodId: string): void {
+function loadFromFood(foodId: string): FoodItem | null {
   const f = getState().foods.find((x) => x.id === foodId);
   if (!f) {
     resetFoodEditorState();
-    return;
+    return null;
   }
   _foodEditorState.name = f.name;
   _foodEditorState.brand = f.brand || '';
@@ -104,40 +153,42 @@ function loadFromFood(foodId: string): void {
   _foodEditorState.servingSize = String(f.servingSize);
   _foodEditorState.servingLabel = f.servingLabel || '';
   _foodEditorState.lockFromMacros = false;
+  return f;
 }
 
 export function renderFoodEditorModal(foodId: string | null): void {
   if (foodId && foodId !== 'new') {
-    loadFromFood(foodId);
+    const food = loadFromFood(foodId);
+    if (!food) {
+      _foodEditBaseline = null;
+      showToast("L'alimento non esiste più (potrebbe essere stato eliminato in un altro tab)", 'warning', 5000);
+      closeFoodEditor();
+      return;
+    }
+    _foodEditBaseline = captureFoodEditBaseline(food);
   } else {
     resetFoodEditorState();
+    _foodEditBaseline = null;
   }
-  // Fix MEDIUM bug: snapshot iniziale per dirty check su close
   _foodEditorInitial = snapshotState();
 
   const editing = !!foodId && foodId !== 'new';
   showModal({
     modalId: 'food-editor',
     title: editing ? 'Modifica alimento' : 'Crea alimento custom',
-    bodyHtml: renderFormBody(editing),
+    trustedBodyHtml: renderFormBody(editing),
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: editing ? 'Salva modifiche' : 'Crea alimento', action: 'confirm', variant: 'primary' },
     ],
-    onConfirm: () => {
-      // Fix B5: ritorna false per bloccare chiusura se validazione fallisce
-      const result = handleSave(foodId);
-      return result;
-    },
-    // Fix B6: cleanup state quando il modal viene chiuso (✕, ESC, overlay, o conferma successful)
-    // Fix MEDIUM bug: dirty check — se ci sono modifiche non salvate, avvisa l'utente (non-blocking,
-    // perché onClose viene chiamato dopo che il modal è già stato rimosso dal DOM).
+    onConfirm: () => handleSave(foodId),
     onClose: () => {
       if (isDirty()) {
         showToast('Modifiche non salvate', 'info', 2000);
       }
       closeFoodEditor();
       _foodEditorInitial = null;
+      _foodEditBaseline = null;
     },
   });
 
@@ -244,8 +295,6 @@ function bindFoodEditorModalEvents(): void {
     const t = e.target as HTMLElement;
     if (t.id === 'fe-lock') {
       _foodEditorState.lockFromMacros = (t as HTMLInputElement).checked;
-      // Fix BUG #9 (T3): aggiorna solo gli attributi necessari invece di re-renderare tutto il body
-      // (prima: il checkbox appena toggled veniva distrutto/ricreato e perdeva il focus)
       const calInput = document.querySelector<HTMLInputElement>('#fe-calories');
       if (calInput) {
         calInput.disabled = _foodEditorState.lockFromMacros;
@@ -263,7 +312,6 @@ function bindFoodEditorModalEvents(): void {
         hint.remove();
       }
       recalcKcal();
-      // Mantieni focus sul checkbox
       const lockCheckbox = document.querySelector<HTMLInputElement>('#fe-lock');
       if (lockCheckbox) lockCheckbox.focus();
     }
@@ -272,7 +320,6 @@ function bindFoodEditorModalEvents(): void {
 
 function recalcKcal(): void {
   if (!_foodEditorState.lockFromMacros) return;
-  // Fix BUG #5 (T3): clampa i negativi a 0 prima del calcolo (prima: protein=-10 → calories=9 fuorviante)
   const p = Math.max(0, Number(_foodEditorState.protein) || 0);
   const c = Math.max(0, Number(_foodEditorState.carbs) || 0);
   const f = Math.max(0, Number(_foodEditorState.fat) || 0);
@@ -283,22 +330,19 @@ function recalcKcal(): void {
   if (calInput) calInput.value = _foodEditorState.calories;
 }
 
-/** Fix B5: ritorna false per bloccare chiusura modal se validazione fallisce. */
 function handleSave(foodId: string | null): boolean {
   if (!_foodEditorState.name.trim()) {
     showToast("Inserisci il nome dell'alimento", 'error');
     return false;
   }
 
-  // Helper di validazione: parse strict, rifiuta stringhe non numeriche
-  // (es. "abc", "1.2.3", "" → errore). Permette 0 e decimali positivi.
   const parseNum = (raw: string, fieldLabel: string, required: boolean): number | undefined => {
     const trimmed = raw.trim();
     if (!required) {
       if (trimmed === '') return undefined;
     } else if (trimmed === '') {
       showToast(`Inserisci un valore per ${fieldLabel}`, 'error');
-      return NaN; // sentinel per "errore validazione"
+      return NaN;
     }
     const n = Number(trimmed);
     if (!Number.isFinite(n)) {
@@ -327,9 +371,6 @@ function handleSave(foodId: string | null): boolean {
     return false;
   }
 
-  // Fix MEDIUM bug: se calories=0 ma almeno un macro > 0, stima kcal da macro (algoritmo Atwater).
-  // Stesso comportamento di buildFoodFromOff. Prima l'utente poteva salvare un food con
-  // calories=0 e macro>0, creando inconsistenza con i food OFF che vengono ricalcolati.
   let finalCalories = calories;
   if (calories === 0) {
     const macroKcal =
@@ -342,7 +383,6 @@ function handleSave(foodId: string | null): boolean {
     }
   }
 
-  // Campi opzionali: undefined se vuoti, errore se non parsabili
   const fiber = parseNum(_foodEditorState.fiber, 'Fibre', false);
   if (fiber !== undefined && Number.isNaN(fiber)) return false;
   const sugar = parseNum(_foodEditorState.sugar, 'Zuccheri', false);
@@ -350,10 +390,8 @@ function handleSave(foodId: string | null): boolean {
   const salt = parseNum(_foodEditorState.salt, 'Sale', false);
   if (salt !== undefined && Number.isNaN(salt)) return false;
 
-  // Fix BUG #6 (T3): clamp lunghezza name/brand/servingLabel su save (coerente con normalize.ts)
   const trimmedName = _foodEditorState.name.trim().slice(0, 300);
   const trimmedBrand = _foodEditorState.brand.trim().slice(0, 200) || undefined;
-  // Fix MEDIUM bug: supporta campo barcode (validazione: solo cifre, max 14)
   const trimmedBarcode = _foodEditorState.barcode.trim().slice(0, 14) || undefined;
   if (trimmedBarcode && !/^\d{6,14}$/.test(trimmedBarcode)) {
     showToast('Barcode non valido: inserisci 6-14 cifre (EAN/UPC)', 'error');
@@ -380,7 +418,6 @@ function handleSave(foodId: string | null): boolean {
     nutrition,
   };
 
-  // Fix BUG #4 (T3): validazione logica macro (P+C+F non può superare 100g per valori per-100g)
   const macroSum = protein + carbs + fat;
   if (macroSum > 100) {
     showToast(
@@ -389,7 +426,6 @@ function handleSave(foodId: string | null): boolean {
       5000,
     );
   }
-  // Fix BUG #4 (T3): verifica coerenza kcal vs kcal da macro (tolleranza 5% per arrotondamenti/altri nutrienti)
   const macroKcal = protein * KCAL_PER_GRAM.protein + carbs * KCAL_PER_GRAM.carbs + fat * KCAL_PER_GRAM.fat;
   if (calories < macroKcal * 0.95 && macroKcal > 0) {
     showToast(
@@ -400,9 +436,25 @@ function handleSave(foodId: string | null): boolean {
   }
 
   if (foodId && foodId !== 'new') {
-    updateFood(foodId, payload);
-    // Fix MEDIUM bug: avvisa l'utente che le entries del diario esistenti non verranno aggiornate
-    // (foodSnapshot è una snapshot al momento dell'aggiunta, non un riferimento live).
+    const current = getState().foods.find((food) => food.id === foodId);
+    if (!current) {
+      showToast(
+        "L'alimento è stato eliminato in un altro tab. Le modifiche locali non sono state applicate.",
+        'warning',
+        6000,
+      );
+      closeFoodEditor();
+      return true;
+    }
+    if (!_foodEditBaseline || !matchesFoodEditBaseline(current, _foodEditBaseline)) {
+      showToast(
+        "L'alimento è stato modificato in un altro tab. Le modifiche locali non sono state applicate: riapri l'editor sui dati aggiornati.",
+        'warning',
+        6500,
+      );
+      return false;
+    }
+    updateFoodDetails(foodId, payload);
     const diaryEntriesUsingFood = Object.values(getState().diary).some((entries) =>
       entries.some((e) => e.foodId === foodId),
     );
@@ -416,12 +468,10 @@ function handleSave(foodId: string | null): boolean {
   } else {
     addFood(payload);
     showToast('Alimento custom creato', 'success');
-    // Se il search dialog era aperto per aggiungere custom, refresha
-    if (getState()._searchOpen) {
+    if (isFoodSearchOpen()) {
       refreshSearchAfterCustomFood();
     }
-    // Fix R3 (T4): se il recipe editor era aperto (sub-search ingrediente), refresha anche quello
-    if (getState()._editingRecipeId !== null) {
+    if (isRecipeEditorOpen()) {
       import('../views/recipe-editor')
         .then(({ refreshRecipeEditor }) => {
           refreshRecipeEditor();
@@ -431,9 +481,6 @@ function handleSave(foodId: string | null): boolean {
         });
     }
   }
-  // NOTA: non chiamiamo closeFoodEditor() qui — ci pensa onClose callback del modal.
-  // Chiamiamo solo emitChange per re-render.
-  // Fix MEDIUM bug: resetta _foodEditorInitial così onClose non triggera dirty check
   _foodEditorInitial = snapshotState();
   emitChange();
   return true;
