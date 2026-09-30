@@ -54,7 +54,7 @@ function classifyError(error: unknown): FoodSearchErrorKind {
 }
 
 function isRetryable(kind: FoodSearchErrorKind): boolean {
-  return kind !== 'unknown';
+  return kind !== 'unknown' && kind !== 'offline';
 }
 
 function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {

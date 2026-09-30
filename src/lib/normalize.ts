@@ -143,7 +143,16 @@ export function normalizeNutrition(v: unknown): NutritionPer100 | null {
   // Ora accettiamo anche alimenti con almeno un campo opzionale significativo.
   const hasMain = calories > 0 || protein > 0 || carbs > 0 || fat > 0;
   const hasOptional = (fiber != null && fiber > 0) || (sugar != null && sugar > 0) || (salt != null && salt > 0);
-  if (!hasMain && !hasOptional) return null;
+  // Zero is valid nutrition (e.g. water). Missing/invalid values must remain distinct
+  // from an explicitly supplied complete set of zero values across persistence.
+  const hasExplicitMain = ['calories', 'protein', 'carbs', 'fat'].every((key) => {
+    const value = v[key];
+    if (typeof value !== 'number' && typeof value !== 'string') return false;
+    if (typeof value === 'string' && !value.trim()) return false;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0;
+  });
+  if (!hasMain && !hasOptional && !hasExplicitMain) return null;
   return { calories, protein, carbs, fat, fiber, sugar, salt };
 }
 
@@ -232,7 +241,8 @@ export function normalizeDayDiary(v: unknown, knownFoods: FoodItem[]): DayDiary 
     const entries: DiaryEntry[] = [];
     for (const raw of val) {
       const e = normalizeDiaryEntry(raw, knownFoods);
-      if (e) entries.push(e);
+      // The containing date owns diary membership; statistics use entry.date.
+      if (e) entries.push({ ...e, date: k });
     }
     if (entries.length > 0) out[k] = entries;
   }
@@ -443,7 +453,6 @@ export function buildFoodFromOff(p: OffProduct): FoodItem | null {
   }
   const nutrition = normalizeNutrition(rawNutrition);
   if (!nutrition) return null;
-  // Fix Bug #11 (T1): rimuovere il re-check ridondante (normalizeNutrition ritorna già null se tutto 0)
   const name = normalizeString(pickName(p), 300);
   // Fix BUG #11 (T5): pickName ritorna sentinel 'Prodotto senza nome' se non c'è nome; qui scartiamo.
   if (!name || name === 'Prodotto senza nome') return null;

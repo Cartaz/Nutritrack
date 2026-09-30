@@ -1,7 +1,7 @@
 // Service Worker (Workbox injectManifest).
 // Pattern 10 dello standard: precache + cleanup + clientsClaim + route differenziati.
 
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+import { precacheAndRoute, cleanupOutdatedCaches, matchPrecache } from 'workbox-precaching';
 import { clientsClaim } from 'workbox-core';
 import { registerRoute, NavigationRoute, setCatchHandler } from 'workbox-routing';
 import { NetworkFirst, CacheFirst } from 'workbox-strategies';
@@ -19,6 +19,10 @@ cleanupOutdatedCaches();
 // Claim clients immediatamente
 clientsClaim();
 
+// Workbox owns revisioned cache keys. The shell URL follows the deployed SW scope,
+// including repository subpaths such as /Nutritrack/ on GitHub Pages.
+const shellUrl = new URL('index.html', self.registration.scope).href;
+
 // ============ Runtime caching ============
 
 // Navigazioni (HTML): serve index.html cached (offline-first per shell)
@@ -34,7 +38,7 @@ const navigationRoute = new NavigationRoute(
       return await networkFirst.handle(params);
     } catch {
       // Fallback a index.html precached
-      const cached = (await caches.match('/index.html')) || (await caches.match('./index.html'));
+      const cached = await matchPrecache(shellUrl);
       return cached ?? Response.error();
     }
   },
@@ -87,9 +91,13 @@ registerRoute(
 );
 
 // Catch handler: offline fallback
-setCatchHandler(async () => {
-  const cached = (await caches.match('/index.html')) || (await caches.match('./index.html'));
-  if (cached) return cached;
+setCatchHandler(async ({ request }) => {
+  // HTML is only a navigation fallback. API/image failures must not masquerade as
+  // successful HTML responses and poison the JSON/image consumers.
+  if (request.destination === 'document') {
+    const cached = await matchPrecache(shellUrl);
+    if (cached) return cached;
+  }
   return new Response('Offline', { status: 503, statusText: 'Offline' });
 });
 

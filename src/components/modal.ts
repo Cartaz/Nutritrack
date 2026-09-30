@@ -48,7 +48,7 @@ type CloseReason = 'normal' | 'superseded';
 let _modalInit = false;
 const _callbacks = new WeakMap<HTMLElement, ModalCallbacks>();
 const _returnFocus = new WeakMap<HTMLElement, HTMLElement | null>();
-const _closing = new WeakSet<HTMLElement>();
+const _closing = new WeakMap<HTMLElement, CloseReason>();
 
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -129,8 +129,13 @@ function initModal(): void {
 }
 
 function closeModal(el: HTMLElement, reason: CloseReason = 'normal'): void {
-  if (_closing.has(el)) return;
-  _closing.add(el);
+  if (_closing.has(el)) {
+    // A successor may be opened while a normal close is still fading out.
+    // Supersession must cancel the old workflow cleanup even at that point.
+    if (reason === 'superseded') _closing.set(el, reason);
+    return;
+  }
+  _closing.set(el, reason);
 
   const cb = _callbacks.get(el);
   const returnFocus = _returnFocus.get(el) ?? null;
@@ -138,17 +143,18 @@ function closeModal(el: HTMLElement, reason: CloseReason = 'normal'): void {
   // Ogni overlay possiede i propri callback. Rimuoverli subito rende idempotenti i
   // click ripetuti durante il fade-out senza farli ricadere sul modal sostitutivo.
   _callbacks.delete(el);
-  _returnFocus.delete(el);
 
   el.classList.remove('modal-show');
   setTimeout(() => {
+    const closeReason = _closing.get(el);
+    _returnFocus.delete(el);
     el.remove();
     if (document.querySelectorAll('.modal-overlay').length === 0) {
       document.body.classList.remove('modal-open');
     }
 
     // Un modal sostituito non deve pulire stato o focus che appartengono al successore.
-    if (reason === 'normal' && cb?.onClose) {
+    if (closeReason === 'normal' && cb?.onClose) {
       try {
         cb.onClose();
       } catch (e) {
@@ -157,7 +163,7 @@ function closeModal(el: HTMLElement, reason: CloseReason = 'normal'): void {
     }
     _closing.delete(el);
 
-    if (reason === 'normal' && returnFocus && typeof returnFocus.focus === 'function') {
+    if (closeReason === 'normal' && returnFocus && typeof returnFocus.focus === 'function') {
       try {
         returnFocus.focus();
       } catch {
@@ -223,7 +229,9 @@ export function showModal(opts: ShowModalOptions): HTMLElement {
   document.body.appendChild(overlay);
   document.body.classList.add('modal-open');
 
-  requestAnimationFrame(() => overlay.classList.add('modal-show'));
+  requestAnimationFrame(() => {
+    if (!_closing.has(overlay)) overlay.classList.add('modal-show');
+  });
 
   const firstAction = overlay.querySelector<HTMLElement>('.modal-footer .btn, .modal-close');
   if (firstAction) firstAction.focus();

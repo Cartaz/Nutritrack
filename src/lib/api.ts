@@ -8,7 +8,7 @@
 // Fix B-8-6 (T8): invia OFF_USER_AGENT header.
 // Fix B-8-8 (T8): singolo listener su opts.signal (no accumulo).
 // Fix B-8-9 (T8): normalizza page/page_size/count a number.
-// Fix B-8-10 (T8): pre-check navigator.onLine.
+// Cached service-worker responses remain available when navigator.onLine is false.
 // Fix B-8-12 (T8): clearTimeout dopo res.json() (body read protetto).
 // Fix B-8-13 (T8): guard contro data null.
 //
@@ -93,11 +93,8 @@ export async function apiGetJson<T>(
     throw new ApiError('Aborted', 'AbortError');
   }
 
-  // Fix B-8-10: pre-check navigator.onLine per feedback immediato.
-  // Questo è l'unico caso in cui il messaggio "Sei offline" è accurato.
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new ApiError('Sei offline. Verifica la connessione e riprova.', 'OfflineError');
-  }
+  // Always let fetch reach the service worker: navigator.onLine cannot tell us
+  // whether a cached response exists. Classify offline only after a failed fetch.
 
   // Fix B-8-1: deadline globale
   const globalDeadline = Date.now() + API_GLOBAL_DEADLINE_MS;
@@ -140,6 +137,9 @@ export async function apiGetJson<T>(
             },
             signal: currentController.signal,
           });
+          if (!res.ok && navigator.onLine === false) {
+            throw new ApiError('Sei offline e il prodotto non è in cache.', 'OfflineError');
+          }
           // 5xx: prova prossima istanza (o retry sulla stessa)
           // Fix B-8-3: 429 (rate limit) → retry su stessa istanza poi prossima
           if ((res.status >= 500 && res.status < 600) || res.status === 429) {
@@ -181,6 +181,7 @@ export async function apiGetJson<T>(
           return json;
         } catch (e: unknown) {
           clearTimeout(timeoutId);
+          if (e instanceof ApiError && e.name === 'OfflineError') throw e;
           // Fix B-8-4: dispatch su status invece di message.startsWith
           if (
             e instanceof ApiError &&
@@ -217,6 +218,9 @@ export async function apiGetJson<T>(
             break; // tentativi esauriti, passa alla prossima istanza
           }
           if (err?.name === 'TypeError') {
+            if (navigator.onLine === false) {
+              throw new ApiError('Sei offline e il prodotto non è in cache.', 'OfflineError');
+            }
             // network failure: retry sulla stessa istanza poi passa alla prossima
             lastError = new ApiError('Network', 'NetworkError');
             if (attempt < maxAttempts - 1) {
@@ -276,9 +280,6 @@ function acquireSearchSlot(now = Date.now()): void {
 
 async function searchGetJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   if (signal?.aborted) throw new ApiError('Aborted', 'AbortError');
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new ApiError('Sei offline. Verifica la connessione e riprova.', 'OfflineError');
-  }
 
   const controller = new AbortController();
   const onAbort = (): void => controller.abort();
@@ -290,6 +291,9 @@ async function searchGetJson<T>(url: string, signal?: AbortSignal): Promise<T> {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     });
+    if (!response.ok && navigator.onLine === false) {
+      throw new ApiError('Sei offline e la ricerca non è in cache.', 'OfflineError');
+    }
     if (response.status === 429) {
       throw new ApiError('Limite richieste Open Food Facts raggiunto', 'RateLimitError', 429);
     }
@@ -308,7 +312,10 @@ async function searchGetJson<T>(url: string, signal?: AbortSignal): Promise<T> {
       if (signal?.aborted) throw new ApiError('Aborted', 'AbortError');
       throw new ApiError('Timeout Open Food Facts', 'TimeoutError');
     }
-    if (err?.name === 'TypeError') throw new ApiError('Network', 'NetworkError');
+    if (err?.name === 'TypeError') {
+      if (navigator.onLine === false) throw new ApiError('Sei offline e la ricerca non è in cache.', 'OfflineError');
+      throw new ApiError('Network', 'NetworkError');
+    }
     throw error;
   } finally {
     clearTimeout(timeoutId);
@@ -326,6 +333,7 @@ export async function searchOff(
   const pageSize = opts.pageSize ?? OFF_PAGE_SIZE;
   if (!normalizedQuery) return { products: [], count: 0, page, pageSize };
 
+  if (opts.signal?.aborted) throw new ApiError('Aborted', 'AbortError');
   acquireSearchSlot();
   const params = new URLSearchParams({
     search_terms: normalizedQuery,

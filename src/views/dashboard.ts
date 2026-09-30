@@ -15,7 +15,6 @@ import {
 import { imgTag } from '../components/img';
 import { MEAL_LABELS, MEAL_ICONS, MEAL_ORDER } from '../types';
 import type { DiaryEntry, MealType } from '../types';
-import { computeStatsAsync } from '../worker/client';
 import {
   addWaterGlass,
   removeWaterGlass,
@@ -32,26 +31,10 @@ import { copyDiaryToClipboard } from '../lib/clipboard';
 import { getRecentFoods, quickAddRecentFood } from '../lib/recentFoods';
 import { computeStreak, getBadgeStatuses, countUnlockedBadges } from '../lib/gamification';
 import { showToast } from '../components/toast';
-import {
-  getWeekStats,
-  setWeekStats,
-  getWeekStatsInputSig,
-  setWeekStatsInputSig,
-  getStatsTab,
-  setStatsTab,
-  getMonthStats,
-  setMonthStats,
-  getMonthStatsInputSig,
-  setMonthStatsInputSig,
-  getYearStats,
-  setYearStats,
-  getYearStatsInputSig,
-  setYearStatsInputSig,
-} from './dashboard-state';
+import { getDashboardStats, getStatsTab, setStatsTab } from './dashboard-state';
 import type { StatsTab } from './dashboard-state';
 
 let _dashBound = false;
-let _weekStatsToken = 0;
 
 export function renderDashboard(main: HTMLElement): void {
   const state = getState();
@@ -151,9 +134,6 @@ export function renderDashboard(main: HTMLElement): void {
   `;
 
   bindDashboardEvents(main);
-
-  // Avvia calcolo statistiche per il tab attivo. La cache appartiene al worker input, non al DOM.
-  launchActiveStatsWorker(state);
 }
 
 // ============ Biometrica card (P1 #3) ============
@@ -423,7 +403,7 @@ function renderStatsCard(state: ReturnType<typeof getState>): string {
 
 /** Tab Settimana: 7 barre verticali (comportamento originale). */
 function renderWeekTab(state: ReturnType<typeof getState>): string {
-  const stats = getWeekStats();
+  const stats = getDashboardStats('week', state.diary, state.currentDate);
   if (!stats) {
     return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
   }
@@ -454,7 +434,7 @@ function renderWeekTab(state: ReturnType<typeof getState>): string {
 
 /** Tab Mese: 30 barre verticali più compatte. */
 function renderMonthTab(state: ReturnType<typeof getState>): string {
-  const stats = getMonthStats();
+  const stats = getDashboardStats('month', state.diary, state.currentDate);
   if (!stats) {
     return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
   }
@@ -482,7 +462,7 @@ function renderMonthTab(state: ReturnType<typeof getState>): string {
 
 /** Tab Anno: heatmap 365 giorni stile GitHub contribution graph. */
 function renderYearTab(state: ReturnType<typeof getState>): string {
-  const stats = getYearStats();
+  const stats = getDashboardStats('year', state.diary, state.currentDate);
   if (!stats) {
     return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
   }
@@ -620,56 +600,6 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
       </svg>
     </div>
   `;
-}
-
-/** Lancia il worker per il tab attivo (week/month/year). */
-function launchActiveStatsWorker(state: ReturnType<typeof getState>): void {
-  launchStatsWorker(state, getStatsTab());
-}
-
-/** Calcola l'input della finestra attiva e rilancia il worker solo quando cambia. */
-function launchStatsWorker(state: ReturnType<typeof getState>, tab: StatsTab): void {
-  const anchor = isValidDateKey(state.currentDate) ? parseISODateLocal(state.currentDate) : new Date();
-  const span = tab === 'week' ? 7 : tab === 'month' ? 30 : 365;
-  const dates: string[] = [];
-  for (let i = span - 1; i >= 0; i--) {
-    const d = new Date(anchor);
-    d.setDate(d.getDate() - i);
-    dates.push(toDateKey(d));
-  }
-  const allEntries: DiaryEntry[] = [];
-  for (const d of dates) {
-    const list = state.diary[d];
-    if (list) allEntries.push(...list);
-  }
-  const sig = dates.join(',') + '|' + allEntries.map((e) => `${e.id}:${e.quantity}:${e.gramsOverride ?? ''}`).join('|');
-
-  if (tab === 'week') {
-    if (sig === getWeekStatsInputSig()) return;
-    setWeekStatsInputSig(sig);
-  } else if (tab === 'month') {
-    if (sig === getMonthStatsInputSig()) return;
-    setMonthStatsInputSig(sig);
-  } else {
-    if (sig === getYearStatsInputSig()) return;
-    setYearStatsInputSig(sig);
-  }
-
-  const token = ++_weekStatsToken;
-  void computeStatsAsync(allEntries, dates)
-    .then((res) => {
-      if (token !== _weekStatsToken) return;
-      if (tab === 'week') setWeekStats({ days: res.days, avgCalories: res.avgCalories });
-      else if (tab === 'month') setMonthStats({ days: res.days, avgCalories: res.avgCalories });
-      else setYearStats({ days: res.days, avgCalories: res.avgCalories });
-      emitChange();
-    })
-    .catch((err) => {
-      console.error('[dashboard] worker stats error', err);
-      if (tab === 'week') setWeekStatsInputSig('');
-      else if (tab === 'month') setMonthStatsInputSig('');
-      else setYearStatsInputSig('');
-    });
 }
 
 function entryRow(e: DiaryEntry): string {

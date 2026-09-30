@@ -17,7 +17,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,css}\" \"test/**/*.ts\" \"*.{ts,js,json,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,css}\" \"test/**/*.ts\" \"*.{ts,js,json,md}\"",
-    "ci": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage && npm run build"
   },
   "dependencies": {
     "@zxing/library": "^0.21.3",
