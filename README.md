@@ -1,12 +1,12 @@
 # NutriTrack PWA
 
-**v1.2.0** — Tracker di calorie e macro personalizzato, **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Costruito seguendo lo **Standard di Creazione PWA**: Vite 5 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI.
+**v1.2.0** — Tracker di calorie e macro personalizzato, **PWA vanilla TypeScript installabile su iOS** (Add to Home Screen) e su Android/desktop. Stack: Vite 8 + TypeScript strict + vite-plugin-pwa (injectManifest) + localStorage, niente framework UI. Per sviluppo e CI: Node 22.12 o successivo.
 
 ## Cos'è NutriTrack
 
 NutriTrack è un tracker nutrizionale **privacy-first** che funziona interamente nel browser: nessun account, nessun server, nessun tracker. Tutti i dati restano sul dispositivo (localStorage). È pensato per chi vuole tenere sotto controllo calorie e macro (proteine, carboidrati, grassi) senza rinunciare alla privacy né installare app native.
 
-**Caso d'uso tipico**: apri l'app, aggiungi alimenti al diario (ricercandoli su Open Food Facts o creandoli custom), vedi in tempo reale quante calorie/macro hai consumato rispetto all'obiettivo, e tieni d'occhio la media settimanale. Le ricette ti permettono di raggruppare ingredienti e aggiungerli al diario in un tap. Il calcolatore TDEE (Mifflin-St Jeor) stima il fabbisogno calorico in base a peso/altezza/età/sesso/attività, e l'obiettivo di peso (perdere/mantenere/aumentare) regola automaticamente le calorie con un rateo sicuro (max 0.5 kg/settimana, linea guida WHO/ACSM).
+**Caso d'uso tipico**: apri l'app, aggiungi alimenti al diario (ricercandoli su Open Food Facts o creandoli custom), vedi in tempo reale quante calorie/macro hai consumato rispetto all'obiettivo, e tieni d'occhio la media settimanale. Le ricette ti permettono di raggruppare ingredienti e aggiungerli al diario in un tap. Il calcolatore TDEE (Mifflin-St Jeor) stima il fabbisogno calorico in base a peso/altezza/età/sesso/attività. L'obiettivo di peso applica una stima lineare con limite applicativo di 0.5 kg/settimana; non è una valutazione clinica personalizzata. I target automatici sono valutati secondo la [policy documentata](docs/sources/goal-calorie-policy.md).
 
 **Funziona offline**, è installabile come app su iOS/Android/desktop, e il barcode scanner usa la fotocamera per cercare prodotti su Open Food Facts. Il codice è open source (MIT), i dati nutrizionali provengono da [Open Food Facts](https://world.openfoodfacts.org) (database collaborativo, licenza ODbL).
 
@@ -205,14 +205,14 @@ Questa è la **prima release stabile**. Prima del tag v1.0.0 l'app è stata sott
 
 ## Stack
 
-- **Vite 5** — bundler e dev server
+- **Vite 8** — bundler e dev server
 - **TypeScript 5** strict (`strict`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `noImplicitOverride`, `forceConsistentCasingInFileNames`)
 - **Vanilla TS** — no React/Vue/Svelte, `innerHTML` strutturato + event delegation
 - **vite-plugin-pwa** con strategia `injectManifest` (custom SW in `src/sw.ts` con Workbox)
 - **Web Worker** per statistiche settimanali con fallback main-thread
 - **localStorage** con backup, quota handling, multi-tab sync
-- **Open Food Facts** API (multi-istanza con fallback it/world/fr/es/de)
-- **GitHub Actions** per CI (typecheck + build) e deploy su GitHub Pages (base path auto-rilevato)
+- **Open Food Facts** API (una richiesta per ricerca testuale esplicita; fallback multi-istanza per barcode)
+- **GitHub Actions** per CI completa e deploy del solo artefatto validato su GitHub Pages
 
 ## Funzionalità
 
@@ -326,7 +326,7 @@ npm run lint:fix
 npm run format          # scrivi
 npm run format:check    # verifica solo (usato in CI)
 
-# Pipeline completa CI locale (typecheck + lint + format + test + build)
+# Pipeline completa CI locale (typecheck + lint + format + coverage + build)
 npm run ci
 ```
 
@@ -381,7 +381,7 @@ Se deployi su sottopercorso, imposta `VITE_BASE_PATH=/tuo-percorso/` prima del b
 - **TypeScript 5 strict** con `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `noImplicitOverride`, `forceConsistentCasingInFileNames`
 - **ESLint 9** (flat config) con `typescript-eslint` 8 — regole semantiche (eqeqeq, no-var, no-unused-vars), regole di formato delegate a Prettier
 - **Prettier 3** — singleQuote, trailingComma all, printWidth 120, semicolon, lf
-- **Vitest 2.1** con environment jsdom e coverage v8 — 193 test su `lib/nutrition.ts`, `lib/normalize.ts`, `lib/storage.ts`, `lib/utils.ts`. Soglie minime di coverage (60% statements, 50% branches)
+- **Vitest 4.1** con environment jsdom e coverage v8. Soglie minime di coverage: 60% statements/lines/functions, 50% branches. L'[audit del 30 settembre 2026](docs/audit-2026-09-30.md) documenta le regressioni corrette e le verifiche eseguite.
 - **CI GitHub Actions** — pipeline: typecheck → lint → format:check → test → build → verifica PWA assets
 
 ## Privacy

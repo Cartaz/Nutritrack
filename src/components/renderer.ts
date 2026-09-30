@@ -80,6 +80,21 @@ async function doRender(): Promise<void> {
     });
   }
 
+  const storageWarning = app.querySelector('#storage-warning');
+  if (state._storageDisabled && !storageWarning) {
+    const warning = document.createElement('p');
+    warning.id = 'storage-warning';
+    warning.className = 'storage-warning';
+    warning.setAttribute('role', 'alert');
+    warning.textContent =
+      'Salvataggio non disponibile: le modifiche potrebbero andare perse. Esporta un backup dalle Impostazioni.';
+    app.querySelector('.app-header')?.after(warning);
+  } else if (!state._storageDisabled) {
+    storageWarning?.remove();
+  }
+
+  applyTheme(state.settings.theme);
+
   // Render vista (lazy)
   const myToken = ++_renderToken;
   const main = getMain();

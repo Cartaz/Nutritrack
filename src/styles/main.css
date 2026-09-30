@@ -2715,6 +2715,15 @@ textarea {
   }
 }
 
+.storage-warning {
+  margin: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning, #d97706);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
 /* ============ Reduced motion ============ */
 @media (prefers-reduced-motion: reduce) {
   *,

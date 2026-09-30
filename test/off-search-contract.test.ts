@@ -20,6 +20,31 @@ beforeEach(() => {
 });
 
 describe('OFF textual search request budget', () => {
+  it('allows service-worker cached search results while offline', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    fetchMock.mockResolvedValue(response(200, { count: 1, products: [{ product_name: 'Cached' }] }));
+    expect((await searchOff('pasta')).count).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports offline cache misses without retrying', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    fetchMock.mockResolvedValue(response(503, {}));
+    await expect(searchOff('pasta')).rejects.toMatchObject({ name: 'OfflineError' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not consume search slots for operations aborted before sending', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    for (let i = 0; i < 10; i++) {
+      await expect(searchOff('pasta', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    }
+    fetchMock.mockResolvedValue(response(200, { count: 0, products: [] }));
+    await expect(searchOff('pasta')).resolves.toMatchObject({ count: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('uses exactly one HTTP request for one search action', async () => {
     fetchMock.mockResolvedValue(response(200, { count: 0, page: 1, page_size: 30, products: [] }));
     await searchOff('pasta');

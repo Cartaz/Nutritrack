@@ -34,7 +34,10 @@ function init(): void {
     // Su un profilo nuovo non esiste ancora una baseline persistita. Crearla prima di
     // autosave e multi-tab sync rende rilevabile anche una modifica locale avvenuta
     // nello stesso frame di un successivo storage event remoto.
-    if (!loaded) saveData();
+    if (!loaded) {
+      const saved = saveData();
+      if (!saved.ok) setStorageDisabled(true);
+    }
     enableAutoSave();
     initMultiTabSync();
     if (shouldWarnQuota()) {

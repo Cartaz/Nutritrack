@@ -50,7 +50,7 @@ export function addFoodToDiary(input: AddDiaryInput): void {
     showToast(`${foodRef.name} aggiunto a ${MEAL_LABELS[meal]}`, 'success');
     closeFoodSearch();
   } else {
-    showToast('Impossibile aggiungere (limite giornaliero raggiunto)', 'error');
+    showToast('Impossibile aggiungere: verifica quantità e limite giornaliero', 'error');
   }
 }
 
@@ -75,7 +75,7 @@ export function changeEntryQuantity(
       showToast('Quantità minima raggiunta', 'info');
       return;
     }
-    const newGrams = Math.round(currentGramsPerQty * newQty);
+    const newGrams = currentGramsPerQty * newQty;
     setDiaryEntryAmount(id, newQty, newGrams);
     return;
   }
@@ -114,12 +114,17 @@ export function addRecipeToDiary(meal: MealType, recipeId: string, servings: num
       foodId: ing.foodId,
       foodSnapshot: ing.foodSnapshot,
       quantity: 1,
-      gramsOverride: Math.round(ing.grams * factor * 10) / 10,
+      gramsOverride: ing.grams * factor,
     })),
   );
 
   if (!result.ok) {
-    showToast(`Impossibile aggiungere ${recipe.name} (limite giornaliero raggiunto)`, 'error');
+    showToast(
+      result.reason === 'day_full'
+        ? `Impossibile aggiungere ${recipe.name} (limite giornaliero raggiunto)`
+        : `Impossibile aggiungere ${recipe.name}: quantità degli ingredienti non valide`,
+      'error',
+    );
     return;
   }
 

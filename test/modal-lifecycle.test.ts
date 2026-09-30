@@ -134,4 +134,21 @@ describe('modal lifecycle regressions', () => {
 
     expect(document.activeElement).toBe(origin);
   });
+
+  it('reopening during a normal close cannot execute the old cleanup on the successor', () => {
+    const oldClose = vi.fn();
+    const newClose = vi.fn();
+    const origin = document.querySelector<HTMLButtonElement>('#origin')!;
+    origin.focus();
+    showModal({ modalId: 'reopen', title: 'Old', bodyText: 'A', actions: [], onClose: oldClose });
+    closeModalById('reopen');
+    showModal({ modalId: 'reopen', title: 'New', bodyText: 'B', actions: [], onClose: newClose });
+    vi.advanceTimersByTime(250);
+    expect(oldClose).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-modal-id="reopen"]')?.textContent).toContain('New');
+    closeModalById('reopen');
+    vi.advanceTimersByTime(250);
+    expect(newClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(origin);
+  });
 });

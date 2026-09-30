@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SCHEMA_VERSION, STORAGE_KEY } from '../src/lib/constants';
-import { __resetStorageInternalForTesting, importDataJson, loadData, saveData } from '../src/lib/storage';
+import {
+  __resetStorageInternalForTesting,
+  exportDataJson,
+  importDataJson,
+  loadData,
+  saveData,
+} from '../src/lib/storage';
 import { getState, setState } from '../src/lib/store';
 
 function resetStore(): void {
@@ -74,6 +80,13 @@ describe('storage schema boundary', () => {
 
     expect(loadData()).toBe(false);
     expect(getState().settings.calorieGoal).toBe(2000);
+  });
+
+  it('exports the preserved future document instead of an empty fallback snapshot', () => {
+    const future = futurePayload();
+    localStorage.setItem(STORAGE_KEY, future);
+    expect(loadData()).toBe(false);
+    expect(exportDataJson()).toBe(future);
   });
 
   it('does not overwrite a future physical schema on the next local save', () => {

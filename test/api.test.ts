@@ -158,13 +158,20 @@ describe('apiGetJson - retry logic', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('navigator.onLine === false: lancia OfflineError senza chiamare fetch', async () => {
+  it('navigator.onLine === false: reports offline only after fetch cannot provide cached data', async () => {
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    fetchMock.mockRejectedValue(new TypeError('offline'));
 
     await expect(apiGetJson(() => 'https://example.com/api')).rejects.toMatchObject({
       name: 'OfflineError',
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a service-worker cached response when navigator.onLine is false', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    fetchMock.mockResolvedValue(mockResponse(200, { cached: true }));
+    await expect(apiGetJson(() => 'https://example.com/api')).resolves.toEqual({ cached: true });
   });
 
   it('AbortSignal esterno già aborted: lancia AbortError senza chiamare fetch', async () => {

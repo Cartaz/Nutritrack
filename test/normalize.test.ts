@@ -210,8 +210,8 @@ describe('normalizeNutrition', () => {
     expect(r!.fat).toBe(1);
   });
 
-  it('ritorna null se tutti i valori sono 0', () => {
-    expect(normalizeNutrition({ calories: 0, protein: 0, carbs: 0, fat: 0 })).toBeNull();
+  it('preserva valori esplicitamente zero (acqua e prodotti senza calorie)', () => {
+    expect(normalizeNutrition({ calories: 0, protein: 0, carbs: 0, fat: 0 })).toMatchObject({ calories: 0 });
   });
 
   it('ritorna null per non-oggetto', () => {
@@ -292,8 +292,10 @@ describe('normalizeFoodItem', () => {
     expect(normalizeFoodItem({ ...validFood, name: null })).toBeNull();
   });
 
-  it('ritorna null se nutrizione è zero (tutti macro = 0)', () => {
-    expect(normalizeFoodItem({ ...validFood, nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 } })).toBeNull();
+  it('preserva alimenti con nutrizione esplicitamente zero', () => {
+    expect(
+      normalizeFoodItem({ ...validFood, nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 } }),
+    ).not.toBeNull();
   });
 
   it('ritorna null per non-oggetto', () => {
@@ -483,7 +485,7 @@ describe('normalizeDayDiary', () => {
               name: 'Y',
               source: 'custom',
               servingSize: 100,
-              nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+              nutrition: {},
             },
             quantity: 1,
           },

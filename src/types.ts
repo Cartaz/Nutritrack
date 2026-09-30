@@ -130,8 +130,7 @@ export const WEIGHT_GOAL_LABELS: Record<WeightGoalType, string> = {
   gain: 'Aumentare peso',
 };
 
-/** Rateo massimo di variazione peso: 0.5 kg/settimana (linea guida WHO/ACSM).
- *  Oltre questo valore il rischio è perdere massa magra / accumulare grasso troppo in fretta. */
+/** Limite applicativo del rateo stimato: non è una soglia clinica personalizzata. */
 export const MAX_WEEKLY_KG_RATE = 0.5;
 
 /** Equivalente energetico approssimato del tessuto adiposo: ~7700 kcal/kg.

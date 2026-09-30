@@ -15,9 +15,9 @@ export const BACKUP_KEY = `${APP_NAME}_data_backup`;
 export const STORAGE_WARN_BYTES = 4.5 * 1024 * 1024;
 
 /** Timeout default per fetch API (ms).
- *  Allineato al networkTimeoutSeconds del Service Worker (10s) per evitare
- *  che il client abortisca prima del fallback su cache del SW. */
-export const API_TIMEOUT_MS = 10_000;
+ *  Include un margine rispetto al fallback cache del Service Worker (10s):
+ *  timeout simultanei potrebbero abortire prima che la cache venga restituita. */
+export const API_TIMEOUT_MS = 11_000;
 
 /** Deadline globale cumulativa per tutte le istanze OFF + retry (ms). */
 export const API_GLOBAL_DEADLINE_MS = 20_000;

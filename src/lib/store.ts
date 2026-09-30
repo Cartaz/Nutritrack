@@ -19,6 +19,7 @@ import type {
 import { DEFAULT_SETTINGS } from './nutrition';
 import { isValidDateKey, safeId, toDateKey } from './utils';
 import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
+import { MEAL_ORDER } from '../types';
 
 const state: AppState = {
   // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
@@ -212,7 +213,16 @@ export function toggleFavorite(id: string): void {
 
 export type DiaryEntryInput = Omit<DiaryEntry, 'id' | 'createdAt'>;
 export type AddDiaryEntriesResult =
-  { ok: true; entries: DiaryEntry[] } | { ok: false; reason: 'day_full'; date: string };
+  { ok: true; entries: DiaryEntry[] } | { ok: false; reason: 'day_full' | 'invalid_entry'; date: string };
+
+function isValidDiaryAmount(quantity: number, gramsOverride?: number): boolean {
+  return (
+    Number.isFinite(quantity) &&
+    quantity > 0 &&
+    quantity <= 1000 &&
+    (gramsOverride == null || (Number.isFinite(gramsOverride) && gramsOverride > 0 && gramsOverride <= 100_000))
+  );
+}
 
 /**
  * Inserisce una o più entry come singola transazione di store.
@@ -223,6 +233,13 @@ export function addDiaryEntries(inputs: DiaryEntryInput[]): AddDiaryEntriesResul
 
   const incomingPerDate = new Map<string, number>();
   for (const input of inputs) {
+    if (
+      !isValidDateKey(input.date) ||
+      !MEAL_ORDER.includes(input.meal) ||
+      !isValidDiaryAmount(input.quantity, input.gramsOverride)
+    ) {
+      return { ok: false, reason: 'invalid_entry', date: input.date };
+    }
     incomingPerDate.set(input.date, (incomingPerDate.get(input.date) ?? 0) + 1);
   }
   for (const [date, incoming] of incomingPerDate) {
@@ -270,8 +287,7 @@ function replaceDiaryEntry(id: string, replace: (entry: DiaryEntry) => DiaryEntr
 
 /** Aggiorna soltanto il modo in cui una entry rappresenta la quantità consumata. */
 export function setDiaryEntryAmount(id: string, quantity: number, gramsOverride?: number): boolean {
-  if (!Number.isFinite(quantity) || quantity <= 0) return false;
-  if (gramsOverride != null && (!Number.isFinite(gramsOverride) || gramsOverride <= 0)) return false;
+  if (!isValidDiaryAmount(quantity, gramsOverride)) return false;
   return replaceDiaryEntry(id, (entry) => ({ ...entry, quantity, gramsOverride }));
 }
 
@@ -519,6 +535,7 @@ export function resetAll(): void {
 }
 
 export function setStorageDisabled(disabled: boolean): void {
+  if (state._storageDisabled === disabled) return;
   state._storageDisabled = disabled;
   emitChange();
 }

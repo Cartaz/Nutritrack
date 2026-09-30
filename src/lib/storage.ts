@@ -141,7 +141,30 @@ function decodePersistedRaw(raw: string): DecodedPersistedPayload {
   if (!migrated.ok) {
     return { ok: false, reason: migrated.reason, version: migrated.version };
   }
+  if (!isDataDocument(migrated.document)) return { ok: false, reason: 'invalid_document' };
   return { ok: true, document: migrated.document };
+}
+
+/** Partial legacy backups are supported, but schema metadata alone is not user data. */
+function isDataDocument(document: Record<string, unknown>): boolean {
+  const containers = {
+    settings: 'object',
+    foods: 'array',
+    diary: 'object',
+    recipes: 'array',
+    favoriteFoodIds: 'array',
+    biometrics: 'object',
+  } as const;
+  let hasData = false;
+  for (const [key, kind] of Object.entries(containers)) {
+    if (!(key in document)) continue;
+    hasData = true;
+    const value = document[key];
+    if (kind === 'array') {
+      if (!Array.isArray(value)) return false;
+    } else if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  }
+  return hasData;
 }
 
 function parsedFromDocument(document: Record<string, unknown>): ParsedPersistedPayload {
@@ -225,7 +248,7 @@ function stripImages(payload: PersistedPayload): PersistedPayload {
 function writeBackupIfValid(previousRaw: string | null, newRaw: string): void {
   if (!previousRaw || previousRaw === newRaw) return;
   try {
-    JSON.parse(previousRaw);
+    if (!decodePersistedRaw(previousRaw).ok) return;
     localStorage.setItem(BACKUP_KEY, previousRaw);
   } catch {
     // Non propagare un primario corrotto al backup.
@@ -297,6 +320,7 @@ function writeLocalSnapshot(
         return { ok: true };
       } catch {
         _storageOK = false;
+        setStorageDisabled(true);
         console.error('[storage] storage esaurito anche dopo strip. Esporta backup. Salvataggio disabilitato.');
         return {
           ok: false,
@@ -459,9 +483,18 @@ let _autoSaveUnsub: (() => void) | null = null;
 export function enableAutoSave(): void {
   if (_autoSaveEnabled || !_storageOK) return;
   _autoSaveEnabled = true;
-  _autoSaveUnsub = subscribe(() => {
-    saveData();
-  });
+  _autoSaveUnsub = subscribe(persistPendingState);
+  window.addEventListener('pagehide', persistPendingState);
+  document.addEventListener('visibilitychange', persistWhenHidden);
+}
+
+function persistPendingState(): void {
+  const result = saveData();
+  setStorageDisabled(!result.ok);
+}
+
+function persistWhenHidden(): void {
+  if (document.visibilityState === 'hidden') persistPendingState();
 }
 
 export function disableAutoSave(): void {
@@ -470,12 +503,13 @@ export function disableAutoSave(): void {
     _autoSaveUnsub = null;
   }
   _autoSaveEnabled = false;
+  window.removeEventListener('pagehide', persistPendingState);
+  document.removeEventListener('visibilitychange', persistWhenHidden);
 }
 
 // ============ Multi-tab sync via storage event ============
 
 /**
- * Se due tab hanno prodotto la stessa revisione/**
  * Se due tab hanno prodotto la stessa revisione leggendo contemporaneamente lo stesso
  * predecessore, syncKind reset prevale su state e originTabId risolve il restante tie-break.
  * Se il localStorage fisico contiene il perdente, il vincitore viene riscritto con revision+1.
@@ -537,7 +571,6 @@ export function initMultiTabSync(): void {
 }
 
 /**
- * Reset interno per test/**
  * Reset interno per test (non usare in produzione). Rimuove anche il listener multi-tab
  * così ogni test parte da un lifecycle reale e isolato.
  */
@@ -597,6 +630,19 @@ export function resetApplicationData(): ResetApplicationDataResult {
 
 /** Export utente: solo schema + dati. Revision/origin/syncKind sono metadata interni. */
 export function exportDataJson(): string {
+  // An older app cannot hydrate a future schema. Preserve that original document
+  // in exports rather than presenting the empty fallback state as a usable backup.
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const decoded = decodePersistedRaw(raw);
+      if (!decoded.ok && (decoded.reason === 'future_version' || decoded.reason === 'missing_migration')) {
+        return raw;
+      }
+    }
+  } catch {
+    // Export must remain available for unsaved in-memory work when storage fails.
+  }
   return JSON.stringify({ version: SCHEMA_VERSION, ...buildStateSnapshot() }, null, 2);
 }
 
@@ -642,10 +688,8 @@ export function importDataJson(
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { ok: false, error: 'Formato file non riconosciuto' };
   }
-  const KNOWN_KEYS = ['version', 'settings', 'foods', 'diary', 'recipes', 'favoriteFoodIds', 'biometrics'];
-  const hasKnownKey = KNOWN_KEYS.some((k) => k in (parsed as Record<string, unknown>));
-  if (!hasKnownKey) {
-    return { ok: false, error: 'File non riconosciuto come backup NutriTrack (nessuna chiave valida)' };
+  if (!isDataDocument(parsed as Record<string, unknown>)) {
+    return { ok: false, error: 'File non riconosciuto come backup NutriTrack (dati assenti o formato non valido)' };
   }
 
   const migrated = migratePersistedDocument(parsed);
