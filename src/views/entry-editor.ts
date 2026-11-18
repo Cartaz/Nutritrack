@@ -143,7 +143,7 @@ function renderFormBody(entry: DiaryEntry): string {
   return `
     <div class="ee-selected">
       <div class="ee-food-head">
-        ${imgTag(f.image, f.name, 'thumb', f.source === 'custom' ? '✏️' : '🥫')}
+        ${imgTag(getState().foods.find((food) => food.id === entry.foodId)?.image, f.name, 'thumb', f.source === 'custom' ? '✏️' : '🥫')}
         <div class="ee-food-info">
           <p class="ee-food-name">${escapeHtml(f.name)}</p>
           ${f.brand ? `<p class="ee-food-brand">${escapeHtml(f.brand)}</p>` : ''}

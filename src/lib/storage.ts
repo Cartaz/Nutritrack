@@ -5,9 +5,16 @@
 // Lo store non deve conoscere chiavi, causalità o dettagli del browser storage.
 
 import type { AppState, FoodItem, Recipe, DiaryEntry, DayDiary } from '../types';
-import { BACKUP_KEY, STORAGE_KEY, STORAGE_WARN_BYTES, SCHEMA_VERSION } from './constants';
+import {
+  BACKUP_KEY,
+  LEGACY_STORAGE_KEYS,
+  SCHEMA_VERSION,
+  STORAGE_KEY,
+  STORAGE_KEY_PREFIX,
+  STORAGE_WARN_CHARS,
+} from './constants';
 import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll } from './store';
-import { reconcileAll, estimateStorageBytes, isStorageWarn } from './normalize';
+import { reconcileAll } from './normalize';
 import { migratePersistedDocument, type MigrationFailureReason } from './migrations';
 import { clearRuntimeDataCaches } from './localData';
 
@@ -39,7 +46,7 @@ interface ParsedPersistedPayload {
 }
 
 type DecodedPersistedPayload =
-  | { ok: true; document: Record<string, unknown> }
+  | { ok: true; document: Record<string, unknown>; fromVersion: number }
   | { ok: false; reason: 'invalid_json' | MigrationFailureReason; version?: number };
 
 const LEGACY_STAMP: VersionStamp = { revision: 0, originTabId: '', syncKind: 'state' };
@@ -53,8 +60,6 @@ const _tabId = createTabId();
 let _storageOK = true;
 let _currentStamp: VersionStamp = { ...LEGACY_STAMP };
 let _lastSyncedStateSignature: string | null = null;
-let _quotaWarnedThisSession = false;
-let _stripWarnedThisSession = false;
 
 // Rilevazione modalità privata / storage non disponibile (IIFE all'avvio).
 (function detectStorage(): void {
@@ -142,7 +147,7 @@ function decodePersistedRaw(raw: string): DecodedPersistedPayload {
     return { ok: false, reason: migrated.reason, version: migrated.version };
   }
   if (!isDataDocument(migrated.document)) return { ok: false, reason: 'invalid_document' };
-  return { ok: true, document: migrated.document };
+  return { ok: true, document: migrated.document, fromVersion: migrated.fromVersion };
 }
 
 /** Partial legacy backups are supported, but schema metadata alone is not user data. */
@@ -256,17 +261,12 @@ function writeBackupIfValid(previousRaw: string | null, newRaw: string): void {
 }
 
 function warnIfNearQuota(): void {
-  if (_quotaWarnedThisSession) return;
   const sizeInfo = checkStorageSize();
   if (!sizeInfo.warn) return;
-  _quotaWarnedThisSession = true;
-  void import('../components/toast').then(({ showToast }) => {
-    showToast(
-      `Attenzione: dati vicini al limite di quota (${Math.round((sizeInfo.bytes / 1024 / 1024) * 10) / 10}MB). Esporta un backup.`,
-      'warning',
-      6000,
-    );
-  });
+  notifyOnce(
+    'quota',
+    `Attenzione: dati vicini al limite dello spazio del browser (${Math.round(sizeInfo.chars / 100_000) / 10} milioni di caratteri). Esporta un backup.`,
+  );
 }
 
 /** Tipo risultato di saveData per permettere a importDataJson di propagare errori. */
@@ -291,44 +291,13 @@ function writeLocalSnapshot(
   const serialized = JSON.stringify(payload);
 
   try {
-    localStorage.setItem(STORAGE_KEY, serialized);
-    writeBackupIfValid(previousRaw, serialized);
+    writePrimary(serialized, previousRaw);
     markSynced(state, stamp);
     warnIfNearQuota();
     return { ok: true };
   } catch (e: unknown) {
+    if (isQuotaError(e)) return writeUnderQuotaPressure(payload, stamp);
     const err = e as { name?: string; code?: number };
-    if (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014) {
-      const stripped = stripImages(payload);
-      const strippedSerialized = JSON.stringify(stripped);
-      try {
-        localStorage.setItem(STORAGE_KEY, strippedSerialized);
-        writeBackupIfValid(previousRaw, strippedSerialized);
-        if (!_stripWarnedThisSession) {
-          _stripWarnedThisSession = true;
-          void import('../components/toast').then(({ showToast }) => {
-            showToast('Spazio esaurito — immagini rimosse per fare spazio. Esporta un backup.', 'warning', 6000);
-          });
-        }
-        // Mantieni lo state in-memory identico allo snapshot effettivamente persistito.
-        setState({
-          foods: stripped.foods,
-          diary: stripped.diary,
-          recipes: stripped.recipes,
-        });
-        markSynced(buildStateSnapshot(), stamp);
-        return { ok: true };
-      } catch {
-        _storageOK = false;
-        setStorageDisabled(true);
-        console.error('[storage] storage esaurito anche dopo strip. Esporta backup. Salvataggio disabilitato.');
-        return {
-          ok: false,
-          error: 'Quota superata anche dopo strip immagini. Esporta un backup e riprova.',
-          fatal: true,
-        };
-      }
-    }
     if (err.name === 'SecurityError' || err.code === 18) {
       _storageOK = false;
       setStorageDisabled(true);
@@ -337,6 +306,91 @@ function writeLocalSnapshot(
     }
     console.error('[storage] errore salvataggio', e);
     return { ok: false, error: 'Errore salvataggio generico', fatal: false };
+  }
+}
+
+function isQuotaError(e: unknown): boolean {
+  const err = e as { name?: string; code?: number };
+  return err?.name === 'QuotaExceededError' || err?.code === 22 || err?.code === 1014;
+}
+
+/** Scrive il primario, poi il backup del documento precedente, poi rimuove le chiavi legacy. */
+function writePrimary(serialized: string, previousRaw: string | null): void {
+  localStorage.setItem(STORAGE_KEY, serialized);
+  writeBackupIfValid(previousRaw, serialized);
+  removeLegacyKeys();
+}
+
+/**
+ * Spazio esaurito. In ordine, si sacrifica ciò che vale meno:
+ * 1. il backup (è solo lo snapshot precedente: l'export resta la copia vera);
+ * 2. le immagini (si possono riscaricare da Open Food Facts).
+ * Solo se non basta nemmeno così il salvataggio viene disattivato.
+ */
+function writeUnderQuotaPressure(payload: PersistedPayload, stamp: VersionStamp): SaveDataResult {
+  try {
+    localStorage.removeItem(BACKUP_KEY);
+    removeLegacyKeys();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    markSynced(stateFromPayload(payload), stamp);
+    notifyOnce('backup', 'Spazio quasi esaurito: il backup automatico è stato sospeso. Esporta un backup.');
+    return { ok: true };
+  } catch (e) {
+    if (!isQuotaError(e)) {
+      console.error('[storage] errore salvataggio', e);
+      return { ok: false, error: 'Errore salvataggio generico', fatal: false };
+    }
+  }
+
+  const stripped = stripImages(payload);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
+    notifyOnce('strip', 'Spazio esaurito — immagini rimosse per fare spazio. Esporta un backup.');
+    // Mantieni lo state in-memory identico allo snapshot effettivamente persistito.
+    setState({
+      foods: stripped.foods,
+      diary: stripped.diary,
+      recipes: stripped.recipes,
+    });
+    markSynced(buildStateSnapshot(), stamp);
+    return { ok: true };
+  } catch {
+    _storageOK = false;
+    setStorageDisabled(true);
+    console.error('[storage] storage esaurito anche dopo strip. Esporta backup. Salvataggio disabilitato.');
+    return {
+      ok: false,
+      error: 'Quota superata anche dopo strip immagini. Esporta un backup e riprova.',
+      fatal: true,
+    };
+  }
+}
+
+function stateFromPayload(payload: PersistedPayload): PersistedState {
+  return {
+    settings: payload.settings,
+    foods: payload.foods,
+    diary: payload.diary,
+    recipes: payload.recipes,
+    favoriteFoodIds: payload.favoriteFoodIds,
+    biometrics: payload.biometrics,
+  };
+}
+
+const _notified = new Set<string>();
+function notifyOnce(kind: string, message: string): void {
+  if (_notified.has(kind)) return;
+  _notified.add(kind);
+  void import('../components/toast').then(({ showToast }) => showToast(message, 'warning', 6000));
+}
+
+function removeLegacyKeys(): void {
+  for (const key of LEGACY_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* best effort */
+    }
   }
 }
 
@@ -380,6 +434,9 @@ export function saveData(): SaveDataResult {
 
   const state = buildStateSnapshot();
   const signature = stateSignature(state);
+  // Niente da scrivere: non serve nemmeno rileggere e rivalidare il documento persistito.
+  // (Un reset remoto arrivato nel frattempo viene applicato dall'evento storage.)
+  if (_lastSyncedStateSignature !== null && _lastSyncedStateSignature === signature) return { ok: true };
 
   let previousRaw: string | null = null;
   try {
@@ -414,8 +471,6 @@ export function saveData(): SaveDataResult {
     return { ok: true };
   }
 
-  if (_lastSyncedStateSignature === signature) return { ok: true };
-
   const baseRevision = Math.max(_currentStamp.revision, previous?.stamp.revision ?? 0);
   return writeLocalSnapshot(state, previousRaw, baseRevision);
 }
@@ -428,12 +483,26 @@ function migrationLoadError(decoded: Exclude<DecodedPersistedPayload, { ok: true
   }
 }
 
-/** Carica da localStorage con fallback backup. Migrazione e normalizzazione sono passaggi separati. */
+/**
+ * Carica da localStorage: chiave primaria, poi chiavi legacy, poi backup.
+ * Migrazione e normalizzazione sono passaggi separati. Un documento arrivato da una chiave
+ * legacy o da uno schema precedente viene riscritto subito nel formato corrente.
+ */
 export function loadData(): boolean {
   if (!_storageOK) return false;
   let raw: string | null = null;
+  let fromLegacyKey = false;
   try {
     raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      for (const key of LEGACY_STORAGE_KEYS) {
+        raw = localStorage.getItem(key);
+        if (raw) {
+          fromLegacyKey = true;
+          break;
+        }
+      }
+    }
   } catch {
     return false;
   }
@@ -445,6 +514,7 @@ export function loadData(): boolean {
     return false;
   }
 
+  let fromBackup = false;
   if (!decoded.ok) {
     try {
       const backup = localStorage.getItem(BACKUP_KEY);
@@ -454,6 +524,7 @@ export function loadData(): boolean {
         migrationLoadError(decoded);
         return false;
       }
+      fromBackup = true;
       console.warn('[storage] primario non valido, usato backup');
     } catch {
       return false;
@@ -462,18 +533,34 @@ export function loadData(): boolean {
 
   const state = stateFromReconciled(reconcileAll(decoded.document));
   applyStateSnapshot(state);
-  markSynced(state, readStamp(decoded.document));
+  const stamp = readStamp(decoded.document);
+  markSynced(state, stamp);
+
+  if (!fromBackup && (fromLegacyKey || decoded.fromVersion < SCHEMA_VERSION)) {
+    // Il documento originale (valido) diventa il backup: la migrazione resta reversibile.
+    const result = writeLocalSnapshot(state, raw, stamp.revision);
+    if (!result.ok) console.warn('[storage] impossibile riscrivere i dati migrati:', result.error);
+  }
   return true;
 }
 
-/** Verifica dimensione dati persistiti e ritorna true se in warning (>4.5MB). */
-export function checkStorageSize(): { bytes: number; warn: boolean } {
-  const bytes = estimateStorageBytes(buildPayload(buildStateSnapshot(), _currentStamp));
-  return { bytes, warn: isStorageWarn(bytes) };
+/** Uso reale dello storage dell'app (tutte le chiavi `nutritrack_*`), in caratteri. */
+export function checkStorageSize(): { chars: number; warn: boolean } {
+  let chars = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(STORAGE_KEY_PREFIX)) continue;
+      chars += key.length + (localStorage.getItem(key)?.length ?? 0);
+    }
+  } catch {
+    return { chars: 0, warn: false };
+  }
+  return { chars, warn: chars > STORAGE_WARN_CHARS };
 }
 
 export function shouldWarnQuota(): boolean {
-  return checkStorageSize().bytes > STORAGE_WARN_BYTES * 0.9;
+  return checkStorageSize().warn;
 }
 
 // ============ Auto-save: subscribe a ogni emit ============
@@ -488,8 +575,20 @@ export function enableAutoSave(): void {
   document.addEventListener('visibilitychange', persistWhenHidden);
 }
 
+// Lo store sostituisce le slice persistite a ogni mutazione (mai modifiche in place):
+// se nessun riferimento è cambiato, l'emit riguardava solo la UI e non c'è nulla da salvare.
+let _lastPersistedSlices: readonly unknown[] | null = null;
+
+function persistedSlices(): readonly unknown[] {
+  const s = getState();
+  return [s.settings, s.foods, s.diary, s.recipes, s.favoriteFoodIds, s.biometrics];
+}
+
 function persistPendingState(): void {
+  const slices = persistedSlices();
+  if (_lastPersistedSlices && slices.every((slice, i) => slice === _lastPersistedSlices![i])) return;
   const result = saveData();
+  if (result.ok) _lastPersistedSlices = persistedSlices();
   setStorageDisabled(!result.ok);
 }
 
@@ -503,6 +602,7 @@ function disableAutoSave(): void {
     _autoSaveUnsub = null;
   }
   _autoSaveEnabled = false;
+  _lastPersistedSlices = null;
   window.removeEventListener('pagehide', persistPendingState);
   document.removeEventListener('visibilitychange', persistWhenHidden);
 }
@@ -581,8 +681,7 @@ export function __resetStorageInternalForTesting(): void {
     _multiTabInit = false;
   }
   _storageOK = true;
-  _quotaWarnedThisSession = false;
-  _stripWarnedThisSession = false;
+  _notified.clear();
   _currentStamp = { ...LEGACY_STAMP };
   _lastSyncedStateSignature = null;
 }
@@ -603,6 +702,7 @@ export function resetApplicationData(): ResetApplicationDataResult {
   try {
     previousRaw = localStorage.getItem(STORAGE_KEY);
     localStorage.removeItem(BACKUP_KEY);
+    removeLegacyKeys();
   } catch (e) {
     console.error('[storage] impossibile preparare il reset persistente', e);
     return { ok: false, error: 'Impossibile accedere allo storage per completare il reset.' };
@@ -622,8 +722,7 @@ export function resetApplicationData(): ResetApplicationDataResult {
 
   void clearRuntimeDataCaches();
   _storageOK = true;
-  _quotaWarnedThisSession = false;
-  _stripWarnedThisSession = false;
+  _notified.clear();
   if (getState()._storageDisabled) setStorageDisabled(false);
   return { ok: true };
 }

@@ -17,6 +17,10 @@ Pulizia guidata da [ANALISI.md](ANALISI.md).
 - Privacy: immagini accettate solo da Open Food Facts (https), CSP più stretta, niente `ws://localhost` nella build di produzione.
 - Accessibilità: lo zoom manuale non è più bloccato (senza zoom automatico sui campi su iOS).
 - Coverage misurata su tutto `src/`, con soglie separate per dominio e UI.
+- Storage: chiave fissa `nutritrack_data` (la versione dello schema sta nel documento): un cambio di schema ora migra i dati invece di ripartire da zero. I dati sotto `nutritrack_data_v1` vengono migrati e il documento originale resta come backup.
+- Schema v2: le voci del diario non duplicano più l'URL dell'immagine dell'alimento (circa −21% di spazio).
+- Autosave: gli aggiornamenti della sola interfaccia (es. digitare nella ricerca) non rileggono né riscrivono più lo storage.
+- Quota: misurata sull'uso reale (primario + backup); sotto pressione si sacrifica prima il backup, poi le immagini.
 
 ## v1.2.0
 

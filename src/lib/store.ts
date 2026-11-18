@@ -245,6 +245,7 @@ export function addDiaryEntries(inputs: DiaryEntryInput[]): AddDiaryEntriesResul
   const now = Date.now();
   const entries = inputs.map((input) => ({
     ...input,
+    foodSnapshot: diarySnapshot(input.foodSnapshot),
     id: safeId('entry_'),
     createdAt: now,
   }));
@@ -255,6 +256,17 @@ export function addDiaryEntries(inputs: DiaryEntryInput[]): AddDiaryEntriesResul
   state.diary = next;
   emitChange();
   return { ok: true, entries };
+}
+
+/**
+ * Lo snapshot nel diario conserva ciò che serve a ricostruire la storia (nome, nutrizione,
+ * porzioni) ma non l'URL dell'immagine, che è dell'alimento in libreria (schema v2).
+ */
+function diarySnapshot(food: FoodItem): FoodItem {
+  if (!('image' in food)) return food;
+
+  const { image: _image, ...rest } = food;
+  return rest;
 }
 
 export function addDiaryEntry(input: DiaryEntryInput): DiaryEntry | null {
@@ -286,7 +298,7 @@ export function setDiaryEntryAmount(id: string, quantity: number, gramsOverride?
 
 /** Aggiorna lo snapshot storico del food senza esporre un patch generico della DiaryEntry. */
 export function setDiaryEntryFoodSnapshot(id: string, foodSnapshot: FoodItem): boolean {
-  return replaceDiaryEntry(id, (entry) => ({ ...entry, foodSnapshot }));
+  return replaceDiaryEntry(id, (entry) => ({ ...entry, foodSnapshot: diarySnapshot(foodSnapshot) }));
 }
 
 export function deleteDiaryEntry(id: string): void {

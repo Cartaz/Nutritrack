@@ -2,17 +2,29 @@
 
 const APP_NAME = 'nutritrack';
 
-/** Versione schema dati (bump su breaking changes per migrazione) */
-export const SCHEMA_VERSION = 1;
+/** Versione dello schema dati persistito. Un bump richiede una migrazione in migrations.ts. */
+export const SCHEMA_VERSION = 2;
 
-/** Chiave primaria localStorage */
-export const STORAGE_KEY = `${APP_NAME}_data_v${SCHEMA_VERSION}`;
+/**
+ * Chiave primaria localStorage. È fissa: la versione dello schema sta dentro il documento
+ * (`version`), così un bump di SCHEMA_VERSION migra i dati invece di leggere una chiave vuota.
+ */
+export const STORAGE_KEY = `${APP_NAME}_data`;
+
+/** Chiavi primarie usate da versioni precedenti, lette una volta e poi rimosse. */
+export const LEGACY_STORAGE_KEYS = [`${APP_NAME}_data_v1`] as const;
 
 /** Chiave backup separato (snapshot precedente per recovery) */
 export const BACKUP_KEY = `${APP_NAME}_data_backup`;
 
-/** Soglia di utilizzo localStorage oltre la quale avvisare l'utente (4.5MB) */
-export const STORAGE_WARN_BYTES = 4.5 * 1024 * 1024;
+/** Prefisso comune a tutte le chiavi dell'app: serve a misurare l'uso reale dello storage. */
+export const STORAGE_KEY_PREFIX = `${APP_NAME}_`;
+
+/**
+ * Soglia di avviso sull'uso reale di localStorage (primario + backup), in caratteri.
+ * I browser concedono circa 5 milioni di caratteri per origine: avvisiamo all'80%.
+ */
+export const STORAGE_WARN_CHARS = 4_000_000;
 
 /** Timeout default per fetch API (ms).
  *  Include un margine rispetto al fallback cache del Service Worker (10s):

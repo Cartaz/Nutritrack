@@ -125,7 +125,41 @@ describe('saveData', () => {
     expect(stored.version).toBe(SCHEMA_VERSION);
   });
 
-  it('su QuotaExceededError, strip immagini e riprova', () => {
+  it('su QuotaExceededError sacrifica prima il backup e conserva le immagini', () => {
+    localStorage.setItem(BACKUP_KEY, JSON.stringify({ version: SCHEMA_VERSION, foods: [] }));
+    setState({
+      foods: [
+        {
+          id: 'f1',
+          name: 'Mela',
+          source: 'custom',
+          servingSize: 100,
+          nutrition: { calories: 52, protein: 0.3, carbs: 14, fat: 0.2 },
+          image: 'https://images.openfoodfacts.org/big.jpg',
+          createdAt: 0,
+        },
+      ],
+    });
+    let callCount = 0;
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      callCount++;
+      if (callCount === 1 && key === STORAGE_KEY) {
+        const err = new Error('quota exceeded');
+        err.name = 'QuotaExceededError';
+        throw err;
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    expect(saveData().ok).toBe(true);
+    expect(localStorage.getItem(BACKUP_KEY)).toBeNull();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).foods[0].image).toBe(
+      'https://images.openfoodfacts.org/big.jpg',
+    );
+  });
+
+  it('su QuotaExceededError, se togliere il backup non basta, strip immagini e riprova', () => {
     setState({
       foods: [
         {
@@ -140,12 +174,13 @@ describe('saveData', () => {
       ],
     });
 
-    // Mock: prima chiamata throw QuotaExceededError, seconda ha successo
+    // Mock: le prime due scritture del primario falliscono per quota
     let callCount = 0;
     const originalSetItem = Storage.prototype.setItem;
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
       callCount++;
-      if (callCount === 1 && key === STORAGE_KEY) {
+      // 1ª scrittura: piena. 2ª: ritentata senza backup, ancora piena. 3ª (senza immagini): ok.
+      if (callCount <= 2 && key === STORAGE_KEY) {
         const err = new Error('quota exceeded');
         err.name = 'QuotaExceededError';
         throw err;
@@ -424,23 +459,19 @@ describe('importDataJson', () => {
 });
 
 describe('checkStorageSize', () => {
-  it('ritorna byte > 0 per stato non vuoto', () => {
-    setState({
-      foods: [
-        {
-          id: 'f1',
-          name: 'Test',
-          source: 'custom',
-          servingSize: 100,
-          nutrition: { calories: 100, protein: 1, carbs: 1, fat: 1 },
-          createdAt: 0,
-        },
-      ],
-    });
+  it("misura l'uso reale di tutte le chiavi dell'app (primario + backup)", () => {
+    localStorage.setItem(STORAGE_KEY, 'x'.repeat(1000));
+    localStorage.setItem(BACKUP_KEY, 'y'.repeat(500));
+    localStorage.setItem('altra-app', 'z'.repeat(10_000));
     const r = checkStorageSize();
-    expect(r.bytes).toBeGreaterThan(0);
-    // Stato piccolo → no warning
+    expect(r.chars).toBe(1000 + 500 + STORAGE_KEY.length + BACKUP_KEY.length);
     expect(r.warn).toBe(false);
+  });
+
+  it('avvisa oltre la soglia', () => {
+    localStorage.setItem(STORAGE_KEY, 'x'.repeat(2_100_000));
+    localStorage.setItem(BACKUP_KEY, 'y'.repeat(2_000_000));
+    expect(checkStorageSize().warn).toBe(true);
   });
 });
 

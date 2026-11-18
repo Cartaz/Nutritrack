@@ -26,8 +26,30 @@ function migrate0To1(document: JsonObject): JsonObject {
   return { ...document, version: 1 };
 }
 
+/**
+ * V2: le voci del diario non duplicano più l'URL dell'immagine dell'alimento (era circa un
+ * quarto dello spazio di ogni voce). La UI mostra l'immagine dell'alimento in libreria.
+ */
+function migrate1To2(document: JsonObject): JsonObject {
+  const diary = document.diary;
+  if (!isObject(diary)) return document;
+  const slimDiary: JsonObject = {};
+  for (const [date, entries] of Object.entries(diary)) {
+    slimDiary[date] = Array.isArray(entries)
+      ? entries.map((entry) => {
+          if (!isObject(entry) || !isObject(entry.foodSnapshot) || !('image' in entry.foodSnapshot)) return entry;
+
+          const { image: _image, ...snapshot } = entry.foodSnapshot;
+          return { ...entry, foodSnapshot: snapshot };
+        })
+      : entries;
+  }
+  return { ...document, diary: slimDiary };
+}
+
 const MIGRATIONS: Readonly<Record<number, MigrationStep>> = {
   0: migrate0To1,
+  1: migrate1To2,
 };
 
 /**

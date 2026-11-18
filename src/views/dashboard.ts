@@ -602,6 +602,12 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
   `;
 }
 
+/** L'immagine è dell'alimento in libreria: lo snapshot del diario non la conserva. */
+function libraryImage(e: DiaryEntry): string | undefined {
+  if (!e.foodId) return undefined;
+  return getState().foods.find((f) => f.id === e.foodId)?.image;
+}
+
 function entryRow(e: DiaryEntry): string {
   const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
   const n = scaleNutrition(e.foodSnapshot.nutrition, grams);
@@ -616,7 +622,7 @@ function entryRow(e: DiaryEntry): string {
     : '';
   return `
     <div class="entry-row" data-action="editEntry" data-entry-id="${escapeAttr(e.id)}" role="button" tabindex="0" aria-label="Modifica quantità di ${escapeAttr(e.foodSnapshot.name)}">
-      ${imgTag(e.foodSnapshot.image, e.foodSnapshot.name, 'thumb', e.foodSnapshot.source === 'custom' ? '✏️' : '🥫')}
+      ${imgTag(libraryImage(e), e.foodSnapshot.name, 'thumb', e.foodSnapshot.source === 'custom' ? '✏️' : '🥫')}
       <div class="entry-info">
         <p class="entry-name">${escapeHtml(e.foodSnapshot.name)}</p>
         <p class="entry-meta">

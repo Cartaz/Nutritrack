@@ -71,9 +71,10 @@ docs/                  # semantica della sync tra tab, policy degli obiettivi, r
 
 ## Persistenza dei dati
 
-- Tutti i dati stanno nel `localStorage` del browser, sotto la chiave `nutritrack_data_v1`, con una copia di backup dello snapshot precedente in `nutritrack_data_backup`.
-- Lo schema è versionato (`version`): i documenti vecchi vengono migrati da `migrations.ts` e poi validati da `normalize.ts`.
-- Se lo spazio finisce, l'app toglie le immagini e riprova; se non basta, disattiva il salvataggio e ti chiede di esportare un backup.
+- Tutti i dati stanno nel `localStorage` del browser, sotto la chiave `nutritrack_data`, con una copia di backup dello snapshot precedente in `nutritrack_data_backup`. I dati di versioni vecchie (`nutritrack_data_v1`) vengono migrati al primo avvio.
+- Lo schema è versionato dentro il documento (`version`, oggi 2): i documenti vecchi vengono migrati da `migrations.ts` e poi validati da `normalize.ts`.
+- Lo spazio disponibile è di circa 5 milioni di caratteri per origine; un anno di uso intenso (12 voci al giorno) occupa circa 1,6 milioni. L'avviso scatta all'80% dell'uso reale (primario + backup).
+- Se lo spazio finisce, l'app sacrifica prima il backup automatico, poi le immagini; se non basta, disattiva il salvataggio e ti chiede di esportare un backup.
 - In modalità privata o con lo storage disabilitato l'app funziona solo in memoria e lo segnala.
 - Più tab aperte restano sincronizzate tramite revisioni: vedi [docs/multitab-sync.md](docs/multitab-sync.md).
 - **Esporta regolarmente un backup** da Impostazioni: è l'unica copia fuori dal browser.

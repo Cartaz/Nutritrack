@@ -30,7 +30,6 @@ import {
   MEAL_ORDER,
 } from '../types';
 import { safeId, safeImageUrl, safeNum, isValidDateKey } from './utils';
-import { STORAGE_WARN_BYTES } from './constants';
 import { DEFAULT_SETTINGS, normalizeMacroSplit as normalizeMacroSplitRescale } from './nutrition';
 
 const ALLOWED_MEALS: readonly MealType[] = MEAL_ORDER;
@@ -204,8 +203,11 @@ export function normalizeDiaryEntry(v: unknown, knownFoods: FoodItem[]): DiaryEn
   if (!isValidDateKey(date)) return null;
   const meal = normalizeMeal(v.meal);
   if (!meal) return null;
-  const foodSnapshot = normalizeFoodItem(v.foodSnapshot);
-  if (!foodSnapshot) return null;
+  const normalizedSnapshot = normalizeFoodItem(v.foodSnapshot);
+  if (!normalizedSnapshot) return null;
+  // Schema v2: lo snapshot nel diario non porta l'immagine (vedi store.diarySnapshot).
+
+  const { image: _image, ...foodSnapshot } = normalizedSnapshot;
   const quantity = safeNum(v.quantity, 1, 0, 1000);
   const gramsOverride = v.gramsOverride == null ? undefined : safeNum(v.gramsOverride, 0, 0, 100_000);
   // preferisci match per barcode (più univoco) prima di name+brand
@@ -251,8 +253,11 @@ export function normalizeDayDiary(v: unknown, knownFoods: FoodItem[]): DayDiary 
 
 export function normalizeRecipeIngredient(v: unknown): RecipeIngredient | null {
   if (!isObject(v)) return null;
-  const foodSnapshot = normalizeFoodItem(v.foodSnapshot);
-  if (!foodSnapshot) return null;
+  const normalizedSnapshot = normalizeFoodItem(v.foodSnapshot);
+  if (!normalizedSnapshot) return null;
+  // Schema v2: lo snapshot nel diario non porta l'immagine (vedi store.diarySnapshot).
+
+  const { image: _image, ...foodSnapshot } = normalizedSnapshot;
   const grams = safeNum(v.grams, 0, 0, 100_000);
   if (grams <= 0) return null;
   return {
@@ -470,25 +475,4 @@ export function buildFoodFromOff(p: OffProduct): FoodItem | null {
     image: safeImageUrl(p.image_front_small_url || p.image_url),
     createdAt: Date.now(),
   };
-}
-
-// ============ Quota & size helpers ============
-
-/** Stima byte reali del payload per confronto con quota localStorage.
- *  ritorna byte UTF-8 (non code unit UTF-16).
- *  localStorage conta byte UTF-16 nella maggior parte dei browser, ma UTF-8 è un'approssimazione
- *  conservativa (sotto-stima per ASCII puro, sovrastima per CJK). Usiamo UTF-16 reale (length*2)
- *  per allinearci al modello di quota Safari/Chrome. */
-export function estimateStorageBytes(payload: unknown): number {
-  try {
-    const str = JSON.stringify(payload);
-    // UTF-16: ogni code unit è 2 byte. Caratteri astrali (emoji complesse) usano 2 code unit = 4 byte, già contati.
-    return str.length * 2;
-  } catch {
-    return 0;
-  }
-}
-
-export function isStorageWarn(bytes: number): boolean {
-  return bytes > STORAGE_WARN_BYTES;
 }

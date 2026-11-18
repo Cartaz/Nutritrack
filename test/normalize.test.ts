@@ -25,8 +25,6 @@ import {
   normalizeDayDiary,
   reconcileAll,
   buildFoodFromOff,
-  estimateStorageBytes,
-  isStorageWarn,
 } from '../src/lib/normalize';
 
 describe('normalizeString', () => {
@@ -766,26 +764,6 @@ describe('buildFoodFromOff', () => {
       nutriments: { 'energy-kcal_100g': 100, 'proteins_100g': 5, 'carbohydrates_100g': 10, 'fat_100g': 1 },
     });
     expect(r!.image).toBeUndefined();
-  });
-});
-
-describe('estimateStorageBytes / isStorageWarn', () => {
-  it('ritorna byte UTF-16 (length * 2)', () => {
-    const bytes = estimateStorageBytes({ a: 'ciao' });
-    // '{"a":"ciao"}'.length = 12 → 12 * 2 = 24
-    expect(bytes).toBe(24);
-  });
-
-  it('gestisce payload non serializzabile (circolari)', () => {
-    const circular: Record<string, unknown> = {};
-    circular.self = circular;
-    expect(estimateStorageBytes(circular)).toBe(0);
-  });
-
-  it('isStorageWarn ritorna true per byte > STORAGE_WARN_BYTES', () => {
-    // STORAGE_WARN_BYTES = 4.5MB = 4_718_592
-    expect(isStorageWarn(5_000_000)).toBe(true);
-    expect(isStorageWarn(1_000_000)).toBe(false);
   });
 });
 
