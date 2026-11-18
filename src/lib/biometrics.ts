@@ -1,6 +1,6 @@
 // Azioni dominio: biometria giornaliera (acqua / sonno / peso).
 //
-// Tutto su localStorage nello stesso payload AppState.biometrics (vedi storage.ts).
+// Persistita nello stesso documento del resto dell'app (AppState.biometrics, vedi storage.ts).
 // Nessun backend, nessuna dipendenza esterna. Calcoli puri testabili.
 
 import type { BiometricEntry, Biometrics } from '../types';

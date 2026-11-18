@@ -1,49 +1,43 @@
-# Multi-tab synchronization semantics
+# Sincronizzazione tra tab
 
-NutriTrack synchronizes the persisted application snapshot between tabs through the browser `storage` event.
+NutriTrack tiene allineate le tab aperte sulla stessa app. I dati stanno in IndexedDB; quando una tab salva, avvisa le altre con un messaggio su `BroadcastChannel('nutritrack-sync')`. Il messaggio contiene solo la revisione: chi lo riceve rilegge il documento da IndexedDB.
 
-## Ownership
+## Chi possiede cosa
 
-`src/lib/storage.ts` owns the synchronization metadata and conflict policy. Domain/store callers do not manipulate revisions directly.
+`src/lib/storage.ts` possiede revisioni e regole di conflitto. Lo store e la UI non manipolano mai le revisioni.
 
-Every persisted storage snapshot contains two internal fields:
+Ogni documento persistito porta, oltre ai dati, tre metadati (salvati anche nel record `meta`, piccolo da leggere):
 
-- `revision`: monotonically increasing integer for committed snapshots;
-- `originTabId`: per-tab identifier used only to break ties when two tabs commit the same revision concurrently.
+- `revision`: intero crescente a ogni commit;
+- `originTabId`: identificativo della tab, usato solo per spareggiare revisioni uguali;
+- `syncKind`: `state` per un salvataggio normale, `reset` per la cancellazione di tutti i dati.
 
-These fields are persistence metadata. User JSON exports intentionally omit them.
+Sono metadati interni: l'export JSON per l'utente non li contiene.
 
-## Ordering
+## Ordine
 
-A local commit receives a revision greater than both:
+Un commit locale avviene in una transazione IndexedDB che legge i metadati correnti e scrive il nuovo documento. La nuova revisione è maggiore sia dell'ultima vista da questa tab sia di quella persistita. IndexedDB serializza le transazioni sullo stesso store, quindi due tab non possono produrre la stessa revisione leggendo lo stesso predecessore.
 
-1. the latest revision already observed by the current tab;
-2. the revision currently present in `localStorage`.
+Uno snapshot remoto si applica solo se il suo `(revision, syncKind, originTabId)` è più recente di quello corrente.
 
-Remote snapshots are applied only when their `(revision, originTabId)` stamp is newer than the current one. Revision is compared first; `originTabId` is a deterministic tie-break only for equal revisions.
+## Modifiche locali non ancora salvate
 
-## Local dirty state
+Il salvataggio automatico parte al frame successivo a una modifica. Se nel frattempo arriva l'avviso di un'altra tab, la modifica locale viene salvata prima: riceve una revisione più alta, quindi lo snapshot remoto più vecchio non può più sovrascriverla.
 
-A local state change may exist before the RAF-batched autosave runs. When a remote snapshot arrives, or when a deferred remote snapshot is flushed after a modal closes, NutriTrack first commits any dirty local persisted state. That local commit receives a newer revision, so the older remote snapshot can no longer overwrite it.
+Invariante: **uno snapshot remoto più vecchio non sostituisce mai una modifica locale più recente.**
 
-This is the invariant M1.1 protects: **a stale remote snapshot must never replace a newer local mutation**.
+## Dialog aperti
 
-## Open modal behavior
+Le bozze degli editor non fanno parte del documento persistito: uno snapshot remoto si applica anche con un dialog aperto. Gli editor confrontano i dati correnti con quelli di partenza al salvataggio e, se nel frattempo sono cambiati in un'altra tab, non sovrascrivono e lo dicono.
 
-While a top-level modal is open, newer remote snapshots are deferred. Only the newest pending snapshot is retained. When the last modal closes:
+## Reset
 
-1. local dirty persisted state is committed first;
-2. the pending remote snapshot is re-evaluated against the new local revision;
-3. it is applied only if it is still newer.
+Il reset scrive un documento vuoto con `syncKind: reset` e cancella il backup. È una barriera: una tab che lo riceve lo applica subito, anche sopra modifiche locali; una tab che ha perso l'avviso lo trova comunque nella transazione del suo prossimo salvataggio e applica il reset invece di sovrascriverlo.
 
-Editor draft ownership will be refined later in M3; M1.1 deliberately fixes data loss without expanding the UI-state refactor scope.
+## Tab in background
 
-## Concurrent writes
+I browser sospendono `requestAnimationFrame` nelle tab nascoste: una tab in background riceve e applica lo stato remoto, ma aggiorna lo schermo quando torna visibile.
 
-Synchronization is snapshot-based, not field-merge-based. If two tabs independently commit from the same predecessor, both may initially produce the same revision. `originTabId` provides a stable total order, and the winning snapshot can be re-persisted at a higher revision when necessary.
+## Fuori dallo scopo
 
-NutriTrack does not attempt CRDT or operation-log merging. That complexity is not justified for the current local-first single-user application.
-
-## Legacy payloads
-
-Payloads created before revision metadata existed remain readable and are treated as revision `0`. Once a tab has established versioned history, versioned snapshots take precedence over legacy revision-0 snapshots. Concurrent editing between an upgraded tab and a still-running pre-M1 build is not a supported merge scenario; users should allow all open tabs to update to the same application version.
+La sincronizzazione è a snapshot, non a fusione di campi: non c'è CRDT né log di operazioni, una complessità non giustificata per un'app locale a utente singolo. Tab con versioni diverse dell'app non sono uno scenario supportato: la proposta di aggiornamento serve a riportarle tutte alla stessa versione.

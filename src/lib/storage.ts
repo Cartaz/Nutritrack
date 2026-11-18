@@ -1,22 +1,28 @@
-// Persistenza localStorage con backup, quota handling e multi-tab sync.
+// Persistenza su IndexedDB con backup, sync tra tab e migrazione dai dati localStorage.
 //
 // Ownership: questo modulo possiede formato persistito, revisioni multi-tab, backup,
-// quota handling, reset persistente e riconciliazione degli snapshot ricevuti.
-// Lo store non deve conoscere chiavi, causalità o dettagli del browser storage.
+// reset persistente e riconciliazione degli snapshot ricevuti. Lo store non conosce
+// chiavi, causalità o dettagli del browser storage.
+//
+// Record IndexedDB (store chiave → stringa, vedi idb.ts):
+//   data   → documento JSON completo (schema versionato, vedi migrations.ts)
+//   meta   → { version, revision, originTabId, syncKind } dello stesso documento, piccolo da leggere
+//   backup → documento precedente valido (recovery se `data` risulta illeggibile)
+//
+// Lo stato in memoria resta la fonte di verità della sessione: le scritture sono asincrone,
+// serializzate in coda e atomiche (lettura dei metadati + scrittura nella stessa transazione).
 
-import type { AppState, FoodItem, Recipe, DiaryEntry, DayDiary } from '../types';
-import {
-  BACKUP_KEY,
-  LEGACY_STORAGE_KEYS,
-  SCHEMA_VERSION,
-  STORAGE_KEY,
-  STORAGE_KEY_PREFIX,
-  STORAGE_WARN_CHARS,
-} from './constants';
+import type { AppState } from '../types';
+import { LEGACY_BACKUP_KEY, LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_WARN_RATIO, SYNC_CHANNEL } from './constants';
 import { getState, setState, setStorageDisabled, subscribe, emitChange, resetAll } from './store';
 import { reconcileAll } from './normalize';
 import { migratePersistedDocument, type MigrationFailureReason } from './migrations';
 import { clearRuntimeDataCaches } from './localData';
+import { idbGet, openDb, transact, __deleteDatabaseForTesting } from './idb';
+
+const DATA = 'data';
+const META = 'meta';
+const BACKUP = 'backup';
 
 interface PersistedState {
   settings: AppState['settings'];
@@ -35,21 +41,11 @@ interface VersionStamp {
   syncKind: SyncKind;
 }
 
-interface PersistedPayload extends PersistedState, VersionStamp {
-  version: number;
-}
-
-interface ParsedPersistedPayload {
-  state: PersistedState;
-  stamp: VersionStamp;
-  signature: string;
-}
-
-type DecodedPersistedPayload =
+type DecodedDocument =
   | { ok: true; document: Record<string, unknown>; fromVersion: number }
   | { ok: false; reason: 'invalid_json' | MigrationFailureReason; version?: number };
 
-const LEGACY_STAMP: VersionStamp = { revision: 0, originTabId: '', syncKind: 'state' };
+const INITIAL_STAMP: VersionStamp = { revision: 0, originTabId: '', syncKind: 'state' };
 
 function createTabId(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
@@ -57,25 +53,15 @@ function createTabId(): string {
 }
 
 const _tabId = createTabId();
-let _storageOK = true;
-let _currentStamp: VersionStamp = { ...LEGACY_STAMP };
+let _available = false;
+let _currentStamp: VersionStamp = { ...INITIAL_STAMP };
 let _lastSyncedStateSignature: string | null = null;
+/** Documento di uno schema futuro trovato al caricamento: non va mai sovrascritto e l'export lo restituisce. */
+let _unsupportedDocument: string | null = null;
+let _writeQueue: Promise<unknown> = Promise.resolve();
+let _channel: BroadcastChannel | null = null;
 
-// Rilevazione modalità privata / storage non disponibile (IIFE all'avvio).
-(function detectStorage(): void {
-  try {
-    const k = '__nt_test_' + Date.now();
-    localStorage.setItem(k, '1');
-    localStorage.removeItem(k);
-  } catch {
-    _storageOK = false;
-    console.warn('[storage] localStorage non disponibile (modalità privata?)');
-  }
-})();
-
-export function isStorageAvailable(): boolean {
-  return _storageOK;
-}
+// ============ Stato e documenti ============
 
 function buildStateSnapshot(): PersistedState {
   const s = getState();
@@ -89,14 +75,15 @@ function buildStateSnapshot(): PersistedState {
   };
 }
 
-function stateFromReconciled(reconciled: ReturnType<typeof reconcileAll>): PersistedState {
+function stateFromDocument(document: Record<string, unknown>): PersistedState {
+  const r = reconcileAll(document);
   return {
-    settings: reconciled.settings,
-    foods: reconciled.foods,
-    diary: reconciled.diary,
-    recipes: reconciled.recipes,
-    favoriteFoodIds: reconciled.favoriteFoodIds,
-    biometrics: reconciled.biometrics,
+    settings: r.settings,
+    foods: r.foods,
+    diary: r.diary,
+    recipes: r.recipes,
+    favoriteFoodIds: r.favoriteFoodIds,
+    biometrics: r.biometrics,
   };
 }
 
@@ -104,18 +91,8 @@ function stateSignature(state: PersistedState): string {
   return JSON.stringify(state);
 }
 
-function buildPayload(state: PersistedState, stamp: VersionStamp): PersistedPayload {
-  return {
-    version: SCHEMA_VERSION,
-    revision: stamp.revision,
-    originTabId: stamp.originTabId,
-    syncKind: stamp.syncKind,
-    ...state,
-  };
-}
-
 function readStamp(value: unknown): VersionStamp {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...LEGACY_STAMP };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...INITIAL_STAMP };
   const obj = value as { revision?: unknown; originTabId?: unknown; syncKind?: unknown };
   const revision =
     typeof obj.revision === 'number' && Number.isFinite(obj.revision) && obj.revision >= 0
@@ -126,28 +103,23 @@ function readStamp(value: unknown): VersionStamp {
   return { revision, originTabId, syncKind };
 }
 
+function parseMeta(raw: string | undefined): (VersionStamp & { version: number }) | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    const version = typeof parsed.version === 'number' ? parsed.version : SCHEMA_VERSION;
+    return { ...readStamp(parsed), version };
+  } catch {
+    return null;
+  }
+}
+
 /** Ordine totale: revisione, poi reset sopra state a parità di revisione, poi origin id. */
 function compareStamps(a: VersionStamp, b: VersionStamp): number {
   if (a.revision !== b.revision) return a.revision < b.revision ? -1 : 1;
   if (a.syncKind !== b.syncKind) return a.syncKind === 'reset' ? 1 : -1;
   if (a.originTabId === b.originTabId) return 0;
   return a.originTabId < b.originTabId ? -1 : 1;
-}
-
-function decodePersistedRaw(raw: string): DecodedPersistedPayload {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch {
-    return { ok: false, reason: 'invalid_json' };
-  }
-
-  const migrated = migratePersistedDocument(parsed);
-  if (!migrated.ok) {
-    return { ok: false, reason: migrated.reason, version: migrated.version };
-  }
-  if (!isDataDocument(migrated.document)) return { ok: false, reason: 'invalid_document' };
-  return { ok: true, document: migrated.document, fromVersion: migrated.fromVersion };
 }
 
 /** Partial legacy backups are supported, but schema metadata alone is not user data. */
@@ -172,18 +144,26 @@ function isDataDocument(document: Record<string, unknown>): boolean {
   return hasData;
 }
 
-function parsedFromDocument(document: Record<string, unknown>): ParsedPersistedPayload {
-  const state = stateFromReconciled(reconcileAll(document));
-  return {
-    state,
-    stamp: readStamp(document),
-    signature: stateSignature(state),
-  };
+function decodeDocument(raw: string): DecodedDocument {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+  const migrated = migratePersistedDocument(parsed);
+  if (!migrated.ok) return { ok: false, reason: migrated.reason, version: migrated.version };
+  if (!isDataDocument(migrated.document)) return { ok: false, reason: 'invalid_document' };
+  return { ok: true, document: migrated.document, fromVersion: migrated.fromVersion };
 }
 
-function parsePersistedRaw(raw: string): ParsedPersistedPayload | null {
-  const decoded = decodePersistedRaw(raw);
-  return decoded.ok ? parsedFromDocument(decoded.document) : null;
+function isUnsupportedSchema(decoded: DecodedDocument): boolean {
+  return !decoded.ok && (decoded.reason === 'future_version' || decoded.reason === 'missing_migration');
+}
+
+function serializeDocument(state: PersistedState, stamp: VersionStamp): { data: string; meta: string } {
+  const meta = { version: SCHEMA_VERSION, ...stamp };
+  return { data: JSON.stringify({ ...meta, ...state }), meta: JSON.stringify(meta) };
 }
 
 function markSynced(state: PersistedState, stamp: VersionStamp): void {
@@ -191,291 +171,168 @@ function markSynced(state: PersistedState, stamp: VersionStamp): void {
   _lastSyncedStateSignature = stateSignature(state);
 }
 
-function hasUnsyncedLocalState(): boolean {
-  if (_lastSyncedStateSignature == null) return false;
-  return stateSignature(buildStateSnapshot()) !== _lastSyncedStateSignature;
-}
-
-function isRemoteNewer(remote: ParsedPersistedPayload): boolean {
-  // Backward compatibility: payload pre-revision sono revision 0 e non hanno syncKind.
-  // In quel solo caso preserviamo il vecchio physical-last-write behavior.
-  if (
-    remote.stamp.revision === 0 &&
-    _currentStamp.revision === 0 &&
-    remote.stamp.syncKind === 'state' &&
-    _currentStamp.syncKind === 'state'
-  ) {
-    return remote.signature !== _lastSyncedStateSignature;
-  }
-  return compareStamps(remote.stamp, _currentStamp) > 0;
-}
-
 function applyStateSnapshot(state: PersistedState): void {
-  setState({
-    settings: state.settings,
-    foods: state.foods,
-    diary: state.diary,
-    recipes: state.recipes,
-    favoriteFoodIds: state.favoriteFoodIds,
-    biometrics: state.biometrics,
-  });
+  setState({ ...state });
 }
 
-/** Strip ricorsivo delle immagini da foods, diary.foodSnapshot, recipes e ingredient snapshots. */
-function stripImages(payload: PersistedPayload): PersistedPayload {
-  const stripFood = (f: FoodItem): FoodItem => ({ ...f, image: undefined });
-  const stripDiary = (diary: DayDiary): DayDiary => {
-    const out: DayDiary = {};
-    for (const [date, entries] of Object.entries(diary)) {
-      out[date] = entries.map((e: DiaryEntry) => ({
-        ...e,
-        foodSnapshot: stripFood(e.foodSnapshot),
-      }));
-    }
-    return out;
-  };
-  const stripRecipe = (r: Recipe): Recipe => ({
-    ...r,
-    image: undefined,
-    ingredients: r.ingredients.map((ing) => ({
-      ...ing,
-      foodSnapshot: stripFood(ing.foodSnapshot),
-    })),
-  });
-  return {
-    ...payload,
-    foods: payload.foods.map(stripFood),
-    diary: stripDiary(payload.diary),
-    recipes: payload.recipes.map(stripRecipe),
-  };
-}
+// ============ Disponibilità ============
 
-function writeBackupIfValid(previousRaw: string | null, newRaw: string): void {
-  if (!previousRaw || previousRaw === newRaw) return;
+/**
+ * Apre IndexedDB. Va chiamata (e attesa) una volta all'avvio prima di loadData.
+ * Se fallisce l'app lavora solo in memoria e la UI lo segnala.
+ */
+export async function initStorage(): Promise<boolean> {
   try {
-    if (!decodePersistedRaw(previousRaw).ok) return;
-    localStorage.setItem(BACKUP_KEY, previousRaw);
+    await openDb();
+    _available = true;
+  } catch (e) {
+    _available = false;
+    console.warn('[storage] IndexedDB non disponibile: i dati non verranno salvati', e);
+  }
+  if (_available) void requestPersistentStorage();
+  return _available;
+}
+
+/** Chiede al browser di non sfrattare i dati sotto pressione di spazio (best effort). */
+async function requestPersistentStorage(): Promise<void> {
+  try {
+    if (navigator.storage?.persisted && (await navigator.storage.persisted())) return;
+    await navigator.storage?.persist?.();
   } catch {
-    // Non propagare un primario corrotto al backup.
+    /* non supportato: nessun effetto */
   }
 }
 
-function warnIfNearQuota(): void {
-  const sizeInfo = checkStorageSize();
-  if (!sizeInfo.warn) return;
-  notifyOnce(
-    'quota',
-    `Attenzione: dati vicini al limite dello spazio del browser (${Math.round(sizeInfo.chars / 100_000) / 10} milioni di caratteri). Esporta un backup.`,
-  );
+export function isStorageAvailable(): boolean {
+  return _available;
 }
 
-/** Tipo risultato di saveData per permettere a importDataJson di propagare errori. */
+// ============ Scrittura ============
+
 export type SaveDataResult = { ok: true } | { ok: false; error: string; fatal: boolean };
 
+const UNSUPPORTED_SCHEMA_ERROR =
+  'I dati salvati usano una versione schema non supportata. Aggiorna NutriTrack prima di salvare.';
+
+/** Accoda un'operazione di persistenza: le scritture non si sovrappongono mai. */
+function enqueue<T>(operation: () => Promise<T>): Promise<T> {
+  const run = _writeQueue.then(operation, operation);
+  _writeQueue = run.catch(() => undefined);
+  return run;
+}
+
+type WriteOutcome =
+  | { kind: 'written'; stamp: VersionStamp; state: PersistedState }
+  | { kind: 'remote-reset'; stamp: VersionStamp }
+  | { kind: 'unsupported-schema' };
+
 /**
- * Persiste uno snapshot locale con una revisione strettamente maggiore della base nota.
- * syncKind è interno alla persistenza: i caller normali scrivono sempre state.
+ * Scrive uno snapshot con revisione strettamente maggiore di quella persistita e di quella nota.
+ * Nella stessa transazione: un reset più recente scritto da un'altra tab è una barriera
+ * (viene applicato invece di sovrascriverlo) e un documento di schema futuro non si tocca.
  */
-function writeLocalSnapshot(
+async function writeSnapshot(
   state: PersistedState,
-  previousRaw: string | null,
-  baseRevision: number,
-  syncKind: SyncKind = 'state',
-): SaveDataResult {
-  const stamp: VersionStamp = {
-    revision: Math.max(0, Math.floor(baseRevision)) + 1,
-    originTabId: _tabId,
-    syncKind,
-  };
-  const payload = buildPayload(state, stamp);
-  const serialized = JSON.stringify(payload);
-
+  syncKind: SyncKind,
+  backup: 'previous' | 'delete' | { raw: string },
+): Promise<SaveDataResult> {
+  let outcome: WriteOutcome;
   try {
-    writePrimary(serialized, previousRaw);
-    markSynced(state, stamp);
-    warnIfNearQuota();
-    return { ok: true };
-  } catch (e: unknown) {
-    if (isQuotaError(e)) return writeUnderQuotaPressure(payload, stamp);
-    const err = e as { name?: string; code?: number };
-    if (err.name === 'SecurityError' || err.code === 18) {
-      _storageOK = false;
-      setStorageDisabled(true);
-      console.warn('[storage] modalità privata rilevata, salvataggio disabilitato');
-      return { ok: false, error: 'Modalità privata: salvataggio disabilitato', fatal: false };
-    }
-    console.error('[storage] errore salvataggio', e);
-    return { ok: false, error: 'Errore salvataggio generico', fatal: false };
-  }
-}
-
-function isQuotaError(e: unknown): boolean {
-  const err = e as { name?: string; code?: number };
-  return err?.name === 'QuotaExceededError' || err?.code === 22 || err?.code === 1014;
-}
-
-/** Scrive il primario, poi il backup del documento precedente, poi rimuove le chiavi legacy. */
-function writePrimary(serialized: string, previousRaw: string | null): void {
-  localStorage.setItem(STORAGE_KEY, serialized);
-  writeBackupIfValid(previousRaw, serialized);
-  removeLegacyKeys();
-}
-
-/**
- * Spazio esaurito. In ordine, si sacrifica ciò che vale meno:
- * 1. il backup (è solo lo snapshot precedente: l'export resta la copia vera);
- * 2. le immagini (si possono riscaricare da Open Food Facts).
- * Solo se non basta nemmeno così il salvataggio viene disattivato.
- */
-function writeUnderQuotaPressure(payload: PersistedPayload, stamp: VersionStamp): SaveDataResult {
-  try {
-    localStorage.removeItem(BACKUP_KEY);
-    removeLegacyKeys();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    markSynced(stateFromPayload(payload), stamp);
-    notifyOnce('backup', 'Spazio quasi esaurito: il backup automatico è stato sospeso. Esporta un backup.');
-    return { ok: true };
+    outcome = await transact(
+      [DATA, META],
+      (values): { writes: Record<string, string | null>; result: WriteOutcome } => {
+        const currentData = values.get(DATA);
+        const meta = parseMeta(values.get(META));
+        if (meta && meta.version > SCHEMA_VERSION) return { writes: {}, result: { kind: 'unsupported-schema' } };
+        const persisted = meta ?? INITIAL_STAMP;
+        if (syncKind === 'state' && persisted.syncKind === 'reset' && compareStamps(persisted, _currentStamp) > 0) {
+          return { writes: {}, result: { kind: 'remote-reset', stamp: persisted } };
+        }
+        const stamp: VersionStamp = {
+          revision: Math.max(_currentStamp.revision, persisted.revision) + 1,
+          originTabId: _tabId,
+          syncKind,
+        };
+        const serialized = serializeDocument(state, stamp);
+        const writes: Record<string, string | null> = { [DATA]: serialized.data, [META]: serialized.meta };
+        if (backup === 'delete') writes[BACKUP] = null;
+        else if (backup !== 'previous') writes[BACKUP] = backup.raw;
+        else if (currentData && meta?.syncKind !== 'reset') writes[BACKUP] = currentData;
+        return { writes, result: { kind: 'written', stamp, state } };
+      },
+    );
   } catch (e) {
-    if (!isQuotaError(e)) {
-      console.error('[storage] errore salvataggio', e);
-      return { ok: false, error: 'Errore salvataggio generico', fatal: false };
-    }
+    return writeFailure(e);
   }
 
-  const stripped = stripImages(payload);
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
-    notifyOnce('strip', 'Spazio esaurito — immagini rimosse per fare spazio. Esporta un backup.');
-    // Mantieni lo state in-memory identico allo snapshot effettivamente persistito.
-    setState({
-      foods: stripped.foods,
-      diary: stripped.diary,
-      recipes: stripped.recipes,
-    });
-    markSynced(buildStateSnapshot(), stamp);
+  if (outcome.kind === 'unsupported-schema') return { ok: false, error: UNSUPPORTED_SCHEMA_ERROR, fatal: false };
+  if (outcome.kind === 'remote-reset') {
+    applyResetSnapshot(outcome.stamp);
     return { ok: true };
-  } catch {
-    _storageOK = false;
+  }
+  markSynced(outcome.state, outcome.stamp);
+  broadcast(outcome.stamp);
+  void warnIfNearQuota();
+  return { ok: true };
+}
+
+function writeFailure(e: unknown): SaveDataResult {
+  const err = e as { name?: string };
+  if (err?.name === 'QuotaExceededError') {
     setStorageDisabled(true);
-    console.error('[storage] storage esaurito anche dopo strip. Esporta backup. Salvataggio disabilitato.');
+    console.error('[storage] spazio esaurito', e);
     return {
       ok: false,
-      error: 'Quota superata anche dopo strip immagini. Esporta un backup e riprova.',
+      error: 'Spazio di archiviazione esaurito. Esporta un backup e libera spazio sul dispositivo.',
       fatal: true,
     };
   }
+  console.error('[storage] errore salvataggio', e);
+  return { ok: false, error: 'Errore di salvataggio', fatal: false };
 }
 
-function stateFromPayload(payload: PersistedPayload): PersistedState {
-  return {
-    settings: payload.settings,
-    foods: payload.foods,
-    diary: payload.diary,
-    recipes: payload.recipes,
-    favoriteFoodIds: payload.favoriteFoodIds,
-    biometrics: payload.biometrics,
-  };
+/** Salva lo stato se differisce dall'ultimo snapshot sincronizzato. */
+export function saveData(): Promise<SaveDataResult> {
+  return enqueue(async () => {
+    if (!_available) return { ok: false, error: 'Salvataggio non disponibile', fatal: false };
+    if (_unsupportedDocument !== null) return { ok: false, error: UNSUPPORTED_SCHEMA_ERROR, fatal: false };
+    const state = buildStateSnapshot();
+    if (_lastSyncedStateSignature === stateSignature(state)) return { ok: true };
+    return writeSnapshot(state, 'state', 'previous');
+  });
 }
 
-const _notified = new Set<string>();
-function notifyOnce(kind: string, message: string): void {
-  if (_notified.has(kind)) return;
-  _notified.add(kind);
-  void import('../components/toast').then(({ showToast }) => showToast(message, 'warning', 6000));
+// ============ Caricamento e migrazione da localStorage ============
+
+interface LegacySource {
+  raw: string;
+  backupRaw: string | null;
 }
 
-function removeLegacyKeys(): void {
-  for (const key of LEGACY_STORAGE_KEYS) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      /* best effort */
-    }
-  }
-}
-
-/** Applica immediatamente un reset remoto: un reset è una barriera causale, non un draft concorrente. */
-function applyResetSnapshot(remote: ParsedPersistedPayload): void {
-  resetAll();
-  const state = buildStateSnapshot();
-  markSynced(state, remote.stamp);
-  window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
-}
-
-/** Applica uno snapshot remoto solo dopo averne verificato la causalità. */
-function applyMultiTabUpdate(remote: ParsedPersistedPayload): void {
-  if (!isRemoteNewer(remote)) return;
-
-  if (remote.stamp.syncKind === 'reset') {
-    applyResetSnapshot(remote);
-    return;
-  }
-
-  const currentSignature = stateSignature(buildStateSnapshot());
-  if (currentSignature === remote.signature) {
-    // Stessi dati, metadata più nuovi: adotta soltanto la nuova versione.
-    markSynced(remote.state, remote.stamp);
-    return;
-  }
-
-  applyStateSnapshot(remote.state);
-  markSynced(remote.state, remote.stamp);
-  emitChange();
-  window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
-}
-
-/**
- * Salva lo stato se differisce dall'ultimo snapshot sincronizzato.
- * Una tombstone reset più nuova presente fisicamente è una barriera: viene applicata
- * prima di qualsiasi local write, anche se questo tab ha perso il relativo storage event.
- */
-export function saveData(): SaveDataResult {
-  if (!_storageOK) return { ok: false, error: 'storage non disponibile', fatal: false };
-
-  const state = buildStateSnapshot();
-  const signature = stateSignature(state);
-  // Niente da scrivere: non serve nemmeno rileggere e rivalidare il documento persistito.
-  // (Un reset remoto arrivato nel frattempo viene applicato dall'evento storage.)
-  if (_lastSyncedStateSignature !== null && _lastSyncedStateSignature === signature) return { ok: true };
-
-  let previousRaw: string | null = null;
+function readLegacyLocalStorage(): LegacySource | null {
   try {
-    previousRaw = localStorage.getItem(STORAGE_KEY);
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const raw = localStorage.getItem(key);
+      if (raw) return { raw, backupRaw: localStorage.getItem(LEGACY_BACKUP_KEY) };
+    }
+    const backupRaw = localStorage.getItem(LEGACY_BACKUP_KEY);
+    return backupRaw ? { raw: backupRaw, backupRaw: null } : null;
   } catch {
-    // La write successiva produrrà il risultato appropriato.
+    return null;
   }
-
-  const decodedPrevious = previousRaw ? decodePersistedRaw(previousRaw) : null;
-  if (
-    decodedPrevious &&
-    !decodedPrevious.ok &&
-    (decodedPrevious.reason === 'future_version' || decodedPrevious.reason === 'missing_migration')
-  ) {
-    return {
-      ok: false,
-      error: 'I dati persistiti usano una versione schema non supportata. Aggiorna NutriTrack prima di salvare.',
-      fatal: false,
-    };
-  }
-  const previous = decodedPrevious?.ok ? parsedFromDocument(decodedPrevious.document) : null;
-
-  if (previous?.stamp.syncKind === 'reset' && compareStamps(previous.stamp, _currentStamp) > 0) {
-    applyMultiTabUpdate(previous);
-    return { ok: true };
-  }
-
-  // Prima chiamata dopo bootstrap: se localStorage contiene già lo stesso stato,
-  // adottane la revisione senza creare una write/backup artificiale.
-  if (_lastSyncedStateSignature == null && previous?.signature === signature) {
-    markSynced(state, previous.stamp);
-    return { ok: true };
-  }
-
-  const baseRevision = Math.max(_currentStamp.revision, previous?.stamp.revision ?? 0);
-  return writeLocalSnapshot(state, previousRaw, baseRevision);
 }
 
-function migrationLoadError(decoded: Exclude<DecodedPersistedPayload, { ok: true }>): void {
+function removeLegacyLocalStorage(): void {
+  try {
+    for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
+    localStorage.removeItem(LEGACY_BACKUP_KEY);
+  } catch {
+    /* localStorage non accessibile: nulla da rimuovere */
+  }
+}
+
+function migrationLoadError(decoded: DecodedDocument): void {
+  if (decoded.ok) return;
   if (decoded.reason === 'future_version') {
     console.error(`[storage] schema futuro non supportato: ${decoded.version ?? 'sconosciuto'}`);
   } else if (decoded.reason === 'missing_migration') {
@@ -484,100 +341,106 @@ function migrationLoadError(decoded: Exclude<DecodedPersistedPayload, { ok: true
 }
 
 /**
- * Carica da localStorage: chiave primaria, poi chiavi legacy, poi backup.
- * Migrazione e normalizzazione sono passaggi separati. Un documento arrivato da una chiave
- * legacy o da uno schema precedente viene riscritto subito nel formato corrente.
+ * Carica i dati: IndexedDB, altrimenti (una volta sola) i dati localStorage delle versioni
+ * precedenti, che vengono migrati in IndexedDB e poi rimossi. Se il documento principale è
+ * illeggibile si usa il backup. Un documento migrato da uno schema precedente viene riscritto
+ * subito nel formato corrente, con l'originale come backup.
  */
-export function loadData(): boolean {
-  if (!_storageOK) return false;
-  let raw: string | null;
-  let fromLegacyKey = false;
+export async function loadData(): Promise<boolean> {
+  if (!_available) return false;
+  let raw: string | undefined;
+  let backupRaw: string | null = null;
+  let legacy: LegacySource | null = null;
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      for (const key of LEGACY_STORAGE_KEYS) {
-        raw = localStorage.getItem(key);
-        if (raw) {
-          fromLegacyKey = true;
-          break;
-        }
-      }
+    raw = await idbGet(DATA);
+    if (raw === undefined) {
+      legacy = readLegacyLocalStorage();
+      raw = legacy?.raw;
+      backupRaw = legacy?.backupRaw ?? null;
     }
-  } catch {
+  } catch (e) {
+    console.error('[storage] lettura fallita', e);
     return false;
   }
-  if (!raw) return false;
+  if (raw === undefined) return false;
 
-  let decoded = decodePersistedRaw(raw);
-  if (!decoded.ok && (decoded.reason === 'future_version' || decoded.reason === 'missing_migration')) {
+  let decoded = decodeDocument(raw);
+  if (isUnsupportedSchema(decoded)) {
     migrationLoadError(decoded);
+    _unsupportedDocument = raw;
     return false;
   }
 
+  let sourceRaw = raw;
   let fromBackup = false;
   if (!decoded.ok) {
     try {
-      const backup = localStorage.getItem(BACKUP_KEY);
-      if (!backup) return false;
-      decoded = decodePersistedRaw(backup);
+      const candidate = legacy ? backupRaw : ((await idbGet(BACKUP)) ?? null);
+      if (!candidate) return false;
+      decoded = decodeDocument(candidate);
       if (!decoded.ok) {
         migrationLoadError(decoded);
         return false;
       }
+      sourceRaw = candidate;
       fromBackup = true;
-      console.warn('[storage] primario non valido, usato backup');
+      console.warn('[storage] documento principale non valido, usato il backup');
     } catch {
       return false;
     }
   }
 
-  const state = stateFromReconciled(reconcileAll(decoded.document));
+  const state = stateFromDocument(decoded.document);
   applyStateSnapshot(state);
-  const stamp = readStamp(decoded.document);
-  markSynced(state, stamp);
+  markSynced(state, readStamp(decoded.document));
 
-  if (!fromBackup && (fromLegacyKey || decoded.fromVersion < SCHEMA_VERSION)) {
-    // Il documento originale (valido) diventa il backup: la migrazione resta reversibile.
-    const result = writeLocalSnapshot(state, raw, stamp.revision);
-    if (!result.ok) console.warn('[storage] impossibile riscrivere i dati migrati:', result.error);
+  const needsRewrite = legacy !== null || fromBackup || decoded.fromVersion < SCHEMA_VERSION;
+  if (needsRewrite) {
+    const result = await enqueue(() => writeSnapshot(state, 'state', { raw: sourceRaw }));
+    if (!result.ok) {
+      console.warn('[storage] impossibile riscrivere i dati migrati:', result.error);
+      return true;
+    }
+    // I dati localStorage si eliminano solo dopo il commit riuscito in IndexedDB.
+    if (legacy) removeLegacyLocalStorage();
   }
   return true;
 }
 
-/** Uso reale dello storage dell'app (tutte le chiavi `nutritrack_*`), in caratteri. */
-export function checkStorageSize(): { chars: number; warn: boolean } {
-  let chars = 0;
+// ============ Quota ============
+
+/** Uso stimato dello storage dell'origine rispetto alla quota concessa dal browser. */
+export async function checkStorageSize(): Promise<{ usage: number; quota: number; warn: boolean }> {
   try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(STORAGE_KEY_PREFIX)) continue;
-      chars += key.length + (localStorage.getItem(key)?.length ?? 0);
-    }
+    const estimate = await navigator.storage?.estimate?.();
+    const usage = estimate?.usage ?? 0;
+    const quota = estimate?.quota ?? 0;
+    return { usage, quota, warn: quota > 0 && usage / quota > STORAGE_WARN_RATIO };
   } catch {
-    return { chars: 0, warn: false };
+    return { usage: 0, quota: 0, warn: false };
   }
-  return { chars, warn: chars > STORAGE_WARN_CHARS };
 }
 
-export function shouldWarnQuota(): boolean {
-  return checkStorageSize().warn;
+export async function shouldWarnQuota(): Promise<boolean> {
+  return (await checkStorageSize()).warn;
 }
 
-// ============ Auto-save: subscribe a ogni emit ============
-
-let _autoSaveEnabled = false;
-let _autoSaveUnsub: (() => void) | null = null;
-export function enableAutoSave(): void {
-  if (_autoSaveEnabled || !_storageOK) return;
-  _autoSaveEnabled = true;
-  _autoSaveUnsub = subscribe(persistPendingState);
-  window.addEventListener('pagehide', persistPendingState);
-  document.addEventListener('visibilitychange', persistWhenHidden);
+let _quotaWarned = false;
+async function warnIfNearQuota(): Promise<void> {
+  if (_quotaWarned) return;
+  const { warn } = await checkStorageSize();
+  if (!warn) return;
+  _quotaWarned = true;
+  const { showToast } = await import('../components/toast');
+  showToast('Spazio di archiviazione quasi esaurito. Esporta un backup.', 'warning', 6000);
 }
+
+// ============ Auto-save ============
 
 // Lo store sostituisce le slice persistite a ogni mutazione (mai modifiche in place):
 // se nessun riferimento è cambiato, l'emit riguardava solo la UI e non c'è nulla da salvare.
 let _lastPersistedSlices: readonly unknown[] | null = null;
+let _autoSaveUnsub: (() => void) | null = null;
 
 function persistedSlices(): readonly unknown[] {
   const s = getState();
@@ -587,103 +450,96 @@ function persistedSlices(): readonly unknown[] {
 function persistPendingState(): void {
   const slices = persistedSlices();
   if (_lastPersistedSlices && slices.every((slice, i) => slice === _lastPersistedSlices![i])) return;
-  const result = saveData();
-  if (result.ok) _lastPersistedSlices = persistedSlices();
-  setStorageDisabled(!result.ok);
+  void saveData().then((result) => {
+    if (result.ok) _lastPersistedSlices = slices;
+    setStorageDisabled(!result.ok);
+  });
 }
 
 function persistWhenHidden(): void {
   if (document.visibilityState === 'hidden') persistPendingState();
 }
 
+export function enableAutoSave(): void {
+  if (_autoSaveUnsub || !_available) return;
+  _autoSaveUnsub = subscribe(persistPendingState);
+  window.addEventListener('pagehide', persistPendingState);
+  document.addEventListener('visibilitychange', persistWhenHidden);
+}
+
 function disableAutoSave(): void {
-  if (_autoSaveUnsub) {
-    _autoSaveUnsub();
-    _autoSaveUnsub = null;
-  }
-  _autoSaveEnabled = false;
+  _autoSaveUnsub?.();
+  _autoSaveUnsub = null;
   _lastPersistedSlices = null;
   window.removeEventListener('pagehide', persistPendingState);
   document.removeEventListener('visibilitychange', persistWhenHidden);
 }
 
-// ============ Multi-tab sync via storage event ============
+// ============ Sync tra tab ============
 
-/**
- * Se due tab hanno prodotto la stessa revisione leggendo contemporaneamente lo stesso
- * predecessore, syncKind reset prevale su state e originTabId risolve il restante tie-break.
- * Se il localStorage fisico contiene il perdente, il vincitore viene riscritto con revision+1.
- */
-function repairStalePhysicalSnapshot(rawRemote: string, remote: ParsedPersistedPayload): void {
-  if (compareStamps(remote.stamp, _currentStamp) >= 0) return;
-  let currentRaw: string | null;
+function broadcast(stamp: VersionStamp): void {
   try {
-    currentRaw = localStorage.getItem(STORAGE_KEY);
+    _channel?.postMessage({ type: 'saved', stamp });
   } catch {
-    return;
+    /* canale chiuso: le altre tab leggeranno al prossimo salvataggio */
   }
-  if (currentRaw !== rawRemote) return; // l'evento era già obsoleto anche a livello fisico
-
-  const state = buildStateSnapshot();
-  if (stateSignature(state) !== _lastSyncedStateSignature) return; // saveData gestirà il locale dirty
-  const previousForBackup = _currentStamp.syncKind === 'reset' ? null : currentRaw;
-  void writeLocalSnapshot(
-    state,
-    previousForBackup,
-    Math.max(_currentStamp.revision, remote.stamp.revision),
-    _currentStamp.syncKind,
-  );
 }
 
-function handleStorageEvent(e: StorageEvent): void {
-  if (e.key !== STORAGE_KEY || !e.newValue) return;
-  const remote = parsePersistedRaw(e.newValue);
-  if (!remote) return;
-
-  if (!isRemoteNewer(remote)) {
-    repairStalePhysicalSnapshot(e.newValue, remote);
-    return;
-  }
-
-  // Il reset è una cancellazione globale e mantiene precedenza su qualsiasi stato locale.
-  if (remote.stamp.syncKind === 'reset') {
-    applyMultiTabUpdate(remote);
-    return;
-  }
-
-  // I draft degli editor non fanno parte dello snapshot persistito. L'unico motivo per
-  // ritardare un remote snapshot è quindi uno stato dominio locale realmente dirty.
-  // Prima di applicare il remoto, commetti quel locale dirty in modo sincrono.
-  if (hasUnsyncedLocalState()) {
-    const saved = saveData();
-    if (!saved.ok) return;
-    if (!isRemoteNewer(remote)) return;
-  }
-
-  applyMultiTabUpdate(remote);
+function hasUnsyncedLocalState(): boolean {
+  if (_lastSyncedStateSignature == null) return false;
+  return stateSignature(buildStateSnapshot()) !== _lastSyncedStateSignature;
 }
 
-let _multiTabInit = false;
-export function initMultiTabSync(): void {
-  if (_multiTabInit || !_storageOK) return;
-  _multiTabInit = true;
-  window.addEventListener('storage', handleStorageEvent);
+/** Un reset è una cancellazione globale: si applica subito, anche sopra modifiche locali. */
+function applyResetSnapshot(stamp: VersionStamp): void {
+  resetAll();
+  markSynced(buildStateSnapshot(), stamp);
+  window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
 }
 
 /**
- * Reset interno per test (non usare in produzione). Rimuove anche il listener multi-tab
- * così ogni test parte da un lifecycle reale e isolato.
+ * Un'altra tab ha salvato. Il suo snapshot si applica solo se più recente; se questa tab ha
+ * modifiche non ancora salvate, vengono salvate prima e ricevono una revisione più alta,
+ * così uno snapshot remoto più vecchio non può mai sovrascrivere una modifica locale.
  */
-export function __resetStorageInternalForTesting(): void {
-  disableAutoSave();
-  if (_multiTabInit) {
-    window.removeEventListener('storage', handleStorageEvent);
-    _multiTabInit = false;
+async function handleRemoteSave(remoteStamp: VersionStamp): Promise<void> {
+  if (compareStamps(remoteStamp, _currentStamp) <= 0) return;
+  if (remoteStamp.syncKind === 'reset') {
+    applyResetSnapshot(remoteStamp);
+    return;
   }
-  _storageOK = true;
-  _notified.clear();
-  _currentStamp = { ...LEGACY_STAMP };
-  _lastSyncedStateSignature = null;
+  if (hasUnsyncedLocalState()) {
+    await saveData();
+    return;
+  }
+  await enqueue(async () => {
+    const raw = await idbGet(DATA);
+    if (!raw) return;
+    const decoded = decodeDocument(raw);
+    if (!decoded.ok) return;
+    const stamp = readStamp(decoded.document);
+    if (compareStamps(stamp, _currentStamp) <= 0) return;
+    if (stamp.syncKind === 'reset') {
+      applyResetSnapshot(stamp);
+      return;
+    }
+    const state = stateFromDocument(decoded.document);
+    if (stateSignature(state) !== stateSignature(buildStateSnapshot())) {
+      applyStateSnapshot(state);
+      emitChange();
+      window.dispatchEvent(new CustomEvent('nutritrack:multitab-sync'));
+    }
+    markSynced(state, stamp);
+  });
+}
+
+export function initMultiTabSync(): void {
+  if (_channel || !_available || typeof BroadcastChannel === 'undefined') return;
+  _channel = new BroadcastChannel(SYNC_CHANNEL);
+  _channel.onmessage = (event: MessageEvent<{ type?: string; stamp?: unknown }>) => {
+    if (event.data?.type !== 'saved') return;
+    void handleRemoteSave(readStamp(event.data.stamp));
+  };
 }
 
 // ============ Reset / Export / Import ============
@@ -691,57 +547,35 @@ export function __resetStorageInternalForTesting(): void {
 export type ResetApplicationDataResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Cancella tutti i dati utente come singola operazione semantica.
- * Il backup viene eliminato prima della write; il primario resta come tombstone reset
- * revisionata e priva di dati utente, così altri tab non possono resuscitare snapshot stale.
+ * Cancella tutti i dati utente come singola operazione semantica. Il documento resta come
+ * tombstone di reset revisionata (così le altre tab non possono resuscitare snapshot vecchi),
+ * il backup viene eliminato insieme a eventuali dati localStorage residui.
  */
-export function resetApplicationData(): ResetApplicationDataResult {
-  const beforeState: AppState = { ...getState() };
-  let previousRaw: string | null;
-
-  try {
-    previousRaw = localStorage.getItem(STORAGE_KEY);
-    localStorage.removeItem(BACKUP_KEY);
-    removeLegacyKeys();
-  } catch (e) {
-    console.error('[storage] impossibile preparare il reset persistente', e);
-    return { ok: false, error: 'Impossibile accedere allo storage per completare il reset.' };
-  }
-
-  const previous = previousRaw ? parsePersistedRaw(previousRaw) : null;
-  const baseRevision = Math.max(_currentStamp.revision, previous?.stamp.revision ?? 0);
-
-  resetAll();
-  const result = writeLocalSnapshot(buildStateSnapshot(), null, baseRevision, 'reset');
-  if (!result.ok) {
-    // La UI deve osservare o tutto il vecchio stato o il reset completo, mai un mezzo reset.
-    setState(beforeState);
-    emitChange();
-    return { ok: false, error: result.error };
-  }
-
-  void clearRuntimeDataCaches();
-  _storageOK = true;
-  _notified.clear();
-  if (getState()._storageDisabled) setStorageDisabled(false);
-  return { ok: true };
+export function resetApplicationData(): Promise<ResetApplicationDataResult> {
+  return enqueue(async () => {
+    if (!_available) return { ok: false, error: 'Salvataggio non disponibile: impossibile completare il reset.' };
+    const beforeState: AppState = { ...getState() };
+    resetAll();
+    const result = await writeSnapshot(buildStateSnapshot(), 'reset', 'delete');
+    if (!result.ok) {
+      // La UI deve osservare o tutto il vecchio stato o il reset completo, mai un mezzo reset.
+      setState(beforeState);
+      emitChange();
+      return { ok: false, error: result.error };
+    }
+    removeLegacyLocalStorage();
+    _unsupportedDocument = null;
+    _quotaWarned = false;
+    void clearRuntimeDataCaches();
+    if (getState()._storageDisabled) setStorageDisabled(false);
+    return { ok: true };
+  });
 }
 
 /** Export utente: solo schema + dati. Revision/origin/syncKind sono metadata interni. */
 export function exportDataJson(): string {
-  // An older app cannot hydrate a future schema. Preserve that original document
-  // in exports rather than presenting the empty fallback state as a usable backup.
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const decoded = decodePersistedRaw(raw);
-      if (!decoded.ok && (decoded.reason === 'future_version' || decoded.reason === 'missing_migration')) {
-        return raw;
-      }
-    }
-  } catch {
-    // Export must remain available for unsaved in-memory work when storage fails.
-  }
+  // Un documento di schema futuro non è idratabile: si esporta l'originale, non lo stato vuoto.
+  if (_unsupportedDocument !== null) return _unsupportedDocument;
   return JSON.stringify({ version: SCHEMA_VERSION, ...buildStateSnapshot() }, null, 2);
 }
 
@@ -756,10 +590,10 @@ function migrationImportError(reason: MigrationFailureReason, version?: number):
   return 'Formato file non riconosciuto come documento NutriTrack.';
 }
 
+export type ImportResult = { ok: true; count: number; skipped?: number } | { ok: false; error: string };
+
 /** Importa un backup JSON migrando lo schema e poi normalizzando i valori. */
-export function importDataJson(
-  json: string,
-): { ok: true; count: number; skipped?: number } | { ok: false; error: string } {
+export async function importDataJson(json: string): Promise<ImportResult> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -772,30 +606,18 @@ export function importDataJson(
   if (!isDataDocument(parsed as Record<string, unknown>)) {
     return { ok: false, error: 'File non riconosciuto come backup NutriTrack (dati assenti o formato non valido)' };
   }
-
   const migrated = migratePersistedDocument(parsed);
-  if (!migrated.ok) {
-    return { ok: false, error: migrationImportError(migrated.reason, migrated.version) };
-  }
-  const document = migrated.document;
+  if (!migrated.ok) return { ok: false, error: migrationImportError(migrated.reason, migrated.version) };
+  const document = migrated.document as { foods?: unknown[]; recipes?: unknown[]; diary?: Record<string, unknown[]> };
 
-  const rawParsed = document as {
-    foods?: unknown[];
-    recipes?: unknown[];
-    diary?: Record<string, unknown[]>;
-  };
-  const rawFoodsCount = Array.isArray(rawParsed.foods) ? rawParsed.foods.length : 0;
-  const rawRecipesCount = Array.isArray(rawParsed.recipes) ? rawParsed.recipes.length : 0;
-  let rawEntriesCount = 0;
-  if (rawParsed.diary && typeof rawParsed.diary === 'object') {
-    for (const val of Object.values(rawParsed.diary)) {
-      if (Array.isArray(val)) rawEntriesCount += val.length;
-    }
+  let rawTotal =
+    (Array.isArray(document.foods) ? document.foods.length : 0) +
+    (Array.isArray(document.recipes) ? document.recipes.length : 0);
+  if (document.diary && typeof document.diary === 'object') {
+    for (const entries of Object.values(document.diary)) if (Array.isArray(entries)) rawTotal += entries.length;
   }
-  const rawTotal = rawFoodsCount + rawRecipesCount + rawEntriesCount;
 
-  const reconciled = reconcileAll(document);
-  const importedState = stateFromReconciled(reconciled);
+  const importedState = stateFromDocument(migrated.document);
   const count =
     importedState.foods.length +
     importedState.recipes.length +
@@ -804,13 +626,47 @@ export function importDataJson(
 
   const beforeState: AppState = { ...getState() };
   applyStateSnapshot(importedState);
-  // Non adottare revision/origin presenti nel file importato: un import è una nuova
-  // modifica locale e deve ricevere una nuova revisione rispetto allo storage corrente.
-  const saveResult = saveData();
+  // Un import è una nuova modifica locale: riceve una revisione nuova, non quella del file.
+  const saveResult = await saveData();
   if (!saveResult.ok) {
     setState(beforeState);
+    emitChange();
     return { ok: false, error: saveResult.error };
   }
   emitChange();
   return { ok: true, count, skipped: skipped > 0 ? skipped : undefined };
+}
+
+// ============ Test ============
+
+/** Solo test: riporta il modulo allo stato iniziale e cancella il database. */
+export async function __resetStorageInternalForTesting(): Promise<void> {
+  disableAutoSave();
+  _channel?.close();
+  _channel = null;
+  await _writeQueue;
+  _writeQueue = Promise.resolve();
+  await __deleteDatabaseForTesting();
+  _available = false;
+  _currentStamp = { ...INITIAL_STAMP };
+  _lastSyncedStateSignature = null;
+  _unsupportedDocument = null;
+  _quotaWarned = false;
+  await initStorage();
+}
+
+/** Solo test: dimentica lo stato di sessione ma conserva il database (come un ricaricamento). */
+export async function __simulateReloadForTesting(): Promise<void> {
+  disableAutoSave();
+  _channel?.close();
+  _channel = null;
+  await _writeQueue;
+  _currentStamp = { ...INITIAL_STAMP };
+  _lastSyncedStateSignature = null;
+  _unsupportedDocument = null;
+}
+
+/** Solo test: simula il messaggio di salvataggio di un'altra tab. */
+export function __handleRemoteSaveForTesting(stamp: unknown): Promise<void> {
+  return handleRemoteSave(readStamp(stamp));
 }

@@ -457,7 +457,7 @@ export function renderSettings(main: HTMLElement): void {
 
       <section class="card setting-card">
         <h2 class="setting-title">Dati e backup</h2>
-        <p class="setting-subtitle">Tutti i dati sono salvati localmente sul tuo dispositivo (localStorage). Fai regolarmente un backup per non perderli.</p>
+        <p class="setting-subtitle">Tutti i dati sono salvati localmente sul tuo dispositivo, nel browser. Fai regolarmente un backup per non perderli.</p>
         <div class="backup-grid">
           <button type="button" class="btn btn-outline" data-action="exportData"><span aria-hidden="true">⬇</span> Esporta</button>
           <label class="btn btn-outline" for="import-file"><span aria-hidden="true">⬆</span> Importa</label>

@@ -311,13 +311,10 @@ function renderConfirmReset(): void {
       { label: 'Reset', action: 'confirm', variant: 'danger' },
     ],
     onConfirm: () => {
-      const result = resetApplicationData();
-      if (!result.ok) {
-        showToast(result.error, 'error', 6000);
-        return false;
-      }
-      showToast('Dati resettati', 'success');
-      return true;
+      void resetApplicationData().then((result) => {
+        if (result.ok) showToast('Dati resettati', 'success');
+        else showToast(result.error, 'error', 6000);
+      });
     },
     onClose: () => closeResetConfirm(),
   });

@@ -1,4 +1,4 @@
-// Normalizzazione rigorosa di ogni input esterno (localStorage, API, import JSON).
+// Normalizzazione rigorosa di ogni input esterno (storage, API, import JSON).
 // validate tipo, range, lunghezza, ricostruisci oggetto tipato.
 
 import type {
@@ -117,7 +117,7 @@ export function normalizeWeightGoal(v: unknown): WeightGoalType {
   return 'maintain';
 }
 
-/** Normalizza macro split DA INPUT ESTERNO (localStorage, import JSON).
+/** Normalizza macro split DA INPUT ESTERNO (storage, import JSON).
  *  delega a nutrition.normalizeMacroSplit per garantire sum=100 SEMPRE.
  *  Prima questa versione faceva solo clamp [0,100] senza rescale → target macro sbagliati dopo import. */
 export function normalizeMacroSplitInput(v: unknown): MacroSplit {

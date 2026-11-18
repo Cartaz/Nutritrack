@@ -53,7 +53,8 @@ src/
 ├── types.ts           # tipi di dominio, tipi OFF, stato dell'app
 ├── lib/               # logica senza DOM (o quasi): store, persistenza, API, calcoli
 │   ├── store.ts       #   stato in memoria + mutazioni + emissione cambi (batch su RAF)
-│   ├── storage.ts     #   persistenza, backup, quota, sync tra tab, export/import
+│   ├── storage.ts     #   persistenza (IndexedDB), backup, migrazione, sync tra tab, export/import
+│   ├── idb.ts         #   accesso minimo a IndexedDB con transazioni atomiche
 │   ├── migrations.ts  #   migrazioni dello schema dati persistito
 │   ├── normalize.ts   #   validazione di ogni dato esterno (storage, import, OFF)
 │   ├── api.ts         #   client Open Food Facts
@@ -70,12 +71,12 @@ docs/                  # semantica della sync tra tab, policy degli obiettivi, r
 
 ## Persistenza dei dati
 
-- Tutti i dati stanno nel `localStorage` del browser, sotto la chiave `nutritrack_data`, con una copia di backup dello snapshot precedente in `nutritrack_data_backup`. I dati di versioni vecchie (`nutritrack_data_v1`) vengono migrati al primo avvio.
-- Lo schema è versionato dentro il documento (`version`, oggi 2): i documenti vecchi vengono migrati da `migrations.ts` e poi validati da `normalize.ts`.
-- Lo spazio disponibile è di circa 5 milioni di caratteri per origine; un anno di uso intenso (12 voci al giorno) occupa circa 1,6 milioni. L'avviso scatta all'80% dell'uso reale (primario + backup).
-- Se lo spazio finisce, l'app sacrifica prima il backup automatico, poi le immagini; se non basta, disattiva il salvataggio e ti chiede di esportare un backup.
-- In modalità privata o con lo storage disabilitato l'app funziona solo in memoria e lo segnala.
-- Più tab aperte restano sincronizzate tramite revisioni: vedi [docs/multitab-sync.md](docs/multitab-sync.md).
+- Tutti i dati stanno in **IndexedDB** (database `nutritrack`): il documento corrente, i suoi metadati (schema e revisione) e il documento precedente come backup. Lo spazio disponibile è una frazione dello spazio libero del dispositivo, non più il limite di circa 5 MB del `localStorage`; all'avvio l'app chiede al browser di conservare i dati in modo persistente.
+- Le versioni precedenti salvavano nel `localStorage` (`nutritrack_data_v1`, poi `nutritrack_data`): al primo avvio i dati vengono migrati in IndexedDB, il documento originale resta come backup e il `localStorage` viene ripulito solo dopo che la scrittura è andata a buon fine.
+- Lo schema è versionato dentro il documento (`version`, oggi 2): i documenti vecchi vengono migrati da `migrations.ts` e poi validati da `normalize.ts`. Un documento di uno schema futuro non viene mai sovrascritto.
+- Le scritture sono asincrone, in coda e atomiche; gli aggiornamenti della sola interfaccia non toccano lo storage. L'avviso di spazio scatta oltre l'80% della quota stimata dal browser.
+- Se IndexedDB non è disponibile l'app funziona solo in memoria e lo segnala.
+- Più tab aperte restano sincronizzate (BroadcastChannel + revisioni): vedi [docs/multitab-sync.md](docs/multitab-sync.md).
 - **Esporta regolarmente un backup** da Impostazioni: è l'unica copia fuori dal browser.
 
 ## Deploy

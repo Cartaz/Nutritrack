@@ -1,3 +1,6 @@
+// IndexedDB in memoria (jsdom non lo implementa): la persistenza dell'app vive lì.
+import 'fake-indexeddb/auto';
+
 // Setup globale per i test Vitest (jsdom).
 //
 // I test intercettano la persistenza con vi.spyOn(Storage.prototype, ...): serve quindi

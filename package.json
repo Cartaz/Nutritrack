@@ -28,6 +28,7 @@
     "@vitest/coverage-v8": "^5.1.1",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
+    "fake-indexeddb": "^6.2.8",
     "jsdom": "^31.0.1",
     "prettier": "^3.9.4",
     "typescript": "~6.0.3",

@@ -49,8 +49,8 @@ export function handleImport(file: File): void {
 
 function readAndImport(file: File): void {
   const reader = new FileReader();
-  reader.onload = () => {
-    const result = importDataJson(String(reader.result || ''));
+  reader.onload = async () => {
+    const result = await importDataJson(String(reader.result || ''));
     if (result.ok) {
       // messaggio distinto per count=0 (es. file con solo settings)
       if (result.count === 0) {

@@ -30,7 +30,7 @@ import { renderDashboard } from '../src/views/dashboard';
 import { renderEntryEditorModal } from '../src/views/entry-editor';
 import { bindSearchEvents, renderSearchShell, updateSearchContent } from '../src/components/search';
 import { getActiveDialog, getState, setState, subscribe } from '../src/lib/store';
-import { __resetStorageInternalForTesting, loadData, saveData } from '../src/lib/storage';
+import { __resetStorageInternalForTesting, __simulateReloadForTesting, loadData, saveData } from '../src/lib/storage';
 
 const DATE = '2026-08-31';
 const FOOD: FoodItem = {
@@ -89,11 +89,11 @@ async function flushUi(): Promise<void> {
   await Promise.resolve();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  localStorage.clear();
+  await __resetStorageInternalForTesting();
   vi.useFakeTimers();
   vi.clearAllMocks();
-  localStorage.clear();
-  __resetStorageInternalForTesting();
   document.body.innerHTML = '<main id="main"></main>';
   resetStore();
 
@@ -112,11 +112,11 @@ beforeEach(() => {
   unsubscribe = subscribe(syncSearchOverlay);
 });
 
-afterEach(() => {
+afterEach(async () => {
   unsubscribe?.();
   unsubscribe = null;
   vi.useRealTimers();
-  __resetStorageInternalForTesting();
+  await __resetStorageInternalForTesting();
   localStorage.clear();
   document.body.innerHTML = '';
 });
@@ -192,11 +192,12 @@ describe('application diary smoke flow', () => {
     await flushUi();
 
     expect(getState().diary[DATE][0].gramsOverride).toBe(150);
-    expect(saveData()).toEqual({ ok: true });
+    vi.useRealTimers(); // IndexedDB (fake-indexeddb) pianifica con timer reali
+    expect(await saveData()).toEqual({ ok: true });
 
     resetStore();
-    __resetStorageInternalForTesting();
-    expect(loadData()).toBe(true);
+    await __simulateReloadForTesting();
+    expect(await loadData()).toBe(true);
 
     const reloaded = getState().diary[DATE]?.[0];
     const reloadedFood = getState().foods.find((food) => food.name === FOOD.name && food.brand === FOOD.brand);
