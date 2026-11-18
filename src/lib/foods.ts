@@ -29,19 +29,27 @@ export function saveOffFood(offFood: FoodItem): FoodItem {
   if (offFood.source !== 'openfoodfacts') {
     return offFood;
   }
-  const foods = getState().foods;
-  if (offFood.barcode) {
-    const existing = foods.find((f) => f.barcode === offFood.barcode);
-    if (existing) return existing;
-  } else {
-    const lowerName = offFood.name.toLowerCase();
-    const lowerBrand = (offFood.brand ?? '').toLowerCase();
-    const existing = foods.find(
-      (f) => f.name.toLowerCase() === lowerName && (f.brand ?? '').toLowerCase() === lowerBrand,
-    );
-    if (existing) return existing;
-  }
+  const existing = findSavedOffFood(offFood);
+  if (existing) return mergeNewPortions(existing, offFood.customPortions);
   return addFood({ ...offFood, id: safeId('food_') });
+}
+
+function findSavedOffFood(offFood: FoodItem): FoodItem | undefined {
+  const foods = getState().foods;
+  if (offFood.barcode) return foods.find((f) => f.barcode === offFood.barcode);
+  const lowerName = offFood.name.toLowerCase();
+  const lowerBrand = (offFood.brand ?? '').toLowerCase();
+  return foods.find((f) => f.name.toLowerCase() === lowerName && (f.brand ?? '').toLowerCase() === lowerBrand);
+}
+
+/** Le porzioni create sul risultato remoto non vanno perse se il prodotto era già salvato. */
+function mergeNewPortions(existing: FoodItem, incoming: CustomPortion[] | undefined): FoodItem {
+  const current = existing.customPortions ?? [];
+  const labels = new Set(current.map((p) => p.label.toLowerCase()));
+  const added = (incoming ?? []).filter((p) => !labels.has(p.label.toLowerCase()));
+  if (added.length === 0) return existing;
+  setFoodCustomPortions(existing.id, [...current, ...added]);
+  return getState().foods.find((f) => f.id === existing.id) ?? existing;
 }
 
 /** Elimina alimento (con conferma utente). */

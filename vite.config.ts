@@ -1,13 +1,26 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // Base path auto-rilevato per GitHub Pages.
 // In CI viene passato via VITE_BASE_PATH; in dev è '/'.
 const base = process.env.VITE_BASE_PATH ?? '/';
 
+// Le sorgenti ws:// servono solo all'HMR del dev server: la build di produzione non
+// deve permettere connessioni a localhost.
+function stripDevOnlyCsp(): Plugin {
+  return {
+    name: 'nutritrack-strip-dev-csp',
+    apply: 'build',
+    transformIndexHtml(html) {
+      return html.replace(/ ws:\/\/localhost:\* ws:\/\/127\.0\.0\.1:\*/, '');
+    },
+  };
+}
+
 export default defineConfig({
   base,
   plugins: [
+    stripDevOnlyCsp(),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',

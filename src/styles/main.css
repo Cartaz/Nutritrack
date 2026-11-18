@@ -2734,3 +2734,13 @@ textarea {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Su touch (iOS in particolare) un campo con testo < 16px provoca lo zoom automatico al focus.
+   Lo zoom manuale resta permesso per accessibilità (niente user-scalable=no nel viewport). */
+@media (pointer: coarse) {
+  input:not([type='range']):not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: max(16px, 1em) !important;
+  }
+}

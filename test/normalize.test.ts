@@ -316,8 +316,8 @@ describe('normalizeFoodItem', () => {
   });
 
   it('accetta URL https per immagine', () => {
-    const r = normalizeFoodItem({ ...validFood, image: 'https://example.com/img.jpg' });
-    expect(r!.image).toBe('https://example.com/img.jpg');
+    const r = normalizeFoodItem({ ...validFood, image: 'https://images.openfoodfacts.org/img.jpg' });
+    expect(r!.image).toBe('https://images.openfoodfacts.org/img.jpg');
   });
 
   it('normalizza customPortions valide', () => {

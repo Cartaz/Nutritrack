@@ -88,6 +88,7 @@ describe('content security policy', () => {
     expect(policy).toContain("object-src 'none'");
     expect(policy).not.toContain("'unsafe-eval'");
     expect(policy).toContain("style-src 'self' 'unsafe-inline'");
+    expect(policy).toContain("img-src 'self' data: blob: https://*.openfoodfacts.org");
 
     for (const origin of [
       'https://it.openfoodfacts.org',

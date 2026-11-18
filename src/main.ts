@@ -14,6 +14,7 @@ import { setStorageDisabled } from './lib/store';
 import { render, bindGlobalEvents, applyInitialTheme } from './components/renderer';
 import { showToast } from './components/toast';
 import { showModal } from './components/modal';
+import { promptForUpdate } from './components/updatePrompt';
 import { terminateWorker } from './worker/client';
 import { shouldAutoAdvanceDate, toDateKey } from './lib/utils';
 import { initKeyboardShortcuts } from './lib/keyboardShortcuts';
@@ -99,8 +100,11 @@ function init(): void {
 async function registerSW(): Promise<void> {
   try {
     const { registerSW: registerVitePWA } = await import('virtual:pwa-register');
-    registerVitePWA({
+    const updateSW = registerVitePWA({
       immediate: true,
+      onNeedRefresh() {
+        promptForUpdate(updateSW);
+      },
       onRegistered(registration) {
         // Check aggiornamenti ogni ora
         if (registration) {

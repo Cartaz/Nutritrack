@@ -32,9 +32,6 @@ export const API_RETRY_DELAY_MS = 500;
 /** Debounce ricerca OFF (ms) */
 export const SEARCH_DEBOUNCE_MS = 500;
 
-/** Retry del dominio search dopo un fallimento transitorio (ms). */
-export const SEARCH_AUTO_RETRY_DELAY_MS = 800;
-
 /** Lunghezza minima query per avviare ricerca OFF */
 export const SEARCH_MIN_QUERY = 2;
 

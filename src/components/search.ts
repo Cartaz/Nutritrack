@@ -11,6 +11,7 @@ import { escapeHtml, escapeAttr, safeId } from '../lib/utils';
 import {
   continueFoodSearch,
   FoodSearchError,
+  foodSearchErrorMessage,
   lookupFoodByBarcode,
   searchFoods,
   type FoodSearchContinuation,
@@ -89,34 +90,8 @@ function resetSearchState(): void {
 }
 
 function showFoodSearchError(error: unknown, context: 'search' | 'barcode'): void {
-  const kind = error instanceof FoodSearchError ? error.kind : 'unknown';
-  if (kind === 'offline') {
-    showToast('Sei offline. Verifica la connessione e riprova.', 'error');
-    return;
-  }
-  if (kind === 'network') {
-    showToast('Open Food Facts non raggiungibile. Riprova tra qualche secondo.', 'error', 5000);
-    return;
-  }
-  if (kind === 'timeout') {
-    showToast('Risposta di Open Food Facts troppo lenta. Riprova tra poco.', 'error', 5000);
-    return;
-  }
-  if (kind === 'unavailable') {
-    showToast(
-      context === 'search'
-        ? 'Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.'
-        : 'Servizio Open Food Facts non disponibile. Riprova tra poco.',
-      'error',
-      5000,
-    );
-    return;
-  }
-  showToast(
-    context === 'search' ? 'Errore nella ricerca. Riprova tra poco.' : 'Errore nella ricerca del prodotto.',
-    'error',
-    5000,
-  );
+  const quick = error instanceof FoodSearchError && error.kind === 'offline';
+  showToast(foodSearchErrorMessage(error, context), 'error', quick ? 3500 : 5000);
 }
 
 // ============ Explicit initial search ============

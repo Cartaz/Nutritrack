@@ -13,7 +13,7 @@ import { showToast } from '../components/toast';
 import { showModal, closeModalById } from '../components/modal';
 import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
-import { FoodSearchError, searchFoods } from '../lib/food-search';
+import { foodSearchErrorMessage, searchFoods } from '../lib/food-search';
 import { saveOffFood } from '../lib/foods';
 import { imgTag } from '../components/img';
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
@@ -119,6 +119,8 @@ function loadFromRecipe(recipeId: string): Recipe | null {
 }
 
 export function renderRecipeEditorModal(recipeId: string | null): void {
+  // Ogni apertura parte da uno stato pulito, compresa la sotto-ricerca ingredienti.
+  resetRecipeEditorState();
   if (recipeId && recipeId !== 'new') {
     const recipe = loadFromRecipe(recipeId);
     if (!recipe) {
@@ -127,7 +129,6 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
     }
     _recipeEditBaseline = recipeEditSignature(recipe);
   } else {
-    resetRecipeEditorState();
     _recipeEditBaseline = null;
   }
 
@@ -143,6 +144,8 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
     onConfirm: () => handleSave(recipeId),
     onClose: () => {
       cancelSubSearchWork();
+      closeModalById('recipe-search-sub');
+      _recipeEditorState.searchOpen = false;
       _recipeEditBaseline = null;
       closeRecipeEditor();
     },
@@ -252,17 +255,21 @@ function openSubSearch(): void {
   _recipeEditorState.searchResults = [];
   _recipeEditorState.searchLoading = false;
 
-  _subOverlay = showModal({
+  const overlay: HTMLElement = showModal({
     modalId: 'recipe-search-sub',
     title: 'Aggiungi ingrediente',
     trustedBodyHtml: renderSubSearchShell(),
     actions: [],
     onClose: () => {
+      // La chiusura è animata: se nel frattempo è stata aperta una nuova sotto-ricerca,
+      // questa callback appartiene a quella vecchia e non deve toccare lo stato.
+      if (_subOverlay !== overlay) return;
       cancelSubSearchWork();
       _recipeEditorState.searchOpen = false;
       _subOverlay = null;
     },
   });
+  _subOverlay = overlay;
 
   updateSubSearchContent();
 
@@ -463,18 +470,7 @@ async function executeSubSearch(query: string): Promise<void> {
     _recipeEditorState.searchResults = data.foods;
   } catch (e) {
     if (ctrl.signal.aborted || !_recipeEditorState.searchOpen || query !== _recipeEditorState.searchQuery) return;
-    const kind = e instanceof FoodSearchError ? e.kind : 'unknown';
-    const msg =
-      kind === 'offline'
-        ? 'Sei offline. Verifica la connessione.'
-        : kind === 'network'
-          ? 'Open Food Facts non raggiungibile. Riprova tra qualche secondo.'
-          : kind === 'timeout'
-            ? 'Risposta di Open Food Facts troppo lenta. Riprova tra poco.'
-            : kind === 'unavailable'
-              ? 'Open Food Facts non disponibile. Riprova tra poco.'
-              : 'Errore nella ricerca ingredienti. Riprova.';
-    showToast(msg, 'error', 5000);
+    showToast(foodSearchErrorMessage(e, 'search'), 'error', 5000);
     _recipeEditorState.searchResults = [];
   } finally {
     if (_recipeEditorState.searchAbort === ctrl) {
@@ -556,7 +552,9 @@ function bindRecipeEditorModalEvents(): void {
     if (!action) return;
 
     if (action === 'open-search') {
-      if (!_recipeEditorState.searchOpen) openSubSearch();
+      // Una sotto-ricerca in chiusura (fade-out) non conta come aperta.
+      const live = _subOverlay?.isConnected && _subOverlay.classList.contains('modal-show');
+      if (!live) openSubSearch();
       return;
     }
     if (action === 'search-tab') {
@@ -576,19 +574,21 @@ function bindRecipeEditorModalEvents(): void {
       const all = [...state.foods, ..._recipeEditorState.searchResults];
       const f = all.find((x) => x.id === id);
       if (f) {
-        const foodRef = f.source === 'openfoodfacts' ? saveOffFood(f) : f;
+        // Un risultato OFF entra nella libreria solo quando la ricetta viene salvata (handleSave):
+        // annullare l'editor non deve lasciare alimenti salvati come effetto collaterale.
+        const isSaved = state.foods.some((food) => food.id === f.id);
         _recipeEditorState.ingredients = [
           ..._recipeEditorState.ingredients,
           {
             id: safeId('ing_'),
-            foodId: foodRef.id,
-            foodSnapshot: foodRef,
-            grams: foodRef.servingSize,
+            foodId: isSaved ? f.id : undefined,
+            foodSnapshot: f,
+            grams: f.servingSize,
           },
         ];
         closeModalById('recipe-search-sub');
         rerenderModalBody();
-        showToast(`${foodRef.name} aggiunto`, 'success');
+        showToast(`${f.name} aggiunto`, 'success');
       }
       return;
     }
@@ -603,6 +603,13 @@ function bindRecipeEditorModalEvents(): void {
       rerenderModalBody();
     }
   });
+}
+
+/** Salva in libreria (con dedupe) un ingrediente scelto da OFF e non ancora salvato. */
+function persistPickedOffFood(ing: RecipeIngredient): RecipeIngredient {
+  if (ing.foodId || ing.foodSnapshot.source !== 'openfoodfacts') return ing;
+  const saved = saveOffFood(ing.foodSnapshot);
+  return { ...ing, foodId: saved.id, foodSnapshot: saved };
 }
 
 function handleSave(recipeId: string | null): boolean {
@@ -646,7 +653,7 @@ function handleSave(recipeId: string | null): boolean {
     name: _recipeEditorState.name.trim(),
     description: _recipeEditorState.description.trim() || undefined,
     servings,
-    ingredients: _recipeEditorState.ingredients,
+    ingredients: _recipeEditorState.ingredients.map(persistPickedOffFood),
   };
   if (recipeId && recipeId !== 'new') {
     const current = getState().recipes.find((recipe) => recipe.id === recipeId);

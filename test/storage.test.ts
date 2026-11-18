@@ -134,7 +134,7 @@ describe('saveData', () => {
           source: 'custom',
           servingSize: 100,
           nutrition: { calories: 52, protein: 0.3, carbs: 14, fat: 0.2 },
-          image: 'https://example.com/big.jpg',
+          image: 'https://images.openfoodfacts.org/big.jpg',
           createdAt: 0,
         },
       ],

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 // jsdom è necessario per i moduli che usano window, localStorage e document.
-// Le soglie di coverage sono un gate CI conservativo sui moduli di dominio.
+// Coverage su tutto src/ con soglie separate per dominio e UI.
 export default defineConfig({
   test: {
     environment: 'jsdom',
@@ -12,13 +12,15 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      include: ['src/lib/**/*.ts'],
-      exclude: ['src/lib/constants.ts', 'src/**/*.test.ts', 'src/**/*.spec.ts'],
+      // Tutto src/ entra nel report, così il dato è onesto anche per la UI.
+      include: ['src/**/*.ts'],
+      // main.ts è solo bootstrap (e il remap di v8 non riesce a parsarlo da non caricato).
+      exclude: ['src/main.ts', 'src/lib/constants.ts', 'src/vite-env.d.ts', 'src/**/*.test.ts', 'src/**/*.spec.ts'],
+      // Soglie separate: la logica di dominio deve restare ben coperta; la UI parte dal
+      // livello attuale e la soglia serve a non farla scendere.
       thresholds: {
-        statements: 60,
-        branches: 50,
-        functions: 60,
-        lines: 60,
+        'src/lib/**': { statements: 75, branches: 70, functions: 75, lines: 75 },
+        'src/{components,views}/**': { statements: 30, branches: 22, functions: 35, lines: 30 },
       },
     },
     setupFiles: ['./test/setup.ts'],

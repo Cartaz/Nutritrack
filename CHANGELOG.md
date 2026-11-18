@@ -9,6 +9,14 @@ Pulizia guidata da [ANALISI.md](ANALISI.md).
 - Test e toolchain verdi su Node 22, 24 e 26 (`engines`, `.nvmrc`, matrice CI).
 - Rimossi il database italiano di override (dati non reali), il codice morto e i commenti storici.
 - README riscritto e allineato al codice; changelog separato.
+- Ricerca: superare il limite di ricerche al minuto mostra il messaggio giusto invece di "Open Food Facts non disponibile"; la classificazione degli errori non dipende più dal testo dei messaggi.
+- Barcode: tolto il secondo livello di retry (con OFF giù si arrivava a 20 richieste per una scansione).
+- Aggiornamenti: quando è pronta una nuova versione l'app chiede se aggiornare, invece di restare sulla vecchia finché tutte le istanze non vengono chiuse.
+- Le porzioni create su un risultato OFF non vanno più perse se il prodotto era già salvato.
+- Editor ricette: un prodotto OFF entra in libreria solo quando salvi la ricetta; corretta una ricerca ingredienti che poteva smettere di aprirsi.
+- Privacy: immagini accettate solo da Open Food Facts (https), CSP più stretta, niente `ws://localhost` nella build di produzione.
+- Accessibilità: lo zoom manuale non è più bloccato (senza zoom automatico sui campi su iOS).
+- Coverage misurata su tutto `src/`, con soglie separate per dominio e UI.
 
 ## v1.2.0
 

@@ -110,9 +110,16 @@ describe('safeNum', () => {
 });
 
 describe('safeImageUrl', () => {
-  it('accetta URL http/https', () => {
-    expect(safeImageUrl('https://example.com/img.jpg')).toBe('https://example.com/img.jpg');
-    expect(safeImageUrl('http://example.com/img.jpg')).toBe('http://example.com/img.jpg');
+  it('accetta URL https di Open Food Facts', () => {
+    const url = 'https://images.openfoodfacts.org/images/products/800/front_it.3.200.jpg';
+    expect(safeImageUrl(url)).toBe(url);
+  });
+
+  it('rifiuta http e host diversi da Open Food Facts', () => {
+    expect(safeImageUrl('http://images.openfoodfacts.org/img.jpg')).toBeUndefined();
+    expect(safeImageUrl('https://example.com/img.jpg')).toBeUndefined();
+    expect(safeImageUrl('https://openfoodfacts.org.evil.example/img.jpg')).toBeUndefined();
+    expect(safeImageUrl('https://evilopenfoodfacts.org/img.jpg')).toBeUndefined();
   });
 
   it('ritorna undefined per javascript: URL', () => {
@@ -139,7 +146,9 @@ describe('safeImageUrl', () => {
   });
 
   it('trimma whitespace', () => {
-    expect(safeImageUrl('  https://example.com/img.jpg  ')).toBe('https://example.com/img.jpg');
+    expect(safeImageUrl('  https://images.openfoodfacts.org/img.jpg  ')).toBe(
+      'https://images.openfoodfacts.org/img.jpg',
+    );
   });
 });
 

@@ -47,13 +47,24 @@ export function safeNum(v: unknown, fallback = 0, min?: number, max?: number): n
   return out;
 }
 
-/** True se la stringa è un URL http(s) valido (anti-javascript:) */
+/**
+ * URL immagine utilizzabile: solo https e solo host di Open Food Facts, l'unica fonte di
+ * immagini dell'app. Così un backup importato non può far caricare immagini (tracking pixel)
+ * da host arbitrari e l'informativa privacy resta vera.
+ */
 export function safeImageUrl(url: unknown): string | undefined {
-  if (typeof url !== 'string' || !url) return undefined;
+  if (typeof url !== 'string') return undefined;
   const trimmed = url.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return undefined;
-  // lunghezza guard
-  if (trimmed.length > 2048) return undefined;
+  if (!trimmed || trimmed.length > 2048) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== 'https:') return undefined;
+  const host = parsed.hostname.toLowerCase();
+  if (host !== 'openfoodfacts.org' && !host.endsWith('.openfoodfacts.org')) return undefined;
   return trimmed;
 }
 

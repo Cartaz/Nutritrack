@@ -90,11 +90,11 @@ Per un altro hosting statico: `VITE_BASE_PATH=/percorso/ npm run build` e pubbli
 - **Android (Chrome)**: menu ⋮ → Installa app.
 - **Desktop (Chrome/Edge)**: icona Installa nella barra degli indirizzi.
 
-Quando esce una nuova versione l'app la scarica in background e la applica al successivo avvio.
+Quando esce una nuova versione l'app la scarica in background e ti chiede se aggiornare (la pagina viene ricaricata).
 
 ## Privacy
 
-I dati non lasciano il dispositivo. Le uniche richieste di rete sono quelle verso Open Food Facts (ricerche, barcode, immagini dei prodotti). Niente cookie, niente analytics, niente account. Lo scanner elabora i frame video localmente e non salva immagini. L'informativa completa è in [`public/privacy.html`](public/privacy.html), raggiungibile anche da Impostazioni.
+I dati non lasciano il dispositivo. Le uniche richieste di rete sono quelle verso Open Food Facts (ricerche, barcode, immagini dei prodotti): anche le immagini sono accettate solo da lì. Niente cookie, niente analytics, niente account. Lo scanner elabora i frame video localmente e non salva immagini. L'informativa completa è in [`public/privacy.html`](public/privacy.html), raggiungibile anche da Impostazioni.
 
 ## Licenza
 

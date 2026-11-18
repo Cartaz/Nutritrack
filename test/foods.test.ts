@@ -28,6 +28,25 @@ beforeEach(() => {
 });
 
 describe('saveOffFood', () => {
+  it('aggiunge al food già salvato le porzioni create sul risultato remoto', () => {
+    const existing = food({ id: 'food-existing', customPortions: [{ id: 'p1', label: 'Piatto', grams: 80 }] });
+    setState({ foods: [existing] });
+
+    const saved = saveOffFood(
+      food({
+        id: 'off-new',
+        customPortions: [
+          { id: 'p2', label: 'piatto', grams: 90 },
+          { id: 'p3', label: 'Tazza', grams: 50 },
+        ],
+      }),
+    );
+
+    expect(saved.id).toBe('food-existing');
+    expect(saved.customPortions?.map((p) => p.label)).toEqual(['Piatto', 'Tazza']);
+    expect(getState().foods[0].customPortions).toHaveLength(2);
+  });
+
   it('riusa il food salvato con lo stesso barcode', () => {
     const existing = food({ id: 'food-existing', createdAt: 10 });
     setState({ foods: [existing] });
