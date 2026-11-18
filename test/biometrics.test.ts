@@ -5,7 +5,6 @@
 // - addWaterGlass / removeWaterGlass
 // - computeWeightTrend (ordinamento + skip giorni senza peso)
 // - computeWeightMovingAverage (media mobile trailing 7gg)
-// - getLatestWeight
 // - getBiometricForDisplay (inferenza peso)
 // - normalizeBiometricEntry / normalizeBiometrics (range + chiavi data + scarto vuoti)
 
@@ -18,7 +17,6 @@ import {
   setWeight,
   computeWeightTrend,
   computeWeightMovingAverage,
-  getLatestWeight,
   getBiometricForDisplay,
   WATER_GLASS_ML,
 } from '../src/lib/biometrics';
@@ -274,21 +272,6 @@ describe('computeWeightMovingAverage', () => {
     const out = computeWeightMovingAverage(points, 7);
     expect(out[0].ma7).toBe(80);
     expect(out[1].ma7).toBe(79); // (80+78)/2
-  });
-});
-
-describe('getLatestWeight', () => {
-  it('ritorna null se nessun peso', () => {
-    expect(getLatestWeight({})).toBeNull();
-  });
-
-  it('ritorna il punto più recente', () => {
-    const bio = {
-      '2026-07-09': { weightKg: 80 },
-      '2026-07-11': { weightKg: 79.5 },
-      '2026-07-10': { weightKg: 79.8 },
-    };
-    expect(getLatestWeight(bio)).toEqual({ date: '2026-07-11', weightKg: 79.5 });
   });
 });
 

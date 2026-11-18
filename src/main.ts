@@ -50,7 +50,7 @@ function init(): void {
 
   // 3. Bind events globali
   bindGlobalEvents();
-  // P2 #3: keyboard shortcuts desktop (idempotente)
+  // keyboard shortcuts desktop (idempotente)
   initKeyboardShortcuts();
 
   // 4. Subscribe per re-render su ogni change

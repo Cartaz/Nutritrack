@@ -497,7 +497,7 @@ function persistWhenHidden(): void {
   if (document.visibilityState === 'hidden') persistPendingState();
 }
 
-export function disableAutoSave(): void {
+function disableAutoSave(): void {
   if (_autoSaveUnsub) {
     _autoSaveUnsub();
     _autoSaveUnsub = null;
@@ -644,24 +644,6 @@ export function exportDataJson(): string {
     // Export must remain available for unsaved in-memory work when storage fails.
   }
   return JSON.stringify({ version: SCHEMA_VERSION, ...buildStateSnapshot() }, null, 2);
-}
-
-/** Low-level: rimuove gli snapshot fisici. Il reset utente deve usare resetApplicationData(). */
-export function clearAllStoredData(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-  try {
-    localStorage.removeItem(BACKUP_KEY);
-  } catch {
-    /* ignore */
-  }
-  _quotaWarnedThisSession = false;
-  _stripWarnedThisSession = false;
-  _currentStamp = { ...LEGACY_STAMP };
-  _lastSyncedStateSignature = null;
 }
 
 function migrationImportError(reason: MigrationFailureReason, version?: number): string {

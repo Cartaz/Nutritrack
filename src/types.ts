@@ -316,7 +316,7 @@ export interface AppState {
   diary: DayDiary;
   recipes: Recipe[];
   favoriteFoodIds: string[];
-  /** Biometria giornaliera (acqua/sonno/peso). P1 #3 Step 02. */
+  /** Biometria giornaliera (acqua/sonno/peso). */
   biometrics: Biometrics;
   currentView: ViewName;
   currentDate: string; // YYYY-MM-DD (dashboard)

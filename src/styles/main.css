@@ -1,5 +1,5 @@
 /* NutriTrack PWA - main.css
- * Pattern 11 dello standard: CSS variables, safe-area, dark by default, dvh, tap-highlight.
+ * CSS variables, safe-area, dark by default, dvh, tap-highlight.
  */
 
 /* ============ Reset ============ */
@@ -56,7 +56,7 @@ textarea,
   touch-action: manipulation;
 }
 
-/* Fix MEDIUM bug (E2E a11y): :focus-visible globale per tutti gli elementi interattivi.
+/* :focus-visible globale per tutti gli elementi interattivi.
    Prima solo .week-bar aveva outline dedicato, gli altri bottoni (.icon-btn, .nav-item,
    [role=tab]) usavano l'outline browser default 1px rgb(16,16,16) invisibile in dark mode.
    Violazione WCAG 2.4.7 (Focus Visible). Ora outline 2px primary su tutti. */
@@ -233,7 +233,7 @@ body {
 .app-main {
   flex: 1;
   padding: var(--space-4);
-  /* Fix MEDIUM bug (E2E): aumentato padding-bottom per evitare che il FAB "Aggiungi a [pasto]"
+  /* aumentato padding-bottom per evitare che il FAB "Aggiungi a [pasto]"
      venga oscurato dalla bottom-nav sticky su viewport desktop 1280x720.
      Prima: bottom-nav-h + space-6 (~88px); Ora: + space-8 extra per dare margine al FAB. */
   padding-bottom: calc(var(--bottom-nav-h) + var(--space-8) + env(safe-area-inset-bottom, 0));
@@ -724,7 +724,7 @@ body {
   font-size: 12px;
 }
 
-/* ============ Biometrica card (P1 #3 Step 02) ============ */
+/* ============ Biometrica card ============ */
 .biometric-card {
   display: flex;
   flex-direction: column;
@@ -887,7 +887,7 @@ body {
   font-style: italic;
 }
 
-/* ============ Stats card con tab (P1 #1) ============ */
+/* ============ Stats card con tab ============ */
 .stats-card {
   display: flex;
   flex-direction: column;
@@ -934,7 +934,7 @@ body {
   min-height: 80px;
 }
 
-/* Month bars (P1 #1) */
+/* Month bars  */
 .month-bars {
   display: flex;
   align-items: flex-end;
@@ -980,7 +980,7 @@ body {
   margin-top: var(--space-1);
 }
 
-/* Year heatmap (P1 #1) */
+/* Year heatmap  */
 .year-heatmap-wrap {
   overflow-x: auto;
   padding-bottom: var(--space-1);
@@ -1012,7 +1012,7 @@ body {
   border-radius: 2px;
 }
 
-/* Weight trend chart (P1 #1) */
+/* Weight trend chart  */
 .stats-weight-chart {
   display: flex;
   flex-direction: column;
@@ -1039,7 +1039,7 @@ body {
   display: block;
 }
 
-/* ============ Meals head row (P2 #1 copy button) ============ */
+/* ============ Meals head row (copy button) ============ */
 .meals-head-row {
   display: flex;
   align-items: center;
@@ -1052,7 +1052,7 @@ body {
   margin: 0;
 }
 
-/* ============ Recent foods card (P2 #2 quick add) ============ */
+/* ============ Recent foods card (quick add) ============ */
 .recent-card {
   display: flex;
   flex-direction: column;
@@ -1135,7 +1135,7 @@ body {
   background-color: var(--color-primary-soft);
 }
 
-/* ============ Keyboard help overlay (P2 #3) ============ */
+/* ============ Keyboard help overlay ============ */
 .modal-help {
   max-width: 480px;
 }
@@ -1173,7 +1173,7 @@ body {
   color: var(--text-secondary);
 }
 
-/* ============ Streak & badges card (P3 #1) ============ */
+/* ============ Streak & badges card ============ */
 .streak-card {
   display: flex;
   flex-direction: column;

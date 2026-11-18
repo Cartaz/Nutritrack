@@ -51,8 +51,8 @@ export function renderRecipeViewerModal(recipeId: string): void {
     modalId: 'recipe-viewer',
     title: recipe.name,
     trustedBodyHtml: bodyHtml,
-    // Fix R10 (T4): aggiunto bottone "Modifica" per editare direttamente dal viewer
-    // P2 #1: aggiunto bottone "Copia" per esportare la ricetta come markdown
+    // aggiunto bottone "Modifica" per editare direttamente dal viewer
+    // aggiunto bottone "Copia" per esportare la ricetta come markdown
     actions: [
       { label: 'Chiudi', action: 'close', variant: 'outline' },
       { label: 'Copia', action: 'confirm', variant: 'outline', id: 'copy' },
@@ -60,12 +60,12 @@ export function renderRecipeViewerModal(recipeId: string): void {
       { label: 'Aggiungi al diario', action: 'confirm', variant: 'primary' },
     ],
     onConfirm: (el) => {
-      // P2 #1: se il bottone cliccato ha id 'copy', copia la ricetta e NON chiudere il modal
+      // se il bottone cliccato ha id 'copy', copia la ricetta e NON chiudere il modal
       if (el && el.dataset.modalIdAttr === 'copy') {
         void copyRecipeToClipboard(recipe);
         return false; // non chiudere
       }
-      // Fix R10: se il bottone cliccato ha id 'edit', apri l'editor invece di aggiungere al diario
+      // se il bottone cliccato ha id 'edit', apri l'editor invece di aggiungere al diario
       if (el && el.dataset.modalIdAttr === 'edit') {
         closeRecipeViewer();
         openRecipeEditor(recipe.id);

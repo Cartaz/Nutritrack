@@ -1,5 +1,4 @@
 // Azioni dominio: biometria giornaliera (acqua / sonno / peso).
-// P1 #3 Step 02 "Qualità della vita quotidiana".
 //
 // Tutto su localStorage nello stesso payload AppState.biometrics (vedi storage.ts).
 // Nessun backend, nessuna dipendenza esterna. Calcoli puri testabili.
@@ -175,13 +174,6 @@ export function computeWeightMovingAverage(points: WeightPoint[], windowDays = 7
   }
 
   return out;
-}
-
-/** Estrae il peso più recente registrato nell'intero dataset. */
-export function getLatestWeight(biometrics: Biometrics): WeightPoint | null {
-  const points = computeWeightTrend(biometrics);
-  if (points.length === 0) return null;
-  return points[points.length - 1];
 }
 
 /**

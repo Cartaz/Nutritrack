@@ -1,7 +1,6 @@
 // Copy-to-clipboard helpers: esportazione di diario e ricette in formato
 // markdown human-readable, copiabile su WhatsApp/Telegram/email per
 // condividere il piano alimentare con medico o amici.
-// P2 #1 Step 02 "Qualità della vita quotidiana".
 //
 // Niente dipendenze esterne: usa navigator.clipboard.writeText con
 // fallback a document.execCommand('copy') per browser/Safari vecchi.

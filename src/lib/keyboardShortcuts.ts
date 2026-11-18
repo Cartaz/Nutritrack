@@ -1,5 +1,4 @@
 // Keyboard shortcuts globali per uso desktop.
-// P2 #3 Step 02 "Qualità della vita quotidiana".
 //
 // Shortcut:
 //   /  → focus search (apre il search dialog sul dashboard, meal intelligente)

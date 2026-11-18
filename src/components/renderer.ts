@@ -1,5 +1,4 @@
 // Renderer principale: render() con RAF + code-splitting viste via dynamic import + event delegation globale.
-// Pattern 2 + 3 dello standard.
 
 import {
   getState,
@@ -10,7 +9,6 @@ import {
   closeDeleteFoodConfirm,
   closeDeleteRecipeConfirm,
   closeResetConfirm,
-  getStoreState,
 } from '../lib/store';
 import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
@@ -133,7 +131,7 @@ async function doRender(): Promise<void> {
     }
   } catch (e) {
     console.error('[renderer] errore render vista', state.currentView, e);
-    // Fix B15: check token prima di scrivere nel catch — se la vista è cambiata, non sovrascrivere
+    // check token prima di scrivere nel catch — se la vista è cambiata, non sovrascrivere
     if (myToken !== _renderToken) return;
     main.innerHTML = `<div class="view-error"><p>Errore caricamento vista.</p><button class="btn btn-outline" data-action="retryView">Riprova</button></div>`;
   }
@@ -205,7 +203,7 @@ function renderConfirmDeleteFood(): void {
   } else if (existing && _openConfirmDeleteFoodId === id) {
     return;
   }
-  const food = getStoreState().foods.find((f: FoodItem) => f.id === id);
+  const food = getState().foods.find((f: FoodItem) => f.id === id);
   if (!food) {
     cancelDeleteFood();
     return;
@@ -250,7 +248,7 @@ function renderConfirmDeleteRecipe(): void {
   } else if (existing && _openConfirmDeleteRecipeId === id) {
     return;
   }
-  const recipe = getStoreState().recipes.find((r: Recipe) => r.id === id);
+  const recipe = getState().recipes.find((r: Recipe) => r.id === id);
   if (!recipe) {
     cancelDeleteRecipe();
     return;
@@ -392,7 +390,7 @@ async function renderEntryEditor(): Promise<void> {
 }
 
 function renderRecipeMealPicker(): void {
-  const s = getStoreState();
+  const s = getState();
   const dialog = getActiveDialog();
   const id = dialog?.type === 'recipe-meal-picker' ? dialog.recipeId : null;
   const existing = document.querySelector('[data-modal-id="recipe-meal-picker"]');
@@ -492,12 +490,12 @@ export function applyTheme(theme: 'light' | 'dark' | 'system'): void {
 }
 
 export function applyInitialTheme(): void {
-  applyTheme(getStoreState().settings.theme);
+  applyTheme(getState().settings.theme);
 }
 
 if (typeof window !== 'undefined' && window.matchMedia) {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (getStoreState().settings.theme === 'system') {
+    if (getState().settings.theme === 'system') {
       applyTheme('system');
     }
   });

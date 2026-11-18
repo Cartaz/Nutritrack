@@ -1,6 +1,6 @@
 // Costanti applicazione: chiavi storage, API base, timeout, config.
 
-export const APP_NAME = 'nutritrack';
+const APP_NAME = 'nutritrack';
 
 /** Versione schema dati (bump su breaking changes per migrazione) */
 export const SCHEMA_VERSION = 1;
@@ -35,10 +35,6 @@ export const SEARCH_DEBOUNCE_MS = 500;
 /** Retry del dominio search dopo un fallimento transitorio (ms). */
 export const SEARCH_AUTO_RETRY_DELAY_MS = 800;
 
-/** Suffissi italiani da provare quando una query parziale ritorna 0 risultati.
- *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`). */
-export const PARTIAL_MATCH_SUFFIXES = ['e', 'i', 'a', 'o'] as const;
-
 /** Lunghezza minima query per avviare ricerca OFF */
 export const SEARCH_MIN_QUERY = 2;
 
@@ -59,6 +55,3 @@ export const WORKER_TIMEOUT_MS = 500;
 
 /** Limite guard per numero massimo entry diario (anti-abuso) */
 export const MAX_DIARY_ENTRIES_PER_DAY = 200;
-
-/** Limite massivo per strip dati non critici su QuotaExceededError */
-export const MAX_FOODS_BEFORE_PRUNE = 500;

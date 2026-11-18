@@ -58,7 +58,7 @@ export function safeImageUrl(url: unknown): string | undefined {
 }
 
 /** Parse YYYY-MM-DD -> Date timezone-safe (non usa new Date(isoString)).
- *  Fix B9: round-trip check — se la data normalizza a una diversa (es. 2024-13-45 -> 2025-02-14), ritorna NaN.
+ *  round-trip check — se la data normalizza a una diversa (es. 2024-13-45 -> 2025-02-14), ritorna NaN.
  *  Fix: richiede formato stretto \d{4}-\d{2}-\d{2} (niente single-digit). */
 export function parseISODateLocal(key: string): Date {
   if (typeof key !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(key)) {
@@ -78,7 +78,7 @@ export function parseISODateLocal(key: string): Date {
 }
 
 /** Date -> YYYY-MM-DD (locale)
- *  Fix LOW bug: pad year a 4 cifre per evitare date invalide (es. year 999 → "999-01-14")
+ *  pad year a 4 cifre per evitare date invalide (es. year 999 → "999-01-14")
  *  che falliscono la regex `/^\d{4}-\d{2}-\d{2}$/` in isValidDateKey e bloccano la navigazione
  *  silenziosamente. Scenario teorico (700k+ click < prev), ma fixato per robustezza. */
 export function toDateKey(d: Date): string {

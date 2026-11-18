@@ -136,7 +136,7 @@ export function renderDashboard(main: HTMLElement): void {
   bindDashboardEvents(main);
 }
 
-// ============ Biometrica card (P1 #3) ============
+// ============ Biometrica card ============
 
 /** Renderizza la card Biometrica: acqua (quick-add bicchieri), sonno, peso +
  *  mini sparkline SVG del trend peso degli ultimi 14 giorni con dato. */
@@ -278,7 +278,7 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-// ============ Recent foods card (P2 #2) ============
+// ============ Recent foods card ============
 
 /** Renderizza la card "Aggiunti di recente" con quick-add 1-click.
  *  Nascosta se non ci sono alimenti recenti (diario vuoto). */
@@ -314,7 +314,7 @@ function renderRecentFoodsCard(_state: ReturnType<typeof getState>): string {
   `;
 }
 
-// ============ Streak & badges card (P3 #1) ============
+// ============ Streak & badges card ============
 
 /** Renderizza la card gamification: streak corrente + badge sbloccabili.
  *  Card sempre visibile (anche con streak 0) per motivare l'utente. */
@@ -366,7 +366,7 @@ function renderStreakCard(): string {
   `;
 }
 
-// ============ Stats card con tab Settimana/Mese/Anno (P1 #1) ============
+// ============ Stats card con tab Settimana/Mese/Anno ============
 
 /** Renderizza la card Statistiche con 3 tab (Settimana/Mese/Anno) + trend peso SVG. */
 function renderStatsCard(state: ReturnType<typeof getState>): string {

@@ -1,7 +1,6 @@
 // Barcode scanner: native BarcodeDetector API (Chrome/Android) con fallback
 // dinamico a @zxing/library per Safari iOS dove BarcodeDetector non è disponibile.
 //
-// P0 #2 della roadmap hobbistica.
 //
 // Public contract:
 // - detectBarcodeFromVideo(stream, video, signal) → Promise<string | null>

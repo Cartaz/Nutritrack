@@ -1,5 +1,5 @@
 // Store observer minimale con RAF batching.
-// Pattern 1 dello standard: singolo oggetto state, Set<Listener>, emitChange su RAF.
+// singolo oggetto state, Set<Listener>, emitChange su RAF.
 // Anti-pattern rispettati: niente Proxy, niente librerie esterne, niente emit sincrono.
 
 import type {
@@ -22,7 +22,7 @@ import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
 import { MEAL_ORDER } from '../types';
 
 const state: AppState = {
-  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
+  // deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
   settings: { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } },
   foods: [],
   diary: {},
@@ -40,9 +40,6 @@ const listeners = new Set<() => void>();
 export function getState(): AppState {
   return state;
 }
-
-/** Alias per chiarezza semantica nei moduli UI (renderer, views) */
-export const getStoreState = getState;
 
 /**
  * Patch shallow riservata a hydration/persistence e test.
@@ -190,12 +187,8 @@ export function deleteFood(id: string): void {
   emitChange();
 }
 
-export function getFood(id: string): FoodItem | undefined {
-  return state.foods.find((f) => f.id === id);
-}
-
 export function toggleFavorite(id: string): void {
-  // Fix BUG #18 (T5): pulisci id stale che non corrispondono a nessun food salvato
+  // pulisci id stale che non corrispondono a nessun food salvato
   // (previene accumulo di id orfani da OFF food non salvati favoritati per errore)
   if (!state.foods.some((f) => f.id === id)) {
     // Food non esiste: rimuovi da preferiti se presente, non aggiungere
@@ -300,7 +293,7 @@ export function deleteDiaryEntry(id: string): void {
   const newDiary: DayDiary = {};
   for (const [date, entries] of Object.entries(state.diary)) {
     const filtered = entries.filter((e) => e.id !== id);
-    // Fix LOW bug: rimuovi le chiavi date con array vuoto, altrimenti rimangono in memoria
+    // rimuovi le chiavi date con array vuoto, altrimenti rimangono in memoria
     // come `diary[date] = []`. normalizeDayDiary le pulirebbe su rehydrate, ma in-memory
     // potrebbero causare over-count in futuri consumer che iterano Object.keys.
     if (filtered.length > 0) {
@@ -309,10 +302,6 @@ export function deleteDiaryEntry(id: string): void {
   }
   state.diary = newDiary;
   emitChange();
-}
-
-export function getDiaryForDate(date: string): DiaryEntry[] {
-  return state.diary[date] || [];
 }
 
 // ============ Recipes ============
@@ -361,16 +350,7 @@ export function deleteRecipe(id: string): void {
   emitChange();
 }
 
-export function getRecipe(id: string): Recipe | undefined {
-  return state.recipes.find((r) => r.id === id);
-}
-
-// ============ Biometrics (acqua / sonno / peso) — P1 #3 Step 02 ============
-
-/** Restituisce la biometrica di una data (oggetto vuoto se non registrata). */
-export function getBiometric(date: string): BiometricEntry {
-  return state.biometrics[date] ?? {};
-}
+// ============ Biometrics (acqua / sonno / peso) ============
 
 /** Patch parziale della biometrica di una data.
  *  Solo i campi ESPPLICITAMENTE presenti nel patch vengono toccati (usa `in`).
@@ -400,12 +380,6 @@ export function setBiometric(date: string, patch: Partial<BiometricEntry>): void
     next[date] = merged;
   }
   state.biometrics = next;
-  emitChange();
-}
-
-/** Sostituisce l'intera mappa biometrics (usato da loadData/reconcile/import). */
-export function setAllBiometrics(b: Biometrics): void {
-  state.biometrics = b;
   emitChange();
 }
 

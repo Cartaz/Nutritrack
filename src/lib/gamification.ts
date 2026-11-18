@@ -1,5 +1,4 @@
 // Gamification locale: streak giornaliero + badge sbloccabili.
-// P3 #1 Step 02 "Qualità della vita quotidiana".
 //
 // Niente social, niente condivisione, niente backend. Solo motivazione personale.
 // Tutto derivato dallo state esistente (diary + recipes + biometrics), nessuna

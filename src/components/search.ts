@@ -1,4 +1,4 @@
-// Search dialog: ricerca OFF con debounce + AbortController + keyboard nav.
+// Search dialog: ricerca OFF esplicita (pulsante Cerca / Invio) + AbortController + keyboard nav.
 // Tabs: Preferiti / Salvati / Cerca OFF.
 // Stato interno isolato (form state), emissione via store (open/close).
 //
@@ -15,7 +15,6 @@ import {
   searchFoods,
   type FoodSearchContinuation,
 } from '../lib/food-search';
-import { getItOverrideByBarcode } from '../lib/itOverride';
 import { getState, getActiveDialog, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
 import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood, saveOffFood } from '../lib/foods';
@@ -194,7 +193,7 @@ async function loadMoreResults(): Promise<void> {
 
 let _boundSearch = false;
 
-/** Annulla sia il trigger debounced sia l'eventuale richiesta OFF già partita. */
+/** Annulla l'eventuale richiesta OFF già partita. */
 function cancelSearchWork(): void {
   if (_searchState.abortController) {
     try {
@@ -500,17 +499,6 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
     _searchState.loading = false;
     emitChange();
     showToast(`${savedByBarcode.name} (tuo salvato)`, 'success', 2200);
-    return;
-  }
-
-  const itFood = getItOverrideByBarcode(barcode);
-  if (itFood) {
-    _searchState.results = [itFood];
-    _searchState.selectedId = itFood.id;
-    _searchState.gramsOverride = String(itFood.servingSize || 100);
-    _searchState.loading = false;
-    emitChange();
-    showToast(`${itFood.name} (DB italiano)`, 'success', 2200);
     return;
   }
 
