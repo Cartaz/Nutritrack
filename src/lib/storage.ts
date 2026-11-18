@@ -490,7 +490,7 @@ function migrationLoadError(decoded: Exclude<DecodedPersistedPayload, { ok: true
  */
 export function loadData(): boolean {
   if (!_storageOK) return false;
-  let raw: string | null = null;
+  let raw: string | null;
   let fromLegacyKey = false;
   try {
     raw = localStorage.getItem(STORAGE_KEY);
@@ -616,7 +616,7 @@ function disableAutoSave(): void {
  */
 function repairStalePhysicalSnapshot(rawRemote: string, remote: ParsedPersistedPayload): void {
   if (compareStamps(remote.stamp, _currentStamp) >= 0) return;
-  let currentRaw: string | null = null;
+  let currentRaw: string | null;
   try {
     currentRaw = localStorage.getItem(STORAGE_KEY);
   } catch {
@@ -697,7 +697,7 @@ export type ResetApplicationDataResult = { ok: true } | { ok: false; error: stri
  */
 export function resetApplicationData(): ResetApplicationDataResult {
   const beforeState: AppState = { ...getState() };
-  let previousRaw: string | null = null;
+  let previousRaw: string | null;
 
   try {
     previousRaw = localStorage.getItem(STORAGE_KEY);

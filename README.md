@@ -22,11 +22,11 @@ Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md).
 
 ## Stack
 
-Vite 8 · TypeScript strict · nessun framework UI (template HTML + event delegation) · vite-plugin-pwa (`injectManifest`, service worker Workbox in `src/sw.ts`) · Vitest + jsdom · GitHub Actions + GitHub Pages.
+Vite 8 · TypeScript 6 strict · nessun framework UI (template HTML + event delegation) · vite-plugin-pwa (`injectManifest`, service worker Workbox in `src/sw.ts`) · Vitest + jsdom · GitHub Actions + GitHub Pages.
 
 ## Requisiti
 
-Node **22.12 o successivo** (testato in CI su 22, 24 e 26). Il file `.nvmrc` indica la versione usata per la build.
+Node **22.22+, 24.15+ o 26+** (richiesto da ESLint 10 e jsdom 31; testato in CI su 22, 24 e 26). Il file `.nvmrc` indica la versione usata per la build.
 
 ## Sviluppo
 

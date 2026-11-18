@@ -26,6 +26,7 @@ Pulizia guidata da [ANALISI.md](ANALISI.md).
 - Statistiche calcolate direttamente (circa 1 ms per un anno di dati): rimosso il Web Worker, che costava di più solo per copiare i dati.
 - Conferme (import, chiusura della ricerca con modifiche, preset macro) e aiuto scorciatoie usano il modale dell'app invece di `confirm()` nativo e overlay ad hoc.
 - Rimossa logica duplicata: grammi delle voci di diario, porzioni personalizzate, totali delle ricette, conferme di eliminazione.
+- Toolchain: TypeScript 6, ESLint 10, Vitest 5, jsdom 31, vite-plugin-pwa 2; `npm audit` a zero vulnerabilità. TypeScript 7 resta escluso finché typescript-eslint non lo supporta.
 
 ## v1.2.0
 
