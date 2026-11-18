@@ -17,7 +17,7 @@ Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md).
 
 ### Ricerca su Open Food Facts
 
-- La ricerca testuale parte solo quando premi **Cerca** o Invio: una azione corrisponde a una richiesta. OFF limita le ricerche a 10 al minuto per IP; l'app si ferma a 9 e, se le superi, te lo dice.
+- La ricerca testuale parte solo quando premi **Cerca** o Invio, sia nel dialog "Aggiungi al diario" sia nella ricerca ingredienti delle ricette: una azione corrisponde a una richiesta, filtrata sui prodotti venduti in Italia. OFF limita le ricerche a 10 al minuto per IP; l'app si ferma a 9 e, se le superi, te lo dice.
 - La ricerca testuale non ha retry automatici. Il lookup per barcode prova più istanze OFF, con un retry per istanza sugli errori temporanei.
 
 ## Stack
@@ -61,9 +61,8 @@ src/
 │   ├── nutrition.ts   #   calcoli nutrizionali, TDEE, obiettivi
 │   ├── statistics.ts  #   aggregazioni per le statistiche
 │   └── ...            #   diario, alimenti, ricette, biometria, gamification, clipboard, ...
-├── components/        # renderer, modali, ricerca, scanner, toast, export/import
+├── components/        # renderer, modali, sessione di ricerca condivisa, scanner, toast, export/import
 ├── views/             # viste (dashboard, alimenti, ricette, impostazioni) ed editor
-├── worker/            # web worker per le statistiche
 └── styles/main.css
 test/                  # test Vitest (jsdom)
 docs/                  # semantica della sync tra tab, policy degli obiettivi, roadmap

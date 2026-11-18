@@ -1,8 +1,8 @@
-// Vista Dashboard: diario giornaliero con macro ring + bar + meal cards + riepilogo settimana via worker.
+// Vista Dashboard: diario giornaliero con macro ring + bar + meal cards + statistiche settimana/mese/anno.
 
-import { getState, openFoodSearch, setCurrentDate, emitChange, openEntryEditor } from '../lib/store';
+import { getState, openFoodSearch, setCurrentDate, emitViewChange, openEntryEditor } from '../lib/store';
 import { removeDiaryEntry, changeEntryQuantity } from '../lib/diary';
-import { calcMacroGrams, scaleNutrition, sumNutrition } from '../lib/nutrition';
+import { calcMacroGrams, entryNutrition, sumNutrition } from '../lib/nutrition';
 import {
   escapeHtml,
   escapeAttr,
@@ -42,10 +42,7 @@ export function renderDashboard(main: HTMLElement): void {
   const macroGrams = calcMacroGrams(state.settings.calorieGoal, state.settings.macroSplit);
 
   // Totale giornata
-  const nutritions = diary.map((e) => {
-    const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-    return scaleNutrition(e.foodSnapshot.nutrition, grams);
-  });
+  const nutritions = diary.map(entryNutrition);
   const totals = sumNutrition(nutritions);
 
   // Totali per meal
@@ -56,8 +53,7 @@ export function renderDashboard(main: HTMLElement): void {
     snack: { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
   };
   for (const e of diary) {
-    const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-    const n = scaleNutrition(e.foodSnapshot.nutrition, grams);
+    const n = entryNutrition(e);
     byMeal[e.meal].calories += n.calories;
     byMeal[e.meal].protein += n.protein;
     byMeal[e.meal].carbs += n.carbs;
@@ -404,9 +400,6 @@ function renderStatsCard(state: ReturnType<typeof getState>): string {
 /** Tab Settimana: 7 barre verticali (comportamento originale). */
 function renderWeekTab(state: ReturnType<typeof getState>): string {
   const stats = getDashboardStats('week', state.diary, state.currentDate);
-  if (!stats) {
-    return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
-  }
   const bars = stats.days
     .map((d) => {
       const ratio = state.settings.calorieGoal > 0 ? Math.min(d.calories / state.settings.calorieGoal, 1.2) : 0;
@@ -435,9 +428,6 @@ function renderWeekTab(state: ReturnType<typeof getState>): string {
 /** Tab Mese: 30 barre verticali più compatte. */
 function renderMonthTab(state: ReturnType<typeof getState>): string {
   const stats = getDashboardStats('month', state.diary, state.currentDate);
-  if (!stats) {
-    return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
-  }
   const maxCal = Math.max(1, ...stats.days.map((d) => d.calories));
   const bars = stats.days
     .map((d) => {
@@ -463,9 +453,6 @@ function renderMonthTab(state: ReturnType<typeof getState>): string {
 /** Tab Anno: heatmap 365 giorni stile GitHub contribution graph. */
 function renderYearTab(state: ReturnType<typeof getState>): string {
   const stats = getDashboardStats('year', state.diary, state.currentDate);
-  if (!stats) {
-    return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
-  }
   const goal = state.settings.calorieGoal;
   const calMap = new Map<string, number>();
   for (const d of stats.days) calMap.set(d.date, d.calories);
@@ -609,8 +596,7 @@ function libraryImage(e: DiaryEntry): string | undefined {
 }
 
 function entryRow(e: DiaryEntry): string {
-  const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-  const n = scaleNutrition(e.foodSnapshot.nutrition, grams);
+  const n = entryNutrition(e);
   const qtyControl = !e.gramsOverride
     ? `
       <div class="qty-control">
@@ -741,7 +727,7 @@ function bindDashboardEvents(main: HTMLElement): void {
       const tab = target.dataset.tab as StatsTab | undefined;
       if (tab && (tab === 'week' || tab === 'month' || tab === 'year')) {
         setStatsTab(tab);
-        emitChange();
+        emitViewChange();
       }
       return;
     }

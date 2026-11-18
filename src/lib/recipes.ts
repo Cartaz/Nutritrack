@@ -14,7 +14,3 @@ export function confirmDeleteRecipe(): void {
   closeDeleteRecipeConfirm();
   showToast('Ricetta eliminata', 'success');
 }
-
-export function cancelDeleteRecipe(): void {
-  closeDeleteRecipeConfirm();
-}

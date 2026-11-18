@@ -30,7 +30,7 @@ import {
   MEAL_ORDER,
 } from '../types';
 import { safeId, safeImageUrl, safeNum, isValidDateKey } from './utils';
-import { DEFAULT_SETTINGS, normalizeMacroSplit as normalizeMacroSplitRescale } from './nutrition';
+import { DEFAULT_SETTINGS, normalizeMacroSplit } from './nutrition';
 
 const ALLOWED_MEALS: readonly MealType[] = MEAL_ORDER;
 
@@ -120,12 +120,12 @@ export function normalizeWeightGoal(v: unknown): WeightGoalType {
 /** Normalizza macro split DA INPUT ESTERNO (localStorage, import JSON).
  *  delega a nutrition.normalizeMacroSplit per garantire sum=100 SEMPRE.
  *  Prima questa versione faceva solo clamp [0,100] senza rescale → target macro sbagliati dopo import. */
-export function normalizeMacroSplit(v: unknown): MacroSplit {
-  if (!isObject(v)) return normalizeMacroSplitRescale({ proteinPct: 30, carbsPct: 40, fatPct: 30 });
+export function normalizeMacroSplitInput(v: unknown): MacroSplit {
+  if (!isObject(v)) return normalizeMacroSplit({ proteinPct: 30, carbsPct: 40, fatPct: 30 });
   const proteinPct = safeNum(v.proteinPct, 30, 0, 100);
   const carbsPct = safeNum(v.carbsPct, 40, 0, 100);
   const fatPct = safeNum(v.fatPct, 30, 0, 100);
-  return normalizeMacroSplitRescale({ proteinPct, carbsPct, fatPct });
+  return normalizeMacroSplit({ proteinPct, carbsPct, fatPct });
 }
 
 export function normalizeNutrition(v: unknown): NutritionPer100 | null {
@@ -337,7 +337,7 @@ export function normalizeBiometrics(v: unknown): Biometrics {
 export function normalizeUserSettings(v: unknown): UserSettings {
   if (!isObject(v)) return { ...DEFAULT_SETTINGS };
   const calorieGoal = safeNum(v.calorieGoal, DEFAULT_SETTINGS.calorieGoal, 500, 10_000);
-  const macroSplit = normalizeMacroSplit(v.macroSplit);
+  const macroSplit = normalizeMacroSplitInput(v.macroSplit);
   const theme = normalizeTheme(v.theme);
   const weightGoalType = normalizeWeightGoal(v.weightGoalType);
   return {

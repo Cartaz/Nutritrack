@@ -98,12 +98,11 @@ jobs:
           grep -l 'pwa-register' dist/assets/index-*.js > /dev/null
           ls dist/assets/virtual_pwa-register-*.js > /dev/null
 
-          # Preserve intentional view/worker/API code splitting after the Vite 8 migration.
+          # Preserve intentional view/API code splitting after the Vite 8 migration.
           ls dist/assets/dashboard-*.js > /dev/null
           ls dist/assets/foods-*.js > /dev/null
           ls dist/assets/recipes-*.js > /dev/null
           ls dist/assets/settings-*.js > /dev/null
-          ls dist/assets/stats.worker-*.js > /dev/null
           ls dist/assets/api-*.js > /dev/null
           echo 'PWA/offline build contract OK'
 

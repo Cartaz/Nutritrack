@@ -10,13 +10,13 @@ import {
   isRecipeEditorOpen,
 } from '../lib/store';
 import { showToast } from '../components/toast';
-import { showModal, closeModalById } from '../components/modal';
-import { escapeHtml, escapeAttr, safeId, debounce, round } from '../lib/utils';
+import { showModal, closeModalById, isModalOpen } from '../components/modal';
+import { escapeHtml, escapeAttr, safeId, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
-import { foodSearchErrorMessage, searchFoods } from '../lib/food-search';
+import { FoodSearchSession } from '../components/foodSearchSession';
 import { saveOffFood } from '../lib/foods';
 import { imgTag } from '../components/img';
-import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../lib/constants';
+import { SEARCH_MIN_QUERY } from '../lib/constants';
 import type { FoodItem, Recipe, RecipeIngredient } from '../types';
 
 interface EditorState {
@@ -26,10 +26,6 @@ interface EditorState {
   ingredients: RecipeIngredient[];
   searchOpen: boolean;
   searchTab: 'favorites' | 'saved' | 'search';
-  searchQuery: string;
-  searchLoading: boolean;
-  searchResults: FoodItem[];
-  searchAbort: AbortController | null;
 }
 
 const _recipeEditorState: EditorState = {
@@ -39,13 +35,15 @@ const _recipeEditorState: EditorState = {
   ingredients: [],
   searchOpen: false,
   searchTab: 'favorites',
-  searchQuery: '',
-  searchLoading: false,
-  searchResults: [],
-  searchAbort: null,
 };
 
 let _recipeEditorBound = false;
+
+/** Ricerca ingredienti: stessa sessione/politica del dialog "Aggiungi al diario". */
+const _subSession = new FoodSearchSession(
+  () => updateSubSearchList(),
+  () => _recipeEditorState.searchOpen,
+);
 let _recipeEditBaseline: string | null = null;
 
 function resetRecipeEditorState(): void {
@@ -57,10 +55,6 @@ function resetRecipeEditorState(): void {
     ingredients: [],
     searchOpen: false,
     searchTab: 'favorites',
-    searchQuery: '',
-    searchLoading: false,
-    searchResults: [],
-    searchAbort: null,
   });
 }
 
@@ -155,14 +149,7 @@ export function renderRecipeEditorModal(recipeId: string | null): void {
 }
 
 function renderEditorBody(): string {
-  const totals = computeTotals(_recipeEditorState.ingredients);
-  const servings = Number(_recipeEditorState.servings) || 1;
-  const per = {
-    calories: servings > 0 ? round(totals.calories / servings, 1) : 0,
-    protein: servings > 0 ? round(totals.protein / servings, 1) : 0,
-    carbs: servings > 0 ? round(totals.carbs / servings, 1) : 0,
-    fat: servings > 0 ? round(totals.fat / servings, 1) : 0,
-  };
+  const { totals, per, servings } = recipeTotals();
   const ingsHtml =
     _recipeEditorState.ingredients.length === 0
       ? `<div class="empty-block">Nessun ingrediente. Clicca "Aggiungi ingrediente" per cercare su Open Food Facts, usare un alimento salvato o crearne uno custom.</div>`
@@ -192,21 +179,11 @@ function renderEditorBody(): string {
       <div class="totals-grid">
         <div class="totals-block muted">
           <p class="totals-label">Totale ricetta</p>
-          <div class="stat-row">
-            ${renderMacroBox('kcal', String(Math.round(totals.calories)))}
-            ${renderMacroBox('P', `${round(totals.protein, 1)}g`)}
-            ${renderMacroBox('C', `${round(totals.carbs, 1)}g`)}
-            ${renderMacroBox('G', `${round(totals.fat, 1)}g`)}
-          </div>
+          <div class="stat-row">${renderMacroRow(totals)}</div>
         </div>
         <div class="totals-block highlight">
           <p class="totals-label">Per porzione (${servings} porz.)</p>
-          <div class="stat-row">
-            ${renderMacroBox('kcal', String(Math.round(per.calories)), true)}
-            ${renderMacroBox('P', `${per.protein}g`, true)}
-            ${renderMacroBox('C', `${per.carbs}g`, true)}
-            ${renderMacroBox('G', `${per.fat}g`, true)}
-          </div>
+          <div class="stat-row">${renderMacroRow(per, true)}</div>
         </div>
       </div>
     </div>
@@ -236,9 +213,48 @@ function renderMacroBox(label: string, value: string, highlight = false): string
   return `<div class="stat-box${highlight ? ' highlight' : ''}"><p class="stat-label">${escapeHtml(label)}</p><p class="stat-value">${escapeHtml(value)}</p></div>`;
 }
 
-function computeTotals(ingredients: RecipeIngredient[]) {
-  const nutritions = ingredients.map((ing) => scaleNutrition(ing.foodSnapshot.nutrition, ing.grams));
-  return sumNutrition(nutritions);
+type MacroTotals = { calories: number; protein: number; carbs: number; fat: number };
+
+/** Totali della ricetta in bozza e valori per porzione: unico calcolo per render e aggiornamenti live. */
+function recipeTotals(): { totals: MacroTotals; per: MacroTotals; servings: number } {
+  const totals = sumNutrition(
+    _recipeEditorState.ingredients.map((ing) => scaleNutrition(ing.foodSnapshot.nutrition, ing.grams)),
+  );
+  const servings = Number(_recipeEditorState.servings) || 1;
+  const perServing = (value: number): number => round(value / servings, 1);
+  return {
+    totals,
+    per: {
+      calories: perServing(totals.calories),
+      protein: perServing(totals.protein),
+      carbs: perServing(totals.carbs),
+      fat: perServing(totals.fat),
+    },
+    servings,
+  };
+}
+
+function renderMacroRow(n: MacroTotals, highlight = false): string {
+  return `
+    ${renderMacroBox('kcal', String(Math.round(n.calories)), highlight)}
+    ${renderMacroBox('P', `${round(n.protein, 1)}g`, highlight)}
+    ${renderMacroBox('C', `${round(n.carbs, 1)}g`, highlight)}
+    ${renderMacroBox('G', `${round(n.fat, 1)}g`, highlight)}
+  `;
+}
+
+/** Aggiorna i blocchi dei totali senza ricostruire il form (preserva focus e cursore). */
+function updateTotalsLive(): void {
+  const overlay = document.querySelector('[data-modal-id="recipe-editor"]');
+  if (!overlay) return;
+  const { totals, per, servings } = recipeTotals();
+  const [totalBlock, perBlock] = Array.from(overlay.querySelectorAll('.totals-block'));
+  const totalRow = totalBlock?.querySelector('.stat-row');
+  if (totalRow) totalRow.innerHTML = renderMacroRow(totals);
+  const perRow = perBlock?.querySelector('.stat-row');
+  if (perRow) perRow.innerHTML = renderMacroRow(per, true);
+  const perLabel = perBlock?.querySelector('.totals-label');
+  if (perLabel) perLabel.textContent = `Per porzione (${servings} porz.)`;
 }
 
 // ============ Sub-dialog: ingredient search ============
@@ -251,9 +267,7 @@ function openSubSearch(): void {
   _recipeEditorState.searchOpen = true;
   _recipeEditorState.searchTab =
     state.favoriteFoodIds.length > 0 ? 'favorites' : state.foods.length > 0 ? 'saved' : 'search';
-  _recipeEditorState.searchQuery = '';
-  _recipeEditorState.searchResults = [];
-  _recipeEditorState.searchLoading = false;
+  _subSession.reset();
 
   const overlay: HTMLElement = showModal({
     modalId: 'recipe-search-sub',
@@ -315,15 +329,17 @@ function updateSubSearchContent(): void {
     const hasContent = boxEl.children.length > 0;
     if (shouldShow && !hasContent) {
       boxEl.innerHTML = `
-        <div class="search-box">
-          <span class="search-icon">🔍</span>
-          <input id="re-search-input" type="search" placeholder="Cerca su Open Food Facts…" autocomplete="off" />
+        <div class="search-row">
+          <div class="search-box">
+            <span class="search-icon" aria-hidden="true">🔍</span>
+            <input id="re-search-input" type="search" placeholder="Cerca su Open Food Facts…" autocomplete="off" />
+          </div>
+          <button type="button" class="btn btn-primary" data-re-action="run-search">Cerca</button>
         </div>
       `;
-      setTimeout(() => {
-        const inp = boxEl.querySelector<HTMLInputElement>('#re-search-input');
-        if (inp) inp.focus();
-      }, 0);
+      const inp = boxEl.querySelector<HTMLInputElement>('#re-search-input');
+      if (inp) inp.value = _subSession.query;
+      setTimeout(() => inp?.focus(), 0);
     } else if (!shouldShow && hasContent) {
       boxEl.innerHTML = '';
     }
@@ -341,12 +357,25 @@ function updateSubSearchList(): void {
       ? favorites
       : _recipeEditorState.searchTab === 'saved'
         ? state.foods
-        : _recipeEditorState.searchResults;
-  const listHtml = _recipeEditorState.searchLoading
-    ? `<div class="search-loading"><span class="spinner"></span> Ricerca…</div>`
-    : list.length === 0
-      ? `<div class="search-empty">${_recipeEditorState.searchTab === 'search' ? 'Inizia a cercare un prodotto reale.' : 'Nessun alimento qui.'}</div>`
-      : `<div class="search-list">${list.map((f) => renderIngredientRow(f)).join('')}</div>`;
+        : _subSession.results;
+  const inSearch = _recipeEditorState.searchTab === 'search';
+  const emptyHint = !inSearch
+    ? 'Nessun alimento qui.'
+    : _subSession.query.trim().length < SEARCH_MIN_QUERY
+      ? 'Scrivi il nome di un prodotto e premi Cerca.'
+      : _subSession.searched
+        ? 'Nessun risultato. Prova con un altro termine.'
+        : 'Premi Cerca o Invio per interrogare Open Food Facts.';
+  const loadMore =
+    inSearch && _subSession.canLoadMore
+      ? `<div class="search-load-more"><button type="button" class="btn btn-outline btn-sm btn-block" data-re-action="load-more">Carica altri risultati${_subSession.remainingCount > 0 ? ` (${_subSession.remainingCount} restanti)` : ''}</button></div>`
+      : '';
+  const listHtml =
+    inSearch && _subSession.loading
+      ? `<div class="search-loading"><span class="spinner" aria-hidden="true"></span> Ricerca…</div>`
+      : list.length === 0
+        ? `<div class="search-empty">${escapeHtml(emptyHint)}</div>`
+        : `<div class="search-list">${list.map((f) => renderIngredientRow(f)).join('')}</div>${loadMore}`;
   const listEl = _subOverlay.querySelector<HTMLElement>('[data-sub-zone="list"]');
   if (listEl) listEl.innerHTML = listHtml;
 }
@@ -387,115 +416,11 @@ function updateIngRowLive(ingId: string): void {
     }
   }
 
-  const totals = computeTotals(_recipeEditorState.ingredients);
-  const servings = Number(_recipeEditorState.servings) || 1;
-  const per = {
-    calories: servings > 0 ? round(totals.calories / servings, 1) : 0,
-    protein: servings > 0 ? round(totals.protein / servings, 1) : 0,
-    carbs: servings > 0 ? round(totals.carbs / servings, 1) : 0,
-    fat: servings > 0 ? round(totals.fat / servings, 1) : 0,
-  };
-  const totalsBlocks = overlay.querySelectorAll('.totals-block');
-  if (totalsBlocks.length >= 2) {
-    const totalRow = totalsBlocks[0].querySelector('.stat-row');
-    const perRow = totalsBlocks[1].querySelector('.stat-row');
-    if (totalRow) {
-      totalRow.innerHTML = `
-        ${renderMacroBox('kcal', String(Math.round(totals.calories)))}
-        ${renderMacroBox('P', `${round(totals.protein, 1)}g`)}
-        ${renderMacroBox('C', `${round(totals.carbs, 1)}g`)}
-        ${renderMacroBox('G', `${round(totals.fat, 1)}g`)}
-      `;
-    }
-    if (perRow) {
-      perRow.innerHTML = `
-        ${renderMacroBox('kcal', String(Math.round(per.calories)), true)}
-        ${renderMacroBox('P', `${per.protein}g`, true)}
-        ${renderMacroBox('C', `${per.carbs}g`, true)}
-        ${renderMacroBox('G', `${per.fat}g`, true)}
-      `;
-    }
-    const perLabel = totalsBlocks[1].querySelector('.totals-label');
-    if (perLabel) perLabel.textContent = `Per porzione (${servings} porz.)`;
-  }
+  updateTotalsLive();
 }
-
-function updatePerServingLive(): void {
-  const overlay = document.querySelector('[data-modal-id="recipe-editor"]');
-  if (!overlay) return;
-  const totals = computeTotals(_recipeEditorState.ingredients);
-  const servings = Number(_recipeEditorState.servings) || 1;
-  const per = {
-    calories: servings > 0 ? round(totals.calories / servings, 1) : 0,
-    protein: servings > 0 ? round(totals.protein / servings, 1) : 0,
-    carbs: servings > 0 ? round(totals.carbs / servings, 1) : 0,
-    fat: servings > 0 ? round(totals.fat / servings, 1) : 0,
-  };
-  const totalsBlocks = overlay.querySelectorAll('.totals-block');
-  const perBlock = totalsBlocks[1];
-  if (!perBlock) return;
-  const perLabel = perBlock.querySelector('.totals-label');
-  if (perLabel) perLabel.textContent = `Per porzione (${servings} porz.)`;
-  const perRow = perBlock.querySelector('.stat-row');
-  if (perRow) {
-    perRow.innerHTML = `
-      ${renderMacroBox('kcal', String(Math.round(per.calories)), true)}
-      ${renderMacroBox('P', `${per.protein}g`, true)}
-      ${renderMacroBox('C', `${per.carbs}g`, true)}
-      ${renderMacroBox('G', `${per.fat}g`, true)}
-    `;
-  }
-}
-
-async function executeSubSearch(query: string): Promise<void> {
-  if (!_recipeEditorState.searchOpen) return;
-  if (query.trim().length < SEARCH_MIN_QUERY) {
-    _recipeEditorState.searchResults = [];
-    _recipeEditorState.searchLoading = false;
-    updateSubSearchList();
-    return;
-  }
-  if (_recipeEditorState.searchAbort) {
-    try {
-      _recipeEditorState.searchAbort.abort();
-    } catch {
-      /* noop */
-    }
-  }
-  const ctrl = new AbortController();
-  _recipeEditorState.searchAbort = ctrl;
-  try {
-    const data = await searchFoods(query, { signal: ctrl.signal });
-    if (ctrl.signal.aborted || !_recipeEditorState.searchOpen || query !== _recipeEditorState.searchQuery) return;
-    _recipeEditorState.searchResults = data.foods;
-  } catch (e) {
-    if (ctrl.signal.aborted || !_recipeEditorState.searchOpen || query !== _recipeEditorState.searchQuery) return;
-    showToast(foodSearchErrorMessage(e, 'search'), 'error', 5000);
-    _recipeEditorState.searchResults = [];
-  } finally {
-    if (_recipeEditorState.searchAbort === ctrl) {
-      _recipeEditorState.searchAbort = null;
-      _recipeEditorState.searchLoading = false;
-      updateSubSearchList();
-    }
-  }
-}
-
-const scheduleSubSearch = debounce((query: string) => {
-  void executeSubSearch(query);
-}, SEARCH_DEBOUNCE_MS);
 
 function cancelSubSearchWork(): void {
-  scheduleSubSearch.cancel();
-  if (_recipeEditorState.searchAbort) {
-    try {
-      _recipeEditorState.searchAbort.abort();
-    } catch {
-      /* noop */
-    }
-    _recipeEditorState.searchAbort = null;
-  }
-  _recipeEditorState.searchLoading = false;
+  _subSession.cancel();
 }
 
 function bindRecipeEditorModalEvents(): void {
@@ -515,7 +440,7 @@ function bindRecipeEditorModalEvents(): void {
     }
     if (t.id === 're-servings') {
       _recipeEditorState.servings = (t as HTMLInputElement).value;
-      updatePerServingLive();
+      updateTotalsLive();
       return;
     }
     if (t.dataset.reAction === 'ing-grams') {
@@ -531,17 +456,15 @@ function bindRecipeEditorModalEvents(): void {
       return;
     }
     if (t.id === 're-search-input') {
-      _recipeEditorState.searchQuery = (t as HTMLInputElement).value;
-      cancelSubSearchWork();
-      if (_recipeEditorState.searchQuery.trim().length < SEARCH_MIN_QUERY) {
-        _recipeEditorState.searchResults = [];
-        updateSubSearchList();
-        return;
-      }
-      _recipeEditorState.searchLoading = true;
+      _subSession.setQuery((t as HTMLInputElement).value);
       updateSubSearchList();
-      scheduleSubSearch(_recipeEditorState.searchQuery);
     }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || (e.target as HTMLElement).id !== 're-search-input') return;
+    e.preventDefault();
+    _subSession.run();
   });
 
   document.addEventListener('click', (e) => {
@@ -553,16 +476,22 @@ function bindRecipeEditorModalEvents(): void {
 
     if (action === 'open-search') {
       // Una sotto-ricerca in chiusura (fade-out) non conta come aperta.
-      const live = _subOverlay?.isConnected && _subOverlay.classList.contains('modal-show');
-      if (!live) openSubSearch();
+      if (!isModalOpen(_subOverlay)) openSubSearch();
+      return;
+    }
+    if (action === 'run-search') {
+      _subSession.run();
+      return;
+    }
+    if (action === 'load-more') {
+      _subSession.loadMore();
       return;
     }
     if (action === 'search-tab') {
       const newTab = target.dataset.tab as 'favorites' | 'saved' | 'search';
       if (newTab === _recipeEditorState.searchTab) return;
       if (_recipeEditorState.searchTab === 'search' && newTab !== 'search') {
-        cancelSubSearchWork();
-        _recipeEditorState.searchResults = [];
+        _subSession.setQuery(_subSession.query);
       }
       _recipeEditorState.searchTab = newTab;
       updateSubSearchContent();
@@ -571,7 +500,7 @@ function bindRecipeEditorModalEvents(): void {
     if (action === 'search-pick') {
       const id = target.dataset.foodId || '';
       const state = getState();
-      const all = [...state.foods, ..._recipeEditorState.searchResults];
+      const all = [...state.foods, ..._subSession.results];
       const f = all.find((x) => x.id === id);
       if (f) {
         // Un risultato OFF entra nella libreria solo quando la ricetta viene salvata (handleSave):

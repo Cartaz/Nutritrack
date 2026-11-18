@@ -2,6 +2,7 @@
 
 import {
   KCAL_PER_GRAM,
+  type DiaryEntry,
   type MacroSplit,
   type NutritionPer100,
   type Sex,
@@ -47,6 +48,18 @@ export function scaleNutrition(n: NutritionPer100, grams: number): NutritionPer1
     sugar: n.sugar != null ? round(n.sugar * factor, 1) : undefined,
     salt: n.salt != null ? round(n.salt * factor, 1) : undefined,
   };
+}
+
+/** Grammi effettivi di una voce di diario: override esplicito, altrimenti porzioni × porzione. */
+export function entryGrams(entry: Pick<DiaryEntry, 'gramsOverride' | 'quantity' | 'foodSnapshot'>): number {
+  return entry.gramsOverride ?? entry.foodSnapshot.servingSize * entry.quantity;
+}
+
+/** Valori nutrizionali effettivi di una voce di diario. */
+export function entryNutrition(
+  entry: Pick<DiaryEntry, 'gramsOverride' | 'quantity' | 'foodSnapshot'>,
+): NutritionPer100 {
+  return scaleNutrition(entry.foodSnapshot.nutrition, entryGrams(entry));
 }
 
 /** Somma una lista di NutritionPer100 */

@@ -3,6 +3,7 @@
 
 import { exportDataJson, importDataJson } from '../lib/storage';
 import { showToast } from './toast';
+import { confirmAction } from './modal';
 
 /** Limite massimo file import (50MB) per evitare freeze UI su JSON.parse. */
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -35,16 +36,18 @@ export function handleImport(file: File): void {
     return;
   }
 
-  // chiedi conferma prima di sovrascrivere dati esistenti
-  // (importDataJson fa replace completo dello state + localStorage)
-  if (
-    !confirm(
-      "L'importazione sostituirà tutti i dati attuali (alimenti, ricette, diario, impostazioni). Vuoi continuare?",
-    )
-  ) {
-    return;
-  }
+  // L'import sostituisce tutto lo stato: serve una conferma esplicita.
+  void confirmAction({
+    title: 'Importare il backup?',
+    body: "L'importazione sostituirà tutti i dati attuali (alimenti, ricette, diario, impostazioni).",
+    confirmLabel: 'Importa',
+    danger: true,
+  }).then((confirmed) => {
+    if (confirmed) readAndImport(file);
+  });
+}
 
+function readAndImport(file: File): void {
   const reader = new FileReader();
   reader.onload = () => {
     const result = importDataJson(String(reader.result || ''));

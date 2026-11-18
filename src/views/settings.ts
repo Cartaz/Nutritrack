@@ -1,6 +1,13 @@
 // Vista Settings: calorie goal, macro split, TDEE calculator, export/import, reset, about.
 
-import { getState, setCalorieGoal, setMacroSplit, updateSettings, openResetConfirm, emitChange } from '../lib/store';
+import {
+  getState,
+  setCalorieGoal,
+  setMacroSplit,
+  updateSettings,
+  openResetConfirm,
+  emitViewChange,
+} from '../lib/store';
 import {
   calcMacroGrams,
   calcBMR,
@@ -15,6 +22,7 @@ import type { EstimatedGoalCalories, AutomaticCalorieGoalAssessment } from '../l
 import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
 import { handleExport, handleImport } from '../components/exportImport';
 import { showToast } from '../components/toast';
+import { confirmAction } from '../components/modal';
 import { applyTheme } from '../components/renderer';
 import { MACRO_PRESETS, ACTIVITY_LABELS, WEIGHT_GOAL_LABELS, MAX_WEEKLY_KG_RATE } from '../types';
 import type { MacroSplit, Theme, Sex, ActivityLevel, WeightGoalType } from '../types';
@@ -504,21 +512,28 @@ function bindSettingsEvents(main: HTMLElement): void {
       const id = target.dataset.presetId;
       const preset = MACRO_PRESETS.find((p) => p.id === id);
       if (preset) {
-        if (_pendingMacroSplit) {
-          const current = getState().settings.macroSplit;
-          const hasCustomMods =
-            _pendingMacroSplit.proteinPct !== current.proteinPct ||
+        const applyPreset = (): void => {
+          _pendingMacroSplit = { ...preset.split };
+          showToast(`Preset "${preset.name}" applicato. Clicca "Salva split macro" per confermare.`, 'info', 3500);
+          emitViewChange();
+        };
+        const current = getState().settings.macroSplit;
+        const hasCustomMods =
+          !!_pendingMacroSplit &&
+          (_pendingMacroSplit.proteinPct !== current.proteinPct ||
             _pendingMacroSplit.carbsPct !== current.carbsPct ||
-            _pendingMacroSplit.fatPct !== current.fatPct;
-          if (hasCustomMods) {
-            if (!confirm('Hai modifiche allo split macro non salvate. Sovrascrivere con il preset?')) {
-              return;
-            }
-          }
+            _pendingMacroSplit.fatPct !== current.fatPct);
+        if (!hasCustomMods) {
+          applyPreset();
+          return;
         }
-        _pendingMacroSplit = { ...preset.split };
-        showToast(`Preset "${preset.name}" applicato. Clicca "Salva split macro" per confermare.`, 'info', 3500);
-        emitChange();
+        void confirmAction({
+          title: 'Sovrascrivere lo split macro?',
+          body: 'Hai modifiche allo split macro non salvate. Applicando il preset andranno perse.',
+          confirmLabel: 'Applica preset',
+        }).then((confirmed) => {
+          if (confirmed) applyPreset();
+        });
       }
       return;
     }

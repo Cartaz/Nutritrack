@@ -9,6 +9,7 @@ import {
   closeDeleteFoodConfirm,
   closeDeleteRecipeConfirm,
   closeResetConfirm,
+  getViewRevision,
 } from '../lib/store';
 import { renderHeader, renderBottomNav } from './header';
 import { initImageFallback } from './imageFallback';
@@ -18,8 +19,8 @@ import { showModal, closeModalById } from './modal';
 import { escapeHtml, escapeAttr, formatDateIT } from '../lib/utils';
 import type { AppDialog, ViewName, FoodItem, Recipe } from '../types';
 import { MEAL_LABELS } from '../types';
-import { confirmDeleteFood, cancelDeleteFood } from '../lib/foods';
-import { confirmDeleteRecipe, cancelDeleteRecipe } from '../lib/recipes';
+import { confirmDeleteFood } from '../lib/foods';
+import { confirmDeleteRecipe } from '../lib/recipes';
 import { addRecipeToDiary } from '../lib/diary';
 import { resetApplicationData } from '../lib/storage';
 
@@ -28,6 +29,23 @@ let _appEl: HTMLElement | null = null;
 let _rafScheduled = false;
 let _renderToken = 0;
 let _eventsBound = false;
+let _lastViewKey: readonly unknown[] | null = null;
+
+/** Tutto ciò da cui dipende il contenuto delle viste (le slice dello store sono immutabili). */
+function viewRenderKey(): readonly unknown[] {
+  const s = getState();
+  return [
+    s.currentView,
+    s.currentDate,
+    s.settings,
+    s.foods,
+    s.diary,
+    s.recipes,
+    s.favoriteFoodIds,
+    s.biometrics,
+    getViewRevision(),
+  ];
+}
 
 export function getMain(): HTMLElement {
   if (_mainEl && document.body.contains(_mainEl)) return _mainEl;
@@ -93,13 +111,20 @@ async function doRender(): Promise<void> {
 
   applyTheme(state.settings.theme);
 
-  // Render vista (lazy)
+  // Render vista (lazy). Le viste vengono ricostruite solo se è cambiato qualcosa che
+  // mostrano: un emit che riguarda solo un dialog (es. digitare nella ricerca) non rifà la vista.
   const myToken = ++_renderToken;
   const main = getMain();
   const viewChanged = main.dataset.view !== state.currentView;
   if (viewChanged) {
     main.dataset.view = state.currentView;
     main.innerHTML = `<div class="view-skeleton"><div class="spinner" aria-hidden="true"></div></div>`;
+    _lastViewKey = null;
+  }
+  const viewKey = viewRenderKey();
+  if (_lastViewKey && viewKey.every((part, i) => part === _lastViewKey![i])) {
+    renderOverlays();
+    return;
   }
 
   try {
@@ -129,7 +154,9 @@ async function doRender(): Promise<void> {
         break;
       }
     }
+    if (myToken === _renderToken) _lastViewKey = viewKey;
   } catch (e) {
+    _lastViewKey = null;
     console.error('[renderer] errore render vista', state.currentView, e);
     // check token prima di scrivere nel catch — se la vista è cambiata, non sovrascrivere
     if (myToken !== _renderToken) return;
@@ -178,98 +205,90 @@ function renderSearchOverlay(): void {
 
 // ============ Confirm dialog renders ============
 
-/** Traccia l'id associato al confirm attualmente renderizzato per gestire una nuova richiesta
- *  arrivata prima che il vecchio overlay abbia completato la chiusura. */
-let _openConfirmDeleteFoodId: string | null = null;
-let _openConfirmDeleteRecipeId: string | null = null;
+interface DeleteConfirmSpec {
+  modalId: 'confirm-delete-food' | 'confirm-delete-recipe';
+  /** Id dell'entità che il dialog attivo chiede di eliminare, o null se non è aperto. */
+  activeId: () => string | null;
+  /** Nome dell'entità, o null se non esiste più (es. eliminata in un altro tab). */
+  entityName: (id: string) => string | null;
+  title: string;
+  body: (name: string) => string;
+  confirm: () => void;
+  cancel: () => void;
+}
 
-function renderConfirmDeleteFood(): void {
-  const dialog = getActiveDialog();
-  const id = dialog?.type === 'confirm-delete-food' ? dialog.foodId : null;
-  const existing = document.querySelector('[data-modal-id="confirm-delete-food"]');
-  if (!id && existing) {
-    existing.remove();
-    closeModalCleanup();
-    _openConfirmDeleteFoodId = null;
-    return;
-  }
+/** Id attualmente renderizzato per modal: una nuova richiesta può arrivare mentre il vecchio overlay si chiude. */
+const _openConfirmIds = new Map<string, string | null>();
+
+function renderDeleteConfirm(spec: DeleteConfirmSpec): void {
+  const id = spec.activeId();
+  const existing = document.querySelector(`[data-modal-id="${spec.modalId}"]`);
+  const openId = _openConfirmIds.get(spec.modalId) ?? null;
   if (!id) {
-    _openConfirmDeleteFoodId = null;
+    if (existing) {
+      existing.remove();
+      closeModalCleanup();
+    }
+    _openConfirmIds.set(spec.modalId, null);
     return;
   }
-  if (existing && _openConfirmDeleteFoodId !== id) {
-    closeModalById('confirm-delete-food');
-    _openConfirmDeleteFoodId = null;
-  } else if (existing && _openConfirmDeleteFoodId === id) {
+  if (existing && openId === id) return;
+  if (existing) closeModalById(spec.modalId);
+
+  const name = spec.entityName(id);
+  if (name === null) {
+    _openConfirmIds.set(spec.modalId, null);
+    spec.cancel();
     return;
   }
-  const food = getState().foods.find((f: FoodItem) => f.id === id);
-  if (!food) {
-    cancelDeleteFood();
-    return;
-  }
-  _openConfirmDeleteFoodId = id;
+  _openConfirmIds.set(spec.modalId, id);
   showModal({
-    modalId: 'confirm-delete-food',
-    title: "Eliminare l'alimento?",
-    bodyText: `Stai per eliminare ${food.name}. Le voci del diario che lo utilizzano manterranno uno snapshot dei dati nutrizionali, quindi non verranno perse.`,
+    modalId: spec.modalId,
+    title: spec.title,
+    bodyText: spec.body(name),
     actions: [
       { label: 'Annulla', action: 'close', variant: 'outline' },
       { label: 'Elimina', action: 'confirm', variant: 'danger' },
     ],
     onConfirm: () => {
-      confirmDeleteFood();
+      spec.confirm();
       closeModalCleanup();
     },
     onClose: () => {
-      closeDeleteFoodConfirm();
-      _openConfirmDeleteFoodId = null;
+      spec.cancel();
+      _openConfirmIds.set(spec.modalId, null);
     },
   });
 }
 
+function renderConfirmDeleteFood(): void {
+  renderDeleteConfirm({
+    modalId: 'confirm-delete-food',
+    activeId: () => {
+      const dialog = getActiveDialog();
+      return dialog?.type === 'confirm-delete-food' ? dialog.foodId : null;
+    },
+    entityName: (id) => getState().foods.find((f: FoodItem) => f.id === id)?.name ?? null,
+    title: "Eliminare l'alimento?",
+    body: (name) =>
+      `Stai per eliminare ${name}. Le voci del diario che lo utilizzano manterranno uno snapshot dei dati nutrizionali, quindi non verranno perse.`,
+    confirm: confirmDeleteFood,
+    cancel: closeDeleteFoodConfirm,
+  });
+}
+
 function renderConfirmDeleteRecipe(): void {
-  const dialog = getActiveDialog();
-  const id = dialog?.type === 'confirm-delete-recipe' ? dialog.recipeId : null;
-  const existing = document.querySelector('[data-modal-id="confirm-delete-recipe"]');
-  if (!id && existing) {
-    existing.remove();
-    closeModalCleanup();
-    _openConfirmDeleteRecipeId = null;
-    return;
-  }
-  if (!id) {
-    _openConfirmDeleteRecipeId = null;
-    return;
-  }
-  if (existing && _openConfirmDeleteRecipeId !== id) {
-    closeModalById('confirm-delete-recipe');
-    _openConfirmDeleteRecipeId = null;
-  } else if (existing && _openConfirmDeleteRecipeId === id) {
-    return;
-  }
-  const recipe = getState().recipes.find((r: Recipe) => r.id === id);
-  if (!recipe) {
-    cancelDeleteRecipe();
-    return;
-  }
-  _openConfirmDeleteRecipeId = id;
-  showModal({
+  renderDeleteConfirm({
     modalId: 'confirm-delete-recipe',
+    activeId: () => {
+      const dialog = getActiveDialog();
+      return dialog?.type === 'confirm-delete-recipe' ? dialog.recipeId : null;
+    },
+    entityName: (id) => getState().recipes.find((r: Recipe) => r.id === id)?.name ?? null,
     title: 'Eliminare la ricetta?',
-    bodyText: `Stai per eliminare ${recipe.name}. Questa azione non può essere annullata.`,
-    actions: [
-      { label: 'Annulla', action: 'close', variant: 'outline' },
-      { label: 'Elimina', action: 'confirm', variant: 'danger' },
-    ],
-    onConfirm: () => {
-      confirmDeleteRecipe();
-      closeModalCleanup();
-    },
-    onClose: () => {
-      closeDeleteRecipeConfirm();
-      _openConfirmDeleteRecipeId = null;
-    },
+    body: (name) => `Stai per eliminare ${name}. Questa azione non può essere annullata.`,
+    confirm: confirmDeleteRecipe,
+    cancel: closeDeleteRecipeConfirm,
   });
 }
 

@@ -54,7 +54,7 @@ describe('initKeyboardShortcuts', () => {
     initKeyboardShortcuts();
     dispatchKey('?');
     expect(__isHelpOpenForTesting()).toBe(true);
-    expect(document.querySelectorAll('#kbd-help-overlay')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-modal-id="kbd-help"]')).toHaveLength(1);
   });
 });
 
@@ -62,20 +62,29 @@ describe('help overlay', () => {
   it("openHelp crea l'overlay nel DOM", () => {
     __openHelpForTesting();
     expect(__isHelpOpenForTesting()).toBe(true);
-    expect(document.getElementById('kbd-help-overlay')).not.toBeNull();
+    expect(document.querySelector('[data-modal-id="kbd-help"]')).not.toBeNull();
     expect(document.body.classList.contains('modal-open')).toBe(true);
   });
 
-  it("closeHelp rimuove l'overlay", () => {
+  it("closeHelp rimuove l'overlay (dopo il fade-out)", async () => {
     __openHelpForTesting();
     __closeHelpForTesting();
     expect(__isHelpOpenForTesting()).toBe(false);
-    expect(document.getElementById('kbd-help-overlay')).toBeNull();
+    await vi.waitFor(() => expect(document.querySelector('[data-modal-id="kbd-help"]')).toBeNull());
+  });
+
+  it("con l'aiuto aperto le altre scorciatoie non scattano", () => {
+    initKeyboardShortcuts();
+    __openHelpForTesting();
+    dispatchKey('d');
+    expect(switchView).not.toHaveBeenCalled();
   });
 
   it("click sul bottone close chiude l'overlay", () => {
     __openHelpForTesting();
-    const closeBtn = document.querySelector<HTMLButtonElement>('[data-kbd-help-close]');
+    const closeBtn = document.querySelector<HTMLButtonElement>(
+      '[data-modal-id="kbd-help"] [data-modal-action="close"]',
+    );
     expect(closeBtn).not.toBeNull();
     closeBtn!.click();
     expect(__isHelpOpenForTesting()).toBe(false);

@@ -1,6 +1,6 @@
 // Vista Foods: elenco alimenti salvati con search, preferiti, edit, delete.
 
-import { getState, openFoodEditor, emitChange } from '../lib/store';
+import { getState, openFoodEditor, emitViewChange } from '../lib/store';
 import { requestDeleteFood, toggleFoodFavorite } from '../lib/foods';
 import { escapeHtml, escapeAttr, debounce } from '../lib/utils';
 import { imgTag } from '../components/img';
@@ -10,7 +10,7 @@ let _foodsBound = false;
 let _foodsQuery = '';
 
 const _filterFoods = debounce(() => {
-  emitChange();
+  emitViewChange();
 }, 80);
 
 export function renderFoods(main: HTMLElement): void {

@@ -15,7 +15,7 @@ import {
   normalizeSex,
   normalizeActivity,
   normalizeWeightGoal,
-  normalizeMacroSplit,
+  normalizeMacroSplitInput,
   normalizeNutrition,
   normalizeFoodItem,
   normalizeDiaryEntry,
@@ -178,21 +178,21 @@ describe('normalizeWeightGoal', () => {
   });
 });
 
-describe('normalizeMacroSplit', () => {
+describe('normalizeMacroSplitInput', () => {
   it('riscala split che non somma a 100', () => {
-    const r = normalizeMacroSplit({ proteinPct: 40, carbsPct: 40, fatPct: 40 });
+    const r = normalizeMacroSplitInput({ proteinPct: 40, carbsPct: 40, fatPct: 40 });
     expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
   });
 
   it('default a 30/40/30 per input non-oggetto', () => {
-    const r = normalizeMacroSplit(null);
+    const r = normalizeMacroSplitInput(null);
     expect(r.proteinPct).toBe(30);
     expect(r.carbsPct).toBe(40);
     expect(r.fatPct).toBe(30);
   });
 
   it('clampa macro negativi prima di riscalare', () => {
-    const r = normalizeMacroSplit({ proteinPct: -10, carbsPct: 50, fatPct: 50 });
+    const r = normalizeMacroSplitInput({ proteinPct: -10, carbsPct: 50, fatPct: 50 });
     expect(r.proteinPct).toBe(0);
     expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
   });

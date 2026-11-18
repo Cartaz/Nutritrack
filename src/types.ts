@@ -276,13 +276,6 @@ export interface StatsResult {
   daysTracked: number;
 }
 
-export type WorkerRequest =
-  | { type: 'stats'; reqId: number; entries: DiaryEntry[]; dates: string[] }
-  | { type: 'dayTotals'; reqId: number; entries: DiaryEntry[] };
-
-export type WorkerResponse =
-  { type: 'stats'; reqId: number; result: StatsResult } | { type: 'dayTotals'; reqId: number; result: DayTotals };
-
 // ============ App state ============
 
 export type ViewName = 'dashboard' | 'foods' | 'recipes' | 'settings';

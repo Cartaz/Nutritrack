@@ -41,9 +41,6 @@ export const API_RETRY_PER_INSTANCE = 1;
  *  Backoff lineare: attempt N → delay = API_RETRY_DELAY_MS × N. */
 export const API_RETRY_DELAY_MS = 500;
 
-/** Debounce ricerca OFF (ms) */
-export const SEARCH_DEBOUNCE_MS = 500;
-
 /** Lunghezza minima query per avviare ricerca OFF */
 export const SEARCH_MIN_QUERY = 2;
 
@@ -58,9 +55,6 @@ export const OFF_INSTANCES = [
   'https://es.openfoodfacts.org',
   'https://de.openfoodfacts.org',
 ] as const;
-
-/** Timeout worker (ms) prima di fallback main-thread */
-export const WORKER_TIMEOUT_MS = 500;
 
 /** Limite guard per numero massimo entry diario (anti-abuso) */
 export const MAX_DIARY_ENTRIES_PER_DAY = 200;

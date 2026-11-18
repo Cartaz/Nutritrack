@@ -91,6 +91,21 @@ export function emitChange(): void {
   });
 }
 
+let _viewRevision = 0;
+
+/**
+ * Emit per uno stato locale di una vista (tab statistiche, filtro di ricerca, bozze in
+ * impostazioni): obbliga il renderer a ricostruire la vista anche se i dati non sono cambiati.
+ */
+export function emitViewChange(): void {
+  _viewRevision++;
+  emitChange();
+}
+
+export function getViewRevision(): number {
+  return _viewRevision;
+}
+
 // ============ View navigation ============
 
 export function switchView(view: ViewName): void {

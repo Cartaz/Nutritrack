@@ -21,6 +21,11 @@ Pulizia guidata da [ANALISI.md](ANALISI.md).
 - Schema v2: le voci del diario non duplicano più l'URL dell'immagine dell'alimento (circa −21% di spazio).
 - Autosave: gli aggiornamenti della sola interfaccia (es. digitare nella ricerca) non rileggono né riscrivono più lo storage.
 - Quota: misurata sull'uso reale (primario + backup); sotto pressione si sacrifica prima il backup, poi le immagini.
+- Ricerca ingredienti delle ricette allineata a quella del diario: ricerca esplicita (Cerca/Invio) invece che a ogni tasto, filtro Italia, "Carica altri" e stessi messaggi d'errore. Una sola implementazione condivisa.
+- Le viste non vengono più ricostruite per aggiornamenti che riguardano solo un dialog (es. digitare nella ricerca).
+- Statistiche calcolate direttamente (circa 1 ms per un anno di dati): rimosso il Web Worker, che costava di più solo per copiare i dati.
+- Conferme (import, chiusura della ricerca con modifiche, preset macro) e aiuto scorciatoie usano il modale dell'app invece di `confirm()` nativo e overlay ad hoc.
+- Rimossa logica duplicata: grammi delle voci di diario, porzioni personalizzate, totali delle ricette, conferme di eliminazione.
 
 ## v1.2.0
 

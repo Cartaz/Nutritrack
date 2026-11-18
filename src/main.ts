@@ -15,7 +15,6 @@ import { render, bindGlobalEvents, applyInitialTheme } from './components/render
 import { showToast } from './components/toast';
 import { showModal } from './components/modal';
 import { promptForUpdate } from './components/updatePrompt';
-import { terminateWorker } from './worker/client';
 import { shouldAutoAdvanceDate, toDateKey } from './lib/utils';
 import { initKeyboardShortcuts } from './lib/keyboardShortcuts';
 
@@ -64,11 +63,6 @@ function init(): void {
   if (import.meta.env.PROD) {
     void registerSW();
   }
-
-  // 7. Cleanup su unload
-  window.addEventListener('beforeunload', () => {
-    terminateWorker();
-  });
 
   // Avanza solo quando è realmente cambiato il giorno osservato e il dashboard era
   // ancora sul vecchio "oggi". Focus/visibility non devono sovrascrivere una data storica.
