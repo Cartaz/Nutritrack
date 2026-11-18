@@ -22,6 +22,10 @@ export default defineConfig({
       },
     },
     setupFiles: ['./test/setup.ts'],
+    // Node >= 25 espone un localStorage globale nativo che oscura quello di jsdom
+    // (e senza --localstorage-file vale undefined). Disattivarlo rende l'ambiente
+    // identico su Node 22, 24 e 26: i test usano sempre lo Storage di jsdom.
+    execArgv: ['--no-experimental-webstorage'],
     // Il primo test che carica @zxing/library può richiedere più tempo.
     testTimeout: 10_000,
   },
