@@ -8,7 +8,7 @@ export async function clearRuntimeDataCaches(): Promise<void> {
       try {
         await caches.delete(name);
       } catch {
-        // CacheStorage is best-effort and must not invalidate the atomic localStorage reset.
+        // CacheStorage is best-effort and must not invalidate the persisted reset.
       }
     }),
   );

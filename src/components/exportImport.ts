@@ -1,15 +1,9 @@
-// Export/Import JSON backup.
-// Export: crea Blob e trigger download. Import: file input + validazione via normalize.
-//
-// Fix B6.9 (T6): count=0 mostra messaggio info diverso da success.
-// Fix B6.10 (T6): revokeObjectURL con timeout più lungo (10s) e listener su click.
-// Fix B6.11 (T6): import chiede conferma prima di sovrascrivere dati esistenti.
-// Fix B6.13 (T6): filename include time (no collisioni same-day).
-// Fix B6.14 (T6): reload ritardato a 1500ms per lasciare leggere il toast.
-// Fix B6.15 (T6): size guard su file > 50MB.
+// Export/Import del backup JSON. Export: Blob + download. Import: conferma utente,
+// lettura file e validazione tramite storage.importDataJson (migrazione + normalize).
 
 import { exportDataJson, importDataJson } from '../lib/storage';
 import { showToast } from './toast';
+import { confirmAction } from './modal';
 
 /** Limite massimo file import (50MB) per evitare freeze UI su JSON.parse. */
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
@@ -20,19 +14,19 @@ export function handleExport(): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  // Fix B6.13: filename con time per evitare collisioni same-day
+  // filename con time per evitare collisioni same-day
   const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
   a.download = `nutritrack-backup-${ts}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // Fix B6.10: revoke più lungo (10s) per permettere download completi su device lenti
+  // revoke più lungo (10s) per permettere download completi su device lenti
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   showToast('Backup esportato', 'success');
 }
 
 export function handleImport(file: File): void {
-  // Fix B6.15: size guard per evitare freeze UI
+  // size guard per evitare freeze UI
   if (file.size > MAX_IMPORT_BYTES) {
     showToast(
       `File troppo grande (${Math.round(file.size / 1024 / 1024)}MB). Massimo ${MAX_IMPORT_BYTES / 1024 / 1024}MB.`,
@@ -42,21 +36,23 @@ export function handleImport(file: File): void {
     return;
   }
 
-  // Fix B6.11: chiedi conferma prima di sovrascrivere dati esistenti
-  // (importDataJson fa replace completo dello state + localStorage)
-  if (
-    !confirm(
-      "L'importazione sostituirà tutti i dati attuali (alimenti, ricette, diario, impostazioni). Vuoi continuare?",
-    )
-  ) {
-    return;
-  }
+  // L'import sostituisce tutto lo stato: serve una conferma esplicita.
+  void confirmAction({
+    title: 'Importare il backup?',
+    body: "L'importazione sostituirà tutti i dati attuali (alimenti, ricette, diario, impostazioni).",
+    confirmLabel: 'Importa',
+    danger: true,
+  }).then((confirmed) => {
+    if (confirmed) readAndImport(file);
+  });
+}
 
+function readAndImport(file: File): void {
   const reader = new FileReader();
-  reader.onload = () => {
-    const result = importDataJson(String(reader.result || ''));
+  reader.onload = async () => {
+    const result = await importDataJson(String(reader.result || ''));
     if (result.ok) {
-      // Fix B6.9: messaggio distinto per count=0 (es. file con solo settings)
+      // messaggio distinto per count=0 (es. file con solo settings)
       if (result.count === 0) {
         showToast(
           'Import completato, ma nessun alimento/ricetta/entry trovato nel file (solo impostazioni?)',
@@ -65,13 +61,13 @@ export function handleImport(file: File): void {
         );
       } else {
         let msg = `Backup importato (${result.count} elementi)`;
-        // Fix 7.8: mostra scarti se reconcileAll ha filtrato entità malformate
+        // mostra scarti se reconcileAll ha filtrato entità malformate
         if (result.skipped && result.skipped > 0) {
           msg += ` · ${result.skipped} elementi scartati (dati malformati)`;
         }
         showToast(msg, 'success', 3500);
       }
-      // Fix B6.14: reload ritardato a 1500ms per lasciare leggere il toast
+      // reload ritardato a 1500ms per lasciare leggere il toast
       setTimeout(() => window.location.reload(), 1500);
     } else {
       showToast(`File non valido: ${result.error}`, 'error', 5000);

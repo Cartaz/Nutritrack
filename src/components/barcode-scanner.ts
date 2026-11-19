@@ -1,7 +1,6 @@
 // Barcode scanner modal: <video> + camera + detection loop.
 // Self-contained (non passa da modal.ts) per gestire lifecycle camera + AbortController.
 //
-// P0 #2 della roadmap hobbistica.
 //
 // FIX (post-P0):
 //  - Passa lo stream esistente a detectBarcodeFromVideo (evita double getUserMedia in ZXing)
@@ -85,7 +84,7 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   const abortCtrl = new AbortController();
   let stream: MediaStream | null = null;
   let stopped = false;
-  // Fix HIGH bug (memory leak): escHandler viene registrato su document con capture=true.
+  // escHandler viene registrato su document con capture=true.
   // Prima veniva rimosso SOLO dentro se stesso (riga 146), MAI in cleanup(). Quindi se lo
   // scanner veniva chiuso via Annulla/overlay/detection, l'escHandler restava attivo e si
   // accumulava ad ogni apertura. Ora lo dichiariamo a livello di funzione così cleanup()
@@ -100,7 +99,7 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
     } catch {
       /* noop */
     }
-    // Fix HIGH bug: rimuovi esplicitamente l'escHandler per evitare memory leak.
+    // rimuovi esplicitamente l'escHandler per evitare memory leak.
     // Prima era rimosso solo dentro se stesso (se l'utente premeva ESC), ma non negli
     // altri path di chiusura (Annulla, overlay click, detection riuscita).
     if (escHandler) {
@@ -146,7 +145,7 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
   };
 
   // ESC handler (capture per intercettare PRIMA di modal.ts)
-  // Fix HIGH bug: assegnato a variabile esterna per permettere cleanup() di rimuoverlo.
+  // assegnato a variabile esterna per permettere cleanup() di rimuoverlo.
   escHandler = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape') return;
     if (!document.querySelector('[data-modal-id="barcode-scanner"]')) return;
@@ -184,7 +183,7 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       const input = overlay.querySelector<HTMLInputElement>('[data-manual-input]');
       if (input) {
         const code = input.value.trim();
-        // Fix LOW bug: validazione barcode manuale — accetta solo 6-14 cifre (EAN-8/13, UPC-A/E).
+        // validazione barcode manuale — accetta solo 6-14 cifre (EAN-8/13, UPC-A/E).
         // Prima qualsiasi stringa non vuota veniva inviata a OFF, sprecando una richiesta 404.
         if (code) {
           if (!/^\d{6,14}$/.test(code)) {
@@ -213,7 +212,7 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       e.preventDefault();
       const input = target as HTMLInputElement;
       const code = input.value.trim();
-      // Fix LOW bug: stessa validazione del click submitManual (6-14 cifre)
+      // stessa validazione del click submitManual (6-14 cifre)
       if (code) {
         if (!/^\d{6,14}$/.test(code)) {
           statusEl.textContent = 'Codice non valido: inserisci 6-14 cifre (EAN/UPC).';
@@ -254,7 +253,7 @@ export function openBarcodeScanner(opts: ScannerOptions): void {
       });
       if (stopped) return;
       if (playFailed) {
-        // Fix LOW bug: se video.play() fallisce (es. iOS senza user gesture), non avviare
+        // se video.play() fallisce (es. iOS senza user gesture), non avviare
         // il loop di detection (non fire mai perché readyState < 2 perennemente) e informa
         // l'utente che deve inserire il codice manualmente.
         statusEl.textContent = 'Impossibile avviare la fotocamera. Inserisci il codice manualmente.';

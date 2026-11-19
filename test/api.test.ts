@@ -18,7 +18,7 @@
 // - Errore transitorio su un suffisso → ignora e continua con gli altri
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiGetJson, ApiError, isTransientError, searchOffWithPartialMatch } from '../src/lib/api';
+import { apiGetJson } from '../src/lib/api';
 
 // Mock globale di fetch
 const fetchMock = vi.fn();
@@ -44,37 +44,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-});
-
-describe('isTransientError', () => {
-  it('classifica NetworkError come transitorio', () => {
-    expect(isTransientError(new ApiError('Network', 'NetworkError'))).toBe(true);
-  });
-
-  it('classifica TimeoutError come transitorio', () => {
-    expect(isTransientError(new ApiError('Timeout', 'TimeoutError'))).toBe(true);
-  });
-
-  it('classifica HTTP 5xx come transitorio', () => {
-    expect(isTransientError(new ApiError('Server error', 'ApiError', 500))).toBe(true);
-    expect(isTransientError(new ApiError('Server error', 'ApiError', 503))).toBe(true);
-  });
-
-  it('classifica HTTP 429 come transitorio', () => {
-    expect(isTransientError(new ApiError('Rate limited', 'ApiError', 429))).toBe(true);
-  });
-
-  it('NON classifica HTTP 404 come transitorio', () => {
-    expect(isTransientError(new ApiError('Not found', 'ApiError', 404))).toBe(false);
-  });
-
-  it('NON classifica HTTP 400 come transitorio', () => {
-    expect(isTransientError(new ApiError('Bad request', 'ApiError', 400))).toBe(false);
-  });
-
-  it('classifica TypeError nativo come transitorio (network failure)', () => {
-    expect(isTransientError(new TypeError('Failed to fetch'))).toBe(true);
-  });
 });
 
 describe('apiGetJson - retry logic', () => {
@@ -320,40 +289,5 @@ describe('apiGetJson - timeout behavior', () => {
     const result = await promise;
     expect(result).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
-});
-
-describe('searchOffWithPartialMatch - compatibility wrapper', () => {
-  function offResponse(count: number) {
-    const products = Array.from({ length: count }, (_, index) => ({
-      _id: `product-${index}`,
-      product_name: `Product ${index}`,
-    }));
-    return mockResponse(200, { count, page: 1, page_size: 30, products });
-  }
-
-  it('preserves the original query and performs one request', async () => {
-    fetchMock.mockResolvedValueOnce(offResponse(2));
-    const result = await searchOffWithPartialMatch('melanzan');
-    expect(result.products).toHaveLength(2);
-    expect(result.effectiveQuery).toBe('melanzan');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps an empty result empty instead of multiplying requests', async () => {
-    fetchMock.mockResolvedValueOnce(offResponse(0));
-    const result = await searchOffWithPartialMatch('xyzqwerty');
-    expect(result.products).toEqual([]);
-    expect(result.effectiveQuery).toBe('xyzqwerty');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('propagates an already-aborted external signal without fetch', async () => {
-    const ctrl = new AbortController();
-    ctrl.abort();
-    await expect(searchOffWithPartialMatch('melanzan', { signal: ctrl.signal })).rejects.toMatchObject({
-      name: 'AbortError',
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

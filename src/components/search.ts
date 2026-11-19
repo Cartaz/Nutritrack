@@ -1,4 +1,4 @@
-// Search dialog: ricerca OFF con debounce + AbortController + keyboard nav.
+// Search dialog: ricerca OFF esplicita (pulsante Cerca / Invio) + AbortController + keyboard nav.
 // Tabs: Preferiti / Salvati / Cerca OFF.
 // Stato interno isolato (form state), emissione via store (open/close).
 //
@@ -7,19 +7,20 @@
 // (lista, footer, tabs active) viene aggiornato via innerHTML mirato. L'input #search-input non viene
 // MAI toccato dopo la creazione per non perdere focus e cursore (causa del bug flickering).
 
-import { escapeHtml, escapeAttr, safeId } from '../lib/utils';
-import {
-  continueFoodSearch,
-  FoodSearchError,
-  lookupFoodByBarcode,
-  searchFoods,
-  type FoodSearchContinuation,
-} from '../lib/food-search';
-import { getItOverrideByBarcode } from '../lib/itOverride';
+import { escapeHtml, escapeAttr } from '../lib/utils';
+import { FoodSearchError, foodSearchErrorMessage, lookupFoodByBarcode } from '../lib/food-search';
+import { FoodSearchSession } from './foodSearchSession';
 import { getState, getActiveDialog, closeFoodSearch, openFoodEditor, emitChange } from '../lib/store';
 import { addFoodToDiary } from '../lib/diary';
-import { toggleFoodFavorite, addCustomPortionToFood, removeCustomPortionFromFood, saveOffFood } from '../lib/foods';
+import {
+  addCustomPortionToFood,
+  buildCustomPortion,
+  removeCustomPortionFromFood,
+  saveOffFood,
+  toggleFoodFavorite,
+} from '../lib/foods';
 import { showToast } from './toast';
+import { confirmAction } from './modal';
 import { imgTag } from './img';
 import { openBarcodeScanner, isBarcodeScannerOpen } from './barcode-scanner';
 import { SEARCH_MIN_QUERY } from '../lib/constants';
@@ -30,9 +31,6 @@ import { MEAL_ICONS, MEAL_LABELS } from '../types';
 
 interface SearchDialogState {
   tab: 'favorites' | 'saved' | 'search';
-  query: string;
-  loading: boolean;
-  results: FoodItem[];
   selectedId: string | null;
   gramsOverride: string;
   // Porzioni personalizzate create durante questa sessione per il food selezionato
@@ -42,26 +40,53 @@ interface SearchDialogState {
   creatingPortion: boolean;
   newPortionLabel: string;
   newPortionGrams: string;
-  abortController: AbortController | null;
-  totalCount: number;
-  continuation: FoodSearchContinuation | null;
 }
 
 const _searchState: SearchDialogState = {
   tab: 'favorites',
-  query: '',
-  loading: false,
-  results: [],
   selectedId: null,
   gramsOverride: '',
   pendingCustomPortions: [],
   creatingPortion: false,
   newPortionLabel: '',
   newPortionGrams: '',
-  abortController: null,
-  totalCount: 0,
-  continuation: null,
 };
+
+/** Ricerca OFF testuale: stessa politica della ricerca ingredienti (vedi foodSearchSession). */
+const _session = new FoodSearchSession(emitChange, () => isSearchOpen());
+
+/** Lookup barcode in corso (separato dalla ricerca testuale). */
+let _barcodeController: AbortController | null = null;
+
+function isLoading(): boolean {
+  return _session.loading || _barcodeController !== null;
+}
+
+/** Annulla ricerca testuale e lookup barcode in corso. */
+function cancelSearchWork(): void {
+  _session.cancel();
+  _barcodeController?.abort();
+  _barcodeController = null;
+}
+
+/** Chiude la ricerca; se c'è una selezione o porzioni non salvate chiede prima conferma. */
+function requestCloseSearch(): void {
+  if (!_searchState.selectedId && _searchState.pendingCustomPortions.length === 0) {
+    closeFoodSearch();
+    resetSearchState();
+    return;
+  }
+  void confirmAction({
+    title: 'Chiudere la ricerca?',
+    body: 'Hai un alimento selezionato o porzioni non salvate. Chiudendo andranno persi.',
+    confirmLabel: 'Chiudi',
+    cancelLabel: 'Continua',
+  }).then((confirmed) => {
+    if (!confirmed || !isSearchOpen()) return;
+    closeFoodSearch();
+    resetSearchState();
+  });
+}
 
 function getSearchDialog() {
   const dialog = getActiveDialog();
@@ -74,138 +99,24 @@ function isSearchOpen(): boolean {
 
 function resetSearchState(): void {
   cancelSearchWork();
+  _session.reset();
   _searchState.tab = 'favorites';
-  _searchState.query = '';
-  _searchState.loading = false;
-  _searchState.results = [];
   _searchState.selectedId = null;
   _searchState.gramsOverride = '';
   _searchState.pendingCustomPortions = [];
   _searchState.creatingPortion = false;
   _searchState.newPortionLabel = '';
   _searchState.newPortionGrams = '';
-  _searchState.abortController = null;
-  _searchState.totalCount = 0;
-  _searchState.continuation = null;
 }
 
 function showFoodSearchError(error: unknown, context: 'search' | 'barcode'): void {
-  const kind = error instanceof FoodSearchError ? error.kind : 'unknown';
-  if (kind === 'offline') {
-    showToast('Sei offline. Verifica la connessione e riprova.', 'error');
-    return;
-  }
-  if (kind === 'network') {
-    showToast('Open Food Facts non raggiungibile. Riprova tra qualche secondo.', 'error', 5000);
-    return;
-  }
-  if (kind === 'timeout') {
-    showToast('Risposta di Open Food Facts troppo lenta. Riprova tra poco.', 'error', 5000);
-    return;
-  }
-  if (kind === 'unavailable') {
-    showToast(
-      context === 'search'
-        ? 'Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.'
-        : 'Servizio Open Food Facts non disponibile. Riprova tra poco.',
-      'error',
-      5000,
-    );
-    return;
-  }
-  showToast(
-    context === 'search' ? 'Errore nella ricerca. Riprova tra poco.' : 'Errore nella ricerca del prodotto.',
-    'error',
-    5000,
-  );
-}
-
-// ============ Explicit initial search ============
-
-async function executeSearch(query: string): Promise<void> {
-  if (!isSearchOpen()) return;
-  if (query.trim().length < SEARCH_MIN_QUERY) {
-    _searchState.results = [];
-    _searchState.loading = false;
-    _searchState.totalCount = 0;
-    _searchState.continuation = null;
-    emitChange();
-    return;
-  }
-  if (_searchState.abortController) {
-    try {
-      _searchState.abortController.abort();
-    } catch {
-      /* noop */
-    }
-  }
-  const ctrl = new AbortController();
-  _searchState.abortController = ctrl;
-  try {
-    const data = await searchFoods(query, { signal: ctrl.signal, italianOnly: true });
-    if (ctrl.signal.aborted || !isSearchOpen() || query !== _searchState.query) return;
-    _searchState.results = data.foods;
-    _searchState.totalCount = data.totalCount;
-    _searchState.continuation = data.continuation;
-  } catch (error) {
-    if (ctrl.signal.aborted || !isSearchOpen() || query !== _searchState.query) return;
-    showFoodSearchError(error, 'search');
-    _searchState.results = [];
-    _searchState.totalCount = 0;
-    _searchState.continuation = null;
-  } finally {
-    if (_searchState.abortController === ctrl) {
-      _searchState.abortController = null;
-      _searchState.loading = false;
-      if (isSearchOpen()) emitChange();
-    }
-  }
-}
-
-/** Carica semanticamente la pagina successiva senza esporre query effettiva o page index alla UI. */
-async function loadMoreResults(): Promise<void> {
-  if (!isSearchOpen() || _searchState.loading || !_searchState.continuation) return;
-  const continuation = _searchState.continuation;
-  const ctrl = new AbortController();
-  _searchState.abortController = ctrl;
-  _searchState.loading = true;
-  emitChange();
-  try {
-    const data = await continueFoodSearch(continuation, { signal: ctrl.signal });
-    if (ctrl.signal.aborted || !isSearchOpen()) return;
-    const existingIds = new Set(_searchState.results.map((food) => food.id));
-    const newFoods = data.foods.filter((food) => !existingIds.has(food.id));
-    _searchState.results = [..._searchState.results, ...newFoods];
-    _searchState.totalCount = data.totalCount;
-    _searchState.continuation = data.continuation;
-  } catch (error) {
-    if (ctrl.signal.aborted || !isSearchOpen()) return;
-    showFoodSearchError(error, 'search');
-  } finally {
-    if (_searchState.abortController === ctrl) {
-      _searchState.abortController = null;
-      _searchState.loading = false;
-      if (isSearchOpen()) emitChange();
-    }
-  }
+  const quick = error instanceof FoodSearchError && error.kind === 'offline';
+  showToast(foodSearchErrorMessage(error, context), 'error', quick ? 3500 : 5000);
 }
 
 // ============ Event bindings (una sola volta) ============
 
 let _boundSearch = false;
-
-/** Annulla sia il trigger debounced sia l'eventuale richiesta OFF già partita. */
-function cancelSearchWork(): void {
-  if (_searchState.abortController) {
-    try {
-      _searchState.abortController.abort();
-    } catch {
-      /* noop */
-    }
-    _searchState.abortController = null;
-  }
-  _searchState.loading = false;
-}
 
 export function bindSearchEvents(): void {
   if (_boundSearch) return;
@@ -222,11 +133,7 @@ export function bindSearchEvents(): void {
       if (top.dataset.modalId !== 'search-dialog') return;
       e.stopPropagation();
       e.preventDefault();
-      if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
-        if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
-      }
-      closeFoodSearch();
-      resetSearchState();
+      requestCloseSearch();
     },
     true,
   );
@@ -235,11 +142,7 @@ export function bindSearchEvents(): void {
     if (!isSearchOpen()) return;
     const overlayEl = e.target as HTMLElement;
     if (overlayEl.classList.contains('modal-overlay') && overlayEl.dataset.modalId === 'search-dialog') {
-      if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
-        if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
-      }
-      closeFoodSearch();
-      resetSearchState();
+      requestCloseSearch();
       return;
     }
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-search-action]');
@@ -250,8 +153,7 @@ export function bindSearchEvents(): void {
         const tab = target.dataset.tab as 'favorites' | 'saved' | 'search';
         if (tab && tab !== _searchState.tab) {
           if (_searchState.tab === 'search' && tab !== 'search') {
-            cancelSearchWork();
-            _searchState.results = [];
+            _session.setQuery(_session.query);
           }
           _searchState.tab = tab;
           _searchState.selectedId = null;
@@ -306,11 +208,7 @@ export function bindSearchEvents(): void {
         return;
       }
       case 'close': {
-        if (_searchState.selectedId || _searchState.pendingCustomPortions.length > 0) {
-          if (!confirm('Hai modifiche non salvate. Chiudere comunque?')) return;
-        }
-        closeFoodSearch();
-        resetSearchState();
+        requestCloseSearch();
         return;
       }
       case 'openAddCustom': {
@@ -318,21 +216,12 @@ export function bindSearchEvents(): void {
         return;
       }
       case 'runSearch': {
-        if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
-          showToast(`Inserisci almeno ${SEARCH_MIN_QUERY} caratteri`, 'info');
-          return;
-        }
-        _searchState.loading = true;
-        emitChange();
-        void executeSearch(_searchState.query);
+        _session.run();
         return;
       }
       case 'clearQuery': {
         cancelSearchWork();
-        _searchState.query = '';
-        _searchState.results = [];
-        _searchState.totalCount = 0;
-        _searchState.continuation = null;
+        _session.setQuery('');
         const input = document.querySelector<HTMLInputElement>('#search-input');
         if (input) {
           input.value = '';
@@ -354,7 +243,7 @@ export function bindSearchEvents(): void {
         return;
       }
       case 'loadMore': {
-        void loadMoreResults();
+        _session.loadMore();
         return;
       }
       case 'usePortion': {
@@ -402,17 +291,14 @@ export function bindSearchEvents(): void {
     if (!isSearchOpen()) return;
     const target = e.target as HTMLElement;
     if (target.id === 'search-input') {
-      _searchState.query = (target as HTMLInputElement).value;
+      cancelSearchWork();
+      _session.setQuery((target as HTMLInputElement).value);
       if (_searchState.tab !== 'search') {
         _searchState.tab = 'search';
       }
-      cancelSearchWork();
       _searchState.selectedId = null;
       _searchState.gramsOverride = '';
       _searchState.pendingCustomPortions = [];
-      _searchState.totalCount = 0;
-      _searchState.continuation = null;
-      _searchState.results = [];
       emitChange();
       return;
     }
@@ -437,11 +323,7 @@ export function bindSearchEvents(): void {
     if (e.key === 'Enter') {
       if (target.id === 'search-input') {
         e.preventDefault();
-        if (_searchState.query.trim().length >= SEARCH_MIN_QUERY) {
-          _searchState.loading = true;
-          emitChange();
-          void executeSearch(_searchState.query);
-        }
+        _session.run();
         return;
       }
       if (target.id === 'new-portion-label' || target.id === 'new-portion-grams') {
@@ -469,58 +351,44 @@ function currentList(): FoodItem[] {
     return s.foods.filter((f) => s.favoriteFoodIds.includes(f.id));
   }
   if (_searchState.tab === 'saved') return s.foods;
-  return _searchState.results;
+  return _session.results;
 }
 
 // ============ Barcode scan handler ============
 
 async function handleBarcodeDetected(barcode: string): Promise<void> {
   if (!isSearchOpen()) return;
-  if (_searchState.tab !== 'search') {
-    _searchState.tab = 'search';
-  }
+  _searchState.tab = 'search';
   cancelSearchWork();
-  _searchState.loading = true;
-  _searchState.query = barcode;
+  _session.setQuery(barcode);
   _searchState.selectedId = null;
   _searchState.gramsOverride = '';
   _searchState.pendingCustomPortions = [];
-  _searchState.totalCount = 0;
-  _searchState.continuation = null;
   const inputEl = document.querySelector<HTMLInputElement>('#search-input');
   if (inputEl) inputEl.value = barcode;
-  emitChange();
 
-  const s = getState();
-  const savedByBarcode = s.foods.find((f) => f.barcode === barcode);
+  const select = (food: FoodItem): void => {
+    _session.showResults(barcode, [food]);
+    _searchState.selectedId = food.id;
+    _searchState.gramsOverride = String(food.servingSize || 100);
+  };
+
+  // Precedenza: i tuoi alimenti salvati, poi Open Food Facts.
+  const savedByBarcode = getState().foods.find((f) => f.barcode === barcode);
   if (savedByBarcode) {
-    _searchState.results = [savedByBarcode];
-    _searchState.selectedId = savedByBarcode.id;
-    _searchState.gramsOverride = String(savedByBarcode.servingSize || 100);
-    _searchState.loading = false;
+    select(savedByBarcode);
     emitChange();
     showToast(`${savedByBarcode.name} (tuo salvato)`, 'success', 2200);
     return;
   }
 
-  const itFood = getItOverrideByBarcode(barcode);
-  if (itFood) {
-    _searchState.results = [itFood];
-    _searchState.selectedId = itFood.id;
-    _searchState.gramsOverride = String(itFood.servingSize || 100);
-    _searchState.loading = false;
-    emitChange();
-    showToast(`${itFood.name} (DB italiano)`, 'success', 2200);
-    return;
-  }
-
   const ctrl = new AbortController();
-  _searchState.abortController = ctrl;
+  _barcodeController = ctrl;
+  emitChange();
   try {
     const result = await lookupFoodByBarcode(barcode, ctrl.signal);
     if (ctrl.signal.aborted || !isSearchOpen()) return;
     if (result.kind === 'not-found') {
-      _searchState.results = [];
       showToast(
         `Nessun prodotto trovato per il codice ${barcode}. Puoi cercare per nome o creare un ingrediente custom.`,
         'info',
@@ -529,23 +397,17 @@ async function handleBarcodeDetected(barcode: string): Promise<void> {
       return;
     }
     if (result.kind === 'incomplete') {
-      _searchState.results = [];
       showToast(`Prodotto trovato ma con dati nutrizionali incompleti (codice ${barcode}).`, 'info', 4500);
       return;
     }
-    const food = result.food;
-    _searchState.results = [food];
-    _searchState.selectedId = food.id;
-    _searchState.gramsOverride = String(food.servingSize || 100);
-    showToast(`${food.name} trovato`, 'success', 2200);
+    select(result.food);
+    showToast(`${result.food.name} trovato`, 'success', 2200);
   } catch (error) {
     if (ctrl.signal.aborted || !isSearchOpen()) return;
-    _searchState.results = [];
     showFoodSearchError(error, 'barcode');
   } finally {
-    if (_searchState.abortController === ctrl) {
-      _searchState.abortController = null;
-      _searchState.loading = false;
+    if (_barcodeController === ctrl) {
+      _barcodeController = null;
       if (isSearchOpen()) emitChange();
     }
   }
@@ -602,26 +464,18 @@ function createCustomPortion(): void {
   const list = currentList();
   const f = _searchState.selectedId ? list.find((x) => x.id === _searchState.selectedId) : null;
   if (!f) return;
-  const label = _searchState.newPortionLabel.trim();
   const grams = Number(_searchState.newPortionGrams);
-  if (!label) {
-    showToast('Inserisci un nome per la porzione', 'info');
-    return;
-  }
-  if (!Number.isFinite(grams) || grams <= 0) {
-    showToast('Inserisci i grammi della porzione', 'info');
-    return;
-  }
   const isSaved = getState().foods.some((x) => x.id === f.id);
   if (isSaved) {
-    addCustomPortionToFood(f.id, label, grams);
+    if (!addCustomPortionToFood(f.id, _searchState.newPortionLabel, grams)) return;
   } else {
-    const portion: CustomPortion = {
-      id: safeId('port_'),
-      label,
-      grams: Math.max(0.1, Math.round(grams * 10) / 10),
-    };
-    _searchState.pendingCustomPortions = [..._searchState.pendingCustomPortions, portion];
+    const existing = [...(f.customPortions || []), ..._searchState.pendingCustomPortions];
+    const result = buildCustomPortion(_searchState.newPortionLabel, grams, existing);
+    if (!result.ok) {
+      showToast(result.message, 'info');
+      return;
+    }
+    _searchState.pendingCustomPortions = [..._searchState.pendingCustomPortions, result.portion];
   }
   _searchState.creatingPortion = false;
   _searchState.newPortionLabel = '';
@@ -697,7 +551,7 @@ export function updateSearchContent(overlay: HTMLElement): void {
           <div class="search-box">
             <span class="search-icon" aria-hidden="true">🔍</span>
             <input id="search-input" type="search" placeholder="Cerca su Open Food Facts (es. pasta, yogurt…)" autocomplete="off" />
-            ${_searchState.query ? '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci">✕</button>' : '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci" style="display:none">✕</button>'}
+            ${_session.query ? '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci">✕</button>' : '<button type="button" class="search-clear" data-search-action="clearQuery" aria-label="Pulisci" style="display:none">✕</button>'}
           </div>
           <button type="button" class="btn btn-primary" data-search-action="runSearch">Cerca</button>
           <button type="button" class="scan-btn" data-search-action="scanBarcode" aria-label="Scansiona codice a barre" title="Scansiona codice a barre">
@@ -707,7 +561,7 @@ export function updateSearchContent(overlay: HTMLElement): void {
         <p class="search-hint">Database gratuito collaborativo - milioni di prodotti. Premi Cerca o Invio per interrogare Open Food Facts. Usa 📷 per il codice a barre.</p>
       `;
       const input = searchBoxEl.querySelector<HTMLInputElement>('#search-input');
-      if (input) input.value = _searchState.query;
+      if (input) input.value = _session.query;
       requestAnimationFrame(() => {
         if (!isSearchOpen()) return;
         const inp = searchBoxEl.querySelector<HTMLInputElement>('#search-input');
@@ -717,25 +571,21 @@ export function updateSearchContent(overlay: HTMLElement): void {
       searchBoxEl.innerHTML = '';
     } else if (shouldShow && wasShowing) {
       const clearBtn = searchBoxEl.querySelector<HTMLElement>('.search-clear');
-      if (clearBtn) clearBtn.style.display = _searchState.query ? '' : 'none';
+      if (clearBtn) clearBtn.style.display = _session.query ? '' : 'none';
     }
   }
 
   const listEl = overlay.querySelector<HTMLElement>('[data-search-zone="list"]');
   if (listEl) {
     let listHtml: string;
-    if (_searchState.loading) {
+    if (isLoading()) {
       listHtml = `<div class="search-loading"><span class="spinner" aria-hidden="true"></span> Ricerca in corso…</div>`;
     } else if (list.length === 0) {
       listHtml = `<div class="search-empty">${escapeHtml(renderEmptyHint())}</div>`;
     } else {
       listHtml = list.map((f) => renderFoodRow(f)).join('');
-      if (
-        _searchState.tab === 'search' &&
-        _searchState.continuation &&
-        _searchState.query.trim().length >= SEARCH_MIN_QUERY
-      ) {
-        const remaining = Math.max(0, _searchState.totalCount - list.length);
+      if (_searchState.tab === 'search' && _session.canLoadMore) {
+        const remaining = _session.remainingCount;
         const suffix = remaining > 0 ? ` (${remaining} restanti)` : '';
         listHtml += `<div class="search-load-more"><button type="button" class="btn btn-outline btn-sm btn-block" data-search-action="loadMore">Carica altri risultati${suffix}</button></div>`;
       }
@@ -852,9 +702,10 @@ function renderActionsFooter(): string {
 
 function renderEmptyHint(): string {
   if (_searchState.tab === 'search') {
-    if (_searchState.query.trim().length < SEARCH_MIN_QUERY) {
+    if (_session.query.trim().length < SEARCH_MIN_QUERY) {
       return 'Inizia a digitare per cercare prodotti reali nel database Open Food Facts.';
     }
+    if (!_session.searched) return 'Premi Cerca o Invio per interrogare Open Food Facts.';
     return 'Nessun risultato. Prova con un altro termine o crea un ingrediente custom.';
   }
   if (_searchState.tab === 'favorites') return 'Aggiungi ai preferiti i cibi che consumi spesso cliccando la stellina.';

@@ -1,5 +1,5 @@
 // Service Worker (Workbox injectManifest).
-// Pattern 10 dello standard: precache + cleanup + clientsClaim + route differenziati.
+// precache + cleanup + clientsClaim + route differenziati.
 
 import { precacheAndRoute, cleanupOutdatedCaches, matchPrecache } from 'workbox-precaching';
 import { clientsClaim } from 'workbox-core';
@@ -49,7 +49,7 @@ const navigationRoute = new NavigationRoute(
 );
 registerRoute(navigationRoute);
 
-// Fix B17: register image route BEFORE API route (Workbox uses first-match-wins).
+// register image route BEFORE API route (Workbox uses first-match-wins).
 // Immagini OFF (thumbnail): CacheFirst 30 giorni max 300 entries
 registerRoute(
   ({ url }) => url.hostname.endsWith('openfoodfacts.org') && /\.(?:jpg|jpeg|png|webp|gif)$/.test(url.pathname),

@@ -81,11 +81,11 @@ export default tseslint.config(
     },
   },
 
-  // === Service Worker & worker files: permissivi su DOM ===
+  // === Service Worker: permissivo su DOM ===
   {
-    files: ['src/sw.ts', 'src/worker/**/*.ts'],
+    files: ['src/sw.ts'],
     rules: {
-      // SW e worker usano self/DedicatedWorkerGlobalScope; niente window.
+      // Il SW usa self (ServiceWorkerGlobalScope); niente window.
       'no-restricted-globals': 'off',
     },
   },

@@ -1,5 +1,4 @@
 // Recent foods: lista degli ultimi alimenti usati nel diario, per quick-add.
-// P2 #2 Step 02 "Qualità della vita quotidiana".
 //
 // "Recente" = ordinato per data di ultimo utilizzo nel diario (desc).
 // Deduplicato per foodId (un alimento usato più volte conta una volta sola).

@@ -197,7 +197,7 @@
   <main>
     <h1>Informativa Privacy</h1>
     <p class="lead">NutriTrack è un'applicazione web (PWA) per il tracciamento personale di calorie, macro, ricette e dati giornalieri di benessere e peso. Questa informativa spiega in modo trasparente quali dati vengono trattati, dove sono conservati e quali terze parti (se presenti) sono coinvolte.</p>
-    <p class="meta">Ultimo aggiornamento: 30 agosto 2026 · Versione informativa: 1.1</p>
+    <p class="meta">Ultimo aggiornamento: 18 novembre 2026 · Versione informativa: 1.2</p>
 
     <div class="tags">
       <span class="tag tag-success">✓ Dati sul dispositivo</span>
@@ -210,7 +210,7 @@
     <div class="summary-grid">
       <div class="summary-item">
         <div class="summary-item-label">Dove sono i dati</div>
-        <div class="summary-item-value">Solo sul tuo dispositivo (localStorage del browser)</div>
+        <div class="summary-item-value">Solo sul tuo dispositivo (archivio locale del browser, IndexedDB)</div>
       </div>
       <div class="summary-item">
         <div class="summary-item-label">Account</div>
@@ -230,7 +230,7 @@
     <p>NutriTrack è un progetto hobbistico open source distribuito sotto licenza MIT. Non essendoci un backend, un server di autenticazione o un'infrastruttura di raccolta dati, non esiste un "titolare del trattamento" tradizionale che custodisca i tuoi dati personali: <strong>i dati restano esclusivamente sul tuo dispositivo</strong>, sotto il tuo controllo diretto. Il codice sorgente è pubblico e ispezionabile su <a href="https://github.com/Cartaz/Nutritrack" target="_blank" rel="noreferrer">GitHub</a>.</p>
 
     <h2>2. Dati trattati e dove risiedono</h2>
-    <p>L'app memorizza localmente, nella chiave <code>nutritrack_data_v1</code> del <code>localStorage</code> del browser, i seguenti dati:</p>
+    <p>L'app memorizza localmente, nel database <code>nutritrack</code> dell'archivio <code>IndexedDB</code> del browser, i seguenti dati:</p>
     <ul>
       <li><strong>Impostazioni utente</strong>: obiettivo calorico giornaliero, split macro, tema, eventuali dati per il calcolo del TDEE (peso, altezza, età, sesso, livello di attività, obiettivo di peso). Questi dati servono solo a personalizzare i calcoli lato client.</li>
       <li><strong>Dati giornalieri di benessere e peso</strong>: quantità d'acqua registrata, ore di sonno e peso corporeo associati alle date inserite dall'utente.</li>
@@ -239,7 +239,7 @@
       <li><strong>Diario alimentare</strong>: voci giornaliere (alimento + quantità + pasto) inserite dall'utente.</li>
       <li><strong>Preferiti</strong>: id degli alimenti marcati come preferiti.</li>
     </ul>
-    <p>Tutti questi dati sono <strong>inseriti volontariamente dall'utente</strong> e <strong>non lasciano mai il dispositivo</strong> a eccezione delle ricerche su Open Food Facts (vedi sezione 3) e delle esportazioni JSON esplicite effettuate dall'utente stesso (funzione Backup). Una copia di sicurezza (backup) viene mantenuta su una seconda chiave <code>nutritrack_data_backup</code> sempre nel <code>localStorage</code> dello stesso browser, per il recupero in caso di dati corrotti.</p>
+    <p>Tutti questi dati sono <strong>inseriti volontariamente dall'utente</strong> e <strong>non lasciano mai il dispositivo</strong> a eccezione delle ricerche su Open Food Facts (vedi sezione 3) e delle esportazioni JSON esplicite effettuate dall'utente stesso (funzione Backup). Una copia di sicurezza della versione precedente (backup) viene mantenuta nello stesso database, per il recupero in caso di dati corrotti. Le versioni precedenti dell'app usavano il <code>localStorage</code>: al primo avvio i dati vengono spostati in IndexedDB e rimossi dal <code>localStorage</code>.</p>
     <p>NutriTrack non memorizza localmente posizione geografica, indirizzi IP, identificativi del dispositivo, contatti o foto. Le immagini dei prodotti vengono mostrate tramite URL provenienti da Open Food Facts e non vengono salvate nel payload dati locale. Acqua, sonno e peso sono memorizzati soltanto quando l'utente li inserisce esplicitamente.</p>
 
     <h2>3. Comunicazioni verso l'esterno (Open Food Facts)</h2>
@@ -253,7 +253,7 @@
     <p>È possibile usare l'app senza effettuare mai ricerche online: creando alimenti custom manualmente (bottone "Crea ingrediente custom"). In quel caso, NutriTrack non effettua richieste di ricerca verso Open Food Facts.</p>
 
     <h2>4. Cookie e tecnologie di tracciamento</h2>
-    <p>NutriTrack <strong>non utilizza cookie</strong> di alcun tipo, né di prima né di terza parte. Non utilizza Web Beacon, fingerprinting, pixel tag o altre tecnologie di tracciamento. Il <code>localStorage</code> è usato esclusivamente per memorizzare i dati dell'utente (vedi sezione 2), non per profilazione o tracciamento.</p>
+    <p>NutriTrack <strong>non utilizza cookie</strong> di alcun tipo, né di prima né di terza parte. Non utilizza Web Beacon, fingerprinting, pixel tag o altre tecnologie di tracciamento. L'archivio <code>IndexedDB</code> è usato esclusivamente per memorizzare i dati dell'utente (vedi sezione 2), non per profilazione o tracciamento.</p>
     <p>Il Service Worker (funzionalità PWA per il funzionamento offline) usa la cache per gli asset statici (HTML, CSS, JS, icone). Non registra push notification, non effettua background sync verso server e non raccoglie dati di utilizzo.</p>
 
     <h2>5. Barcode scanner e accesso fotocamera</h2>
@@ -265,18 +265,18 @@
     <p>In entrambi i casi: <strong>nessun frame video viene trasmesso o salvato</strong>. Non viene scattata alcuna foto. L'accesso alla camera è limitato alla durata del modal scanner e viene revocato immediatamente alla chiusura (il flusso MediaStream viene fermato). Il permesso può essere revocato in qualsiasi momento dalle impostazioni del browser.</p>
 
     <h2>6. Condivisione e diffusione dei dati</h2>
-    <p>I dati salvati nel <code>localStorage</code> non vengono trasmessi a terzi da NutriTrack. Le ricerche verso Open Food Facts inviano soltanto i dati descritti nella sezione 3. La funzione <strong>Esporta backup</strong> (in Impostazioni → Backup) genera un file JSON scaricabile sul dispositivo: è responsabilità dell'utente decidere cosa farne. La funzione <strong>Importa</strong> legge un file JSON locale scelto esplicitamente dall'utente; il file non viene trasmesso ad alcun server.</p>
+    <p>I dati salvati nell'archivio locale non vengono trasmessi a terzi da NutriTrack. Le ricerche verso Open Food Facts inviano soltanto i dati descritti nella sezione 3. La funzione <strong>Esporta backup</strong> (in Impostazioni → Backup) genera un file JSON scaricabile sul dispositivo: è responsabilità dell'utente decidere cosa farne. La funzione <strong>Importa</strong> legge un file JSON locale scelto esplicitamente dall'utente; il file non viene trasmesso ad alcun server.</p>
 
     <h2>7. Conservazione e cancellazione</h2>
-    <p>I dati restano nel <code>localStorage</code> finché l'utente non decide di rimuoverli. Le modalità disponibili sono:</p>
+    <p>I dati restano nell'archivio locale del browser finché l'utente non decide di rimuoverli. Le modalità disponibili sono:</p>
     <ul>
       <li><strong>Reset tutti i dati</strong> (Impostazioni → Reset): cancella immediatamente alimenti, ricette, diario, dati giornalieri di benessere e peso, preferiti e impostazioni. L'azione è irreversibile.</li>
       <li><strong>Cancellazione manuale del browser</strong>: svuotando i dati del sito dal browser, o disinstallando la PWA insieme ai relativi dati del sito, i dati locali vengono rimossi.</li>
-      <li><strong>Storage non disponibile</strong>: se il <code>localStorage</code> non è disponibile, l'app opera in modalità in-memory e i dati della sessione non vengono persistiti.</li>
+      <li><strong>Storage non disponibile</strong>: se l'archivio locale (IndexedDB) non è disponibile, l'app opera in modalità in-memory e i dati della sessione non vengono persistiti.</li>
     </ul>
 
     <h2>8. Sicurezza dei dati</h2>
-    <p>Poiché i dati risiedono sul dispositivo dell'utente, la loro sicurezza dipende dalle protezioni del sistema operativo, del browser e del dispositivo (PIN, biometria, cifratura disco). NutriTrack non implementa cifratura aggiuntiva dei dati locali: chiunque abbia accesso fisico al dispositivo sbloccato e apra il browser con il profilo corretto può leggere il <code>localStorage</code>. Per dati sensibili (es. diario alimentare con note cliniche), si raccomanda di proteggere il dispositivo con PIN/biometria.</p>
+    <p>Poiché i dati risiedono sul dispositivo dell'utente, la loro sicurezza dipende dalle protezioni del sistema operativo, del browser e del dispositivo (PIN, biometria, cifratura disco). NutriTrack non implementa cifratura aggiuntiva dei dati locali: chiunque abbia accesso fisico al dispositivo sbloccato e apra il browser con il profilo corretto può leggere i dati locali dell'app. Per dati sensibili (es. diario alimentare con note cliniche), si raccomanda di proteggere il dispositivo con PIN/biometria.</p>
 
     <h2>9. Diritti dell'interessato (GDPR, artt. 15–22)</h2>
     <p>Trattandosi di dati esclusivamente locali, i diritti previsti dal Regolamento UE 2016/679 (GDPR) si esercitano direttamente sul dispositivo:</p>

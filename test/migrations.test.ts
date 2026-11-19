@@ -22,15 +22,41 @@ describe('persisted schema migrations', () => {
     expect(result.document.syncKind).toBe('state');
   });
 
-  it('migrates an explicit schema 0 document to schema 1', () => {
+  it('migrates an explicit schema 0 document through every step to the current schema', () => {
     const result = migratePersistedDocument({ version: 0, foods: [] });
 
     expect(result).toEqual({
       ok: true,
-      document: { version: 1, foods: [] },
+      document: { version: SCHEMA_VERSION, foods: [] },
       fromVersion: 0,
-      toVersion: 1,
+      toVersion: SCHEMA_VERSION,
     });
+  });
+
+  it('v1 → v2 drops the duplicated image URL from diary snapshots and keeps everything else', () => {
+    const entry = {
+      id: 'e1',
+      date: '2026-01-01',
+      meal: 'lunch',
+      foodId: 'food_1',
+      quantity: 1,
+      foodSnapshot: {
+        id: 'food_1',
+        name: 'Pasta',
+        image: 'https://images.openfoodfacts.org/p.jpg',
+        nutrition: { calories: 350, protein: 12, carbs: 70, fat: 2 },
+      },
+    };
+    const food = { id: 'food_1', name: 'Pasta', image: 'https://images.openfoodfacts.org/p.jpg' };
+    const result = migratePersistedDocument({ version: 1, foods: [food], diary: { '2026-01-01': [entry] } });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const migrated = (result.document.diary as Record<string, (typeof entry)[]>)['2026-01-01'][0];
+    expect(migrated.foodSnapshot).not.toHaveProperty('image');
+    expect(migrated.foodSnapshot.name).toBe('Pasta');
+    expect(migrated.foodSnapshot.nutrition).toEqual(entry.foodSnapshot.nutrition);
+    expect(result.document.foods).toEqual([food]);
   });
 
   it('accepts the current schema without inventing a migration', () => {

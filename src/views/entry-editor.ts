@@ -2,6 +2,7 @@
 // Permette di modificare la quantità di un cibo già inserito cliccando sulla riga.
 // Supporta grammi liberi + porzioni personalizzate salvate sul food.
 
+import { entryGrams } from '../lib/nutrition';
 import {
   getState,
   getActiveDialog,
@@ -9,10 +10,10 @@ import {
   setDiaryEntryAmount,
   setDiaryEntryFoodSnapshot,
 } from '../lib/store';
-import { addCustomPortionToFood, removeCustomPortionFromFood } from '../lib/foods';
+import { addCustomPortionToFood, buildCustomPortion, removeCustomPortionFromFood } from '../lib/foods';
 import { showToast } from '../components/toast';
 import { showModal } from '../components/modal';
-import { escapeHtml, escapeAttr, safeId } from '../lib/utils';
+import { escapeHtml, escapeAttr } from '../lib/utils';
 import { imgTag } from '../components/img';
 import type { DiaryEntry, CustomPortion } from '../types';
 
@@ -45,7 +46,7 @@ function entryAmountSignature(entry: DiaryEntry): string {
 function loadFromEntry(entryId: string): boolean {
   const entry = findEntryById(entryId);
   if (!entry) return false;
-  const grams = entry.gramsOverride ?? entry.foodSnapshot.servingSize * entry.quantity;
+  const grams = entryGrams(entry);
   _entryEditorState.grams = String(grams);
   _entryEditorState.creatingPortion = false;
   _entryEditorState.newPortionLabel = '';
@@ -143,7 +144,7 @@ function renderFormBody(entry: DiaryEntry): string {
   return `
     <div class="ee-selected">
       <div class="ee-food-head">
-        ${imgTag(f.image, f.name, 'thumb', f.source === 'custom' ? '✏️' : '🥫')}
+        ${imgTag(getState().foods.find((food) => food.id === entry.foodId)?.image, f.name, 'thumb', f.source === 'custom' ? '✏️' : '🥫')}
         <div class="ee-food-info">
           <p class="ee-food-name">${escapeHtml(f.name)}</p>
           ${f.brand ? `<p class="ee-food-brand">${escapeHtml(f.brand)}</p>` : ''}
@@ -316,34 +317,22 @@ function createCustomPortion(): void {
   const entry = currentEntry();
   if (!entry) return;
   const f = entry.foodSnapshot;
-  const label = _entryEditorState.newPortionLabel.trim();
   const grams = Number(_entryEditorState.newPortionGrams);
-  if (!label) {
-    showToast('Inserisci un nome per la porzione', 'info');
-    return;
-  }
-  if (!Number.isFinite(grams) || grams <= 0) {
-    showToast('Inserisci i grammi della porzione', 'info');
-    return;
-  }
   const isSaved = getState().foods.some((x) => x.id === f.id);
   let portion: CustomPortion;
   if (isSaved) {
-    const created = addCustomPortionToFood(f.id, label, grams);
+    const created = addCustomPortionToFood(f.id, _entryEditorState.newPortionLabel, grams);
     if (!created) return;
     portion = created;
   } else {
-    portion = {
-      id: safeId('port_'),
-      label,
-      grams: Math.max(0.1, Math.round(grams * 10) / 10),
-    };
+    const result = buildCustomPortion(_entryEditorState.newPortionLabel, grams, f.customPortions);
+    if (!result.ok) {
+      showToast(result.message, 'info');
+      return;
+    }
+    portion = result.portion;
   }
-  const newCustomPortions = [...(f.customPortions || []), portion];
-  setDiaryEntryFoodSnapshot(entry.id, {
-    ...f,
-    customPortions: newCustomPortions.length > 0 ? newCustomPortions : undefined,
-  });
+  setDiaryEntryFoodSnapshot(entry.id, { ...f, customPortions: [...(f.customPortions || []), portion] });
   _entryEditorState.creatingPortion = false;
   _entryEditorState.newPortionLabel = '';
   _entryEditorState.newPortionGrams = '';

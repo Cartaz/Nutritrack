@@ -16,7 +16,7 @@ vi.mock('../src/lib/normalize', () => ({
   buildFoodFromOff: mocks.buildFoodFromOff,
 }));
 
-import { continueFoodSearch, lookupFoodByBarcode, searchFoods } from '../src/lib/food-search';
+import { continueFoodSearch, foodSearchErrorMessage, lookupFoodByBarcode, searchFoods } from '../src/lib/food-search';
 
 const FOOD: FoodItem = {
   id: 'off-1',
@@ -60,16 +60,33 @@ describe('food search policy', () => {
   });
 });
 
+describe('error classification', () => {
+  it('reports the client-side rate limit as rate_limited, with its own message', async () => {
+    mocks.searchOff.mockRejectedValue(
+      Object.assign(new Error('Troppe ricerche'), { name: 'RateLimitError', status: 429 }),
+    );
+    const error = await searchFoods('pasta').catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'FoodSearchError', kind: 'rate_limited' });
+    expect(foodSearchErrorMessage(error, 'search')).toMatch(/Troppe ricerche/);
+  });
+
+  it('classifies by error name and status, not by message text', async () => {
+    mocks.searchOff.mockRejectedValueOnce(
+      Object.assign(new Error('qualunque testo'), { name: 'ApiError', status: 503 }),
+    );
+    await expect(searchFoods('pasta')).rejects.toMatchObject({ kind: 'unavailable' });
+    mocks.searchOff.mockRejectedValueOnce(
+      Object.assign(new Error('non disponibile'), { name: 'ApiError', status: 400 }),
+    );
+    await expect(searchFoods('pasta')).rejects.toMatchObject({ kind: 'unknown' });
+  });
+});
+
 describe('barcode lookup policy', () => {
-  it('keeps a single retry for point barcode lookup', async () => {
-    vi.useFakeTimers();
-    mocks.getOffByBarcode
-      .mockRejectedValueOnce(Object.assign(new Error('network'), { name: 'NetworkError' }))
-      .mockResolvedValueOnce(PRODUCT);
-    const pending = lookupFoodByBarcode('123');
-    await vi.advanceTimersByTimeAsync(10_000);
-    await expect(pending).resolves.toEqual({ kind: 'found', food: FOOD });
-    expect(mocks.getOffByBarcode).toHaveBeenCalledTimes(2);
+  it('does not stack a second retry layer on top of apiGetJson', async () => {
+    mocks.getOffByBarcode.mockRejectedValueOnce(Object.assign(new Error('network'), { name: 'NetworkError' }));
+    await expect(lookupFoodByBarcode('123')).rejects.toMatchObject({ name: 'FoodSearchError', kind: 'network' });
+    expect(mocks.getOffByBarcode).toHaveBeenCalledTimes(1);
   });
 
   it('distinguishes not-found from nutritionally incomplete products', async () => {

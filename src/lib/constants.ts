@@ -1,18 +1,25 @@
 // Costanti applicazione: chiavi storage, API base, timeout, config.
 
-export const APP_NAME = 'nutritrack';
+const APP_NAME = 'nutritrack';
 
-/** Versione schema dati (bump su breaking changes per migrazione) */
-export const SCHEMA_VERSION = 1;
+/** Versione dello schema dati persistito. Un bump richiede una migrazione in migrations.ts. */
+export const SCHEMA_VERSION = 2;
 
-/** Chiave primaria localStorage */
-export const STORAGE_KEY = `${APP_NAME}_data_v${SCHEMA_VERSION}`;
+/** Database IndexedDB che contiene tutti i dati dell'app (documento, metadati, backup). */
+export const IDB_NAME = APP_NAME;
 
-/** Chiave backup separato (snapshot precedente per recovery) */
-export const BACKUP_KEY = `${APP_NAME}_data_backup`;
+/** Canale BroadcastChannel con cui le tab si avvisano a vicenda dei salvataggi. */
+export const SYNC_CHANNEL = `${APP_NAME}-sync`;
 
-/** Soglia di utilizzo localStorage oltre la quale avvisare l'utente (4.5MB) */
-export const STORAGE_WARN_BYTES = 4.5 * 1024 * 1024;
+/**
+ * Chiavi localStorage usate dalle versioni precedenti (fino allo schema 2 compreso).
+ * Al primo avvio i dati vengono migrati in IndexedDB e queste chiavi rimosse.
+ */
+export const LEGACY_STORAGE_KEYS = [`${APP_NAME}_data`, `${APP_NAME}_data_v1`] as const;
+export const LEGACY_BACKUP_KEY = `${APP_NAME}_data_backup`;
+
+/** Avviso quando l'uso stimato dello storage supera questa frazione della quota del browser. */
+export const STORAGE_WARN_RATIO = 0.8;
 
 /** Timeout default per fetch API (ms).
  *  Include un margine rispetto al fallback cache del Service Worker (10s):
@@ -29,16 +36,6 @@ export const API_RETRY_PER_INSTANCE = 1;
  *  Backoff lineare: attempt N → delay = API_RETRY_DELAY_MS × N. */
 export const API_RETRY_DELAY_MS = 500;
 
-/** Debounce ricerca OFF (ms) */
-export const SEARCH_DEBOUNCE_MS = 500;
-
-/** Retry del dominio search dopo un fallimento transitorio (ms). */
-export const SEARCH_AUTO_RETRY_DELAY_MS = 800;
-
-/** Suffissi italiani da provare quando una query parziale ritorna 0 risultati.
- *  OFF con search_simple=1 non supporta matching parziale né wildcard (`*`). */
-export const PARTIAL_MATCH_SUFFIXES = ['e', 'i', 'a', 'o'] as const;
-
 /** Lunghezza minima query per avviare ricerca OFF */
 export const SEARCH_MIN_QUERY = 2;
 
@@ -54,11 +51,5 @@ export const OFF_INSTANCES = [
   'https://de.openfoodfacts.org',
 ] as const;
 
-/** Timeout worker (ms) prima di fallback main-thread */
-export const WORKER_TIMEOUT_MS = 500;
-
 /** Limite guard per numero massimo entry diario (anti-abuso) */
 export const MAX_DIARY_ENTRIES_PER_DAY = 200;
-
-/** Limite massivo per strip dati non critici su QuotaExceededError */
-export const MAX_FOODS_BEFORE_PRUNE = 500;

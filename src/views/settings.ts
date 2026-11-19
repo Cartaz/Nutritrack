@@ -1,6 +1,13 @@
 // Vista Settings: calorie goal, macro split, TDEE calculator, export/import, reset, about.
 
-import { getState, setCalorieGoal, setMacroSplit, updateSettings, openResetConfirm, emitChange } from '../lib/store';
+import {
+  getState,
+  setCalorieGoal,
+  setMacroSplit,
+  updateSettings,
+  openResetConfirm,
+  emitViewChange,
+} from '../lib/store';
 import {
   calcMacroGrams,
   calcBMR,
@@ -13,8 +20,10 @@ import {
 } from '../lib/nutrition';
 import type { EstimatedGoalCalories, AutomaticCalorieGoalAssessment } from '../lib/nutrition';
 import { escapeHtml, escapeAttr, clamp } from '../lib/utils';
+import { appVersionLabel } from '../lib/appInfo';
 import { handleExport, handleImport } from '../components/exportImport';
 import { showToast } from '../components/toast';
+import { confirmAction } from '../components/modal';
 import { applyTheme } from '../components/renderer';
 import { MACRO_PRESETS, ACTIVITY_LABELS, WEIGHT_GOAL_LABELS, MAX_WEEKLY_KG_RATE } from '../types';
 import type { MacroSplit, Theme, Sex, ActivityLevel, WeightGoalType } from '../types';
@@ -449,7 +458,7 @@ export function renderSettings(main: HTMLElement): void {
 
       <section class="card setting-card">
         <h2 class="setting-title">Dati e backup</h2>
-        <p class="setting-subtitle">Tutti i dati sono salvati localmente sul tuo dispositivo (localStorage). Fai regolarmente un backup per non perderli.</p>
+        <p class="setting-subtitle">Tutti i dati sono salvati localmente sul tuo dispositivo, nel browser. Fai regolarmente un backup per non perderli.</p>
         <div class="backup-grid">
           <button type="button" class="btn btn-outline" data-action="exportData"><span aria-hidden="true">⬇</span> Esporta</button>
           <label class="btn btn-outline" for="import-file"><span aria-hidden="true">⬆</span> Importa</label>
@@ -464,6 +473,7 @@ export function renderSettings(main: HTMLElement): void {
         <p><strong>NutriTrack</strong> — clone open di Lifesum come PWA.</p>
         <p>Dati nutrizionali forniti da <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a> (database collaborativo gratuito).</p>
         <p>Tutti i dati restano sul tuo dispositivo. Installabile come app dal browser (Aggiungi a Home Screen).</p>
+        <p class="app-version">Versione ${escapeHtml(appVersionLabel())}</p>
         <p><a href="./privacy.html" target="_blank" rel="noreferrer">Informativa privacy</a> · <a href="https://github.com/Cartaz/Nutritrack" target="_blank" rel="noreferrer">Codice sorgente</a> · <a href="https://github.com/Cartaz/Nutritrack/blob/main/LICENSE" target="_blank" rel="noreferrer">Licenza MIT</a></p>
       </section>
     </div>
@@ -504,21 +514,28 @@ function bindSettingsEvents(main: HTMLElement): void {
       const id = target.dataset.presetId;
       const preset = MACRO_PRESETS.find((p) => p.id === id);
       if (preset) {
-        if (_pendingMacroSplit) {
-          const current = getState().settings.macroSplit;
-          const hasCustomMods =
-            _pendingMacroSplit.proteinPct !== current.proteinPct ||
+        const applyPreset = (): void => {
+          _pendingMacroSplit = { ...preset.split };
+          showToast(`Preset "${preset.name}" applicato. Clicca "Salva split macro" per confermare.`, 'info', 3500);
+          emitViewChange();
+        };
+        const current = getState().settings.macroSplit;
+        const hasCustomMods =
+          !!_pendingMacroSplit &&
+          (_pendingMacroSplit.proteinPct !== current.proteinPct ||
             _pendingMacroSplit.carbsPct !== current.carbsPct ||
-            _pendingMacroSplit.fatPct !== current.fatPct;
-          if (hasCustomMods) {
-            if (!confirm('Hai modifiche allo split macro non salvate. Sovrascrivere con il preset?')) {
-              return;
-            }
-          }
+            _pendingMacroSplit.fatPct !== current.fatPct);
+        if (!hasCustomMods) {
+          applyPreset();
+          return;
         }
-        _pendingMacroSplit = { ...preset.split };
-        showToast(`Preset "${preset.name}" applicato. Clicca "Salva split macro" per confermare.`, 'info', 3500);
-        emitChange();
+        void confirmAction({
+          title: 'Sovrascrivere lo split macro?',
+          body: 'Hai modifiche allo split macro non salvate. Applicando il preset andranno perse.',
+          confirmLabel: 'Applica preset',
+        }).then((confirmed) => {
+          if (confirmed) applyPreset();
+        });
       }
       return;
     }

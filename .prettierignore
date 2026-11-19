@@ -11,5 +11,5 @@ package-lock.json
 public/icons/*.png
 public/icons/*.ico
 
-# Auto-generated da vite-plugin-pwa (se presente)
+# Dichiarazioni di tipo ambientali (BarcodeDetector, requestVideoFrameCallback)
 src/vite-env.d.ts

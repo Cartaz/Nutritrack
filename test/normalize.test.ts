@@ -15,7 +15,7 @@ import {
   normalizeSex,
   normalizeActivity,
   normalizeWeightGoal,
-  normalizeMacroSplit,
+  normalizeMacroSplitInput,
   normalizeNutrition,
   normalizeFoodItem,
   normalizeDiaryEntry,
@@ -25,8 +25,6 @@ import {
   normalizeDayDiary,
   reconcileAll,
   buildFoodFromOff,
-  estimateStorageBytes,
-  isStorageWarn,
 } from '../src/lib/normalize';
 
 describe('normalizeString', () => {
@@ -180,21 +178,21 @@ describe('normalizeWeightGoal', () => {
   });
 });
 
-describe('normalizeMacroSplit', () => {
+describe('normalizeMacroSplitInput', () => {
   it('riscala split che non somma a 100', () => {
-    const r = normalizeMacroSplit({ proteinPct: 40, carbsPct: 40, fatPct: 40 });
+    const r = normalizeMacroSplitInput({ proteinPct: 40, carbsPct: 40, fatPct: 40 });
     expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
   });
 
   it('default a 30/40/30 per input non-oggetto', () => {
-    const r = normalizeMacroSplit(null);
+    const r = normalizeMacroSplitInput(null);
     expect(r.proteinPct).toBe(30);
     expect(r.carbsPct).toBe(40);
     expect(r.fatPct).toBe(30);
   });
 
   it('clampa macro negativi prima di riscalare', () => {
-    const r = normalizeMacroSplit({ proteinPct: -10, carbsPct: 50, fatPct: 50 });
+    const r = normalizeMacroSplitInput({ proteinPct: -10, carbsPct: 50, fatPct: 50 });
     expect(r.proteinPct).toBe(0);
     expect(r.proteinPct + r.carbsPct + r.fatPct).toBe(100);
   });
@@ -316,8 +314,8 @@ describe('normalizeFoodItem', () => {
   });
 
   it('accetta URL https per immagine', () => {
-    const r = normalizeFoodItem({ ...validFood, image: 'https://example.com/img.jpg' });
-    expect(r!.image).toBe('https://example.com/img.jpg');
+    const r = normalizeFoodItem({ ...validFood, image: 'https://images.openfoodfacts.org/img.jpg' });
+    expect(r!.image).toBe('https://images.openfoodfacts.org/img.jpg');
   });
 
   it('normalizza customPortions valide', () => {
@@ -766,26 +764,6 @@ describe('buildFoodFromOff', () => {
       nutriments: { 'energy-kcal_100g': 100, 'proteins_100g': 5, 'carbohydrates_100g': 10, 'fat_100g': 1 },
     });
     expect(r!.image).toBeUndefined();
-  });
-});
-
-describe('estimateStorageBytes / isStorageWarn', () => {
-  it('ritorna byte UTF-16 (length * 2)', () => {
-    const bytes = estimateStorageBytes({ a: 'ciao' });
-    // '{"a":"ciao"}'.length = 12 → 12 * 2 = 24
-    expect(bytes).toBe(24);
-  });
-
-  it('gestisce payload non serializzabile (circolari)', () => {
-    const circular: Record<string, unknown> = {};
-    circular.self = circular;
-    expect(estimateStorageBytes(circular)).toBe(0);
-  });
-
-  it('isStorageWarn ritorna true per byte > STORAGE_WARN_BYTES', () => {
-    // STORAGE_WARN_BYTES = 4.5MB = 4_718_592
-    expect(isStorageWarn(5_000_000)).toBe(true);
-    expect(isStorageWarn(1_000_000)).toBe(false);
   });
 });
 

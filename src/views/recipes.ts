@@ -1,6 +1,6 @@
 // Vista Recipes: elenco ricette custom con search, view, edit, delete, add-to-diary.
 
-import { getState, openRecipeEditor, openRecipeViewer, openAddRecipeToMeal, emitChange } from '../lib/store';
+import { getState, openRecipeEditor, openRecipeViewer, openAddRecipeToMeal, emitViewChange } from '../lib/store';
 import { requestDeleteRecipe } from '../lib/recipes';
 import { escapeHtml, escapeAttr, debounce, round } from '../lib/utils';
 import { scaleNutrition, sumNutrition } from '../lib/nutrition';
@@ -10,7 +10,7 @@ let _recipesBound = false;
 let _recipesQuery = '';
 
 const _filterRecipes = debounce(() => {
-  emitChange();
+  emitViewChange();
 }, 80);
 
 export function renderRecipes(main: HTMLElement): void {

@@ -1,5 +1,5 @@
 import type { DayTotals, DiaryEntry, StatsResult } from '../types';
-import { scaleNutrition, sumNutrition } from './nutrition';
+import { entryNutrition, sumNutrition } from './nutrition';
 
 const EMPTY_DAY = {
   calories: 0,
@@ -13,10 +13,7 @@ const EMPTY_DAY = {
 export function computeDayTotals(entries: DiaryEntry[], date = entries[0]?.date ?? ''): DayTotals {
   if (entries.length === 0) return { date, ...EMPTY_DAY };
 
-  const nutritions = entries.map((entry) => {
-    const grams = entry.gramsOverride ?? entry.foodSnapshot.servingSize * entry.quantity;
-    return scaleNutrition(entry.foodSnapshot.nutrition, grams);
-  });
+  const nutritions = entries.map(entryNutrition);
   const total = sumNutrition(nutritions);
   return {
     date,

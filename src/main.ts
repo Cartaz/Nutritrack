@@ -2,47 +2,39 @@
 
 import './styles/main.css';
 import { subscribe, getState, setCurrentDate } from './lib/store';
-import {
-  loadData,
-  saveData,
-  enableAutoSave,
-  initMultiTabSync,
-  isStorageAvailable,
-  shouldWarnQuota,
-} from './lib/storage';
+import { loadData, saveData, enableAutoSave, initMultiTabSync, initStorage, shouldWarnQuota } from './lib/storage';
 import { setStorageDisabled } from './lib/store';
 import { render, bindGlobalEvents, applyInitialTheme } from './components/renderer';
 import { showToast } from './components/toast';
 import { showModal } from './components/modal';
-import { terminateWorker } from './worker/client';
+import { promptForUpdate } from './components/updatePrompt';
 import { shouldAutoAdvanceDate, toDateKey } from './lib/utils';
 import { initKeyboardShortcuts } from './lib/keyboardShortcuts';
 
-function init(): void {
-  // 1. Storage detection + load
-  if (!isStorageAvailable()) {
+async function init(): Promise<void> {
+  // 1. Storage (IndexedDB) + caricamento. Lo splash di index.html resta visibile nel frattempo.
+  if (!(await initStorage())) {
     setStorageDisabled(true);
     showModal({
       modalId: 'storage-disabled',
-      title: 'Modalità privata',
+      title: 'Salvataggio non disponibile',
       bodyText:
-        'Il salvataggio non è disponibile in questa sessione (modalità privata o storage disabilitato). I dati non verranno persistiti tra le sessioni.',
+        'Il browser non permette di salvare dati in questa sessione (modalità privata o storage disabilitato). I dati non verranno conservati tra le sessioni.',
       actions: [{ label: 'OK', action: 'close', variant: 'primary' }],
     });
   } else {
-    const loaded = loadData();
-    // Su un profilo nuovo non esiste ancora una baseline persistita. Crearla prima di
-    // autosave e multi-tab sync rende rilevabile anche una modifica locale avvenuta
-    // nello stesso frame di un successivo storage event remoto.
+    const loaded = await loadData();
+    // Su un profilo nuovo non esiste ancora una baseline persistita: crearla prima di
+    // autosave e sync tra tab rende confrontabili le revisioni fin dalla prima modifica.
     if (!loaded) {
-      const saved = saveData();
+      const saved = await saveData();
       if (!saved.ok) setStorageDisabled(true);
     }
     enableAutoSave();
     initMultiTabSync();
-    if (shouldWarnQuota()) {
-      showToast('Spazio di archiviazione quasi esaurito. Esporta un backup.', 'warning', 6000);
-    }
+    void shouldWarnQuota().then((warn) => {
+      if (warn) showToast('Spazio di archiviazione quasi esaurito. Esporta un backup.', 'warning', 6000);
+    });
   }
 
   // 2. Tema
@@ -50,7 +42,7 @@ function init(): void {
 
   // 3. Bind events globali
   bindGlobalEvents();
-  // P2 #3: keyboard shortcuts desktop (idempotente)
+  // keyboard shortcuts desktop (idempotente)
   initKeyboardShortcuts();
 
   // 4. Subscribe per re-render su ogni change
@@ -63,11 +55,6 @@ function init(): void {
   if (import.meta.env.PROD) {
     void registerSW();
   }
-
-  // 7. Cleanup su unload
-  window.addEventListener('beforeunload', () => {
-    terminateWorker();
-  });
 
   // Avanza solo quando è realmente cambiato il giorno osservato e il dashboard era
   // ancora sul vecchio "oggi". Focus/visibility non devono sovrascrivere una data storica.
@@ -99,8 +86,11 @@ function init(): void {
 async function registerSW(): Promise<void> {
   try {
     const { registerSW: registerVitePWA } = await import('virtual:pwa-register');
-    registerVitePWA({
+    const updateSW = registerVitePWA({
       immediate: true,
+      onNeedRefresh() {
+        promptForUpdate(updateSW);
+      },
       onRegistered(registration) {
         // Check aggiornamenti ogni ora
         if (registration) {
@@ -122,7 +112,7 @@ async function registerSW(): Promise<void> {
 }
 
 // Boot
-init();
+void init();
 
 // Esponi stato per debug in dev
 if (import.meta.env.DEV) {

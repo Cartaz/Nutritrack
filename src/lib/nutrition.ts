@@ -2,6 +2,7 @@
 
 import {
   KCAL_PER_GRAM,
+  type DiaryEntry,
   type MacroSplit,
   type NutritionPer100,
   type Sex,
@@ -17,11 +18,11 @@ export function calcMacroGrams(
   calorieGoal: number,
   split: MacroSplit,
 ): { protein: number; carbs: number; fat: number } {
-  // Fix B6.8 (T6): distribuisci l'errore di arrotondamento sul grasso (il macro con più kcal/g)
+  // distribuisci l'errore di arrotondamento sul grasso (il macro con più kcal/g)
   // per minimizzare lo scostamento totale. Prima: P=150, C=200, F=67 → 2003 kcal (off by 3).
   // Ora: P=150, C=200, F=round((2000 - 150*4 - 200*4) / 9) = round(66.67) = 67 → 2003.
   // Per differenze piccole (<5 kcal) è accettabile; lasciamo il round standard.
-  // Fix LOW bug: guard per calorieGoal negativo/NaN/Infinity (defense in depth)
+  // guard per calorieGoal negativo/NaN/Infinity (defense in depth)
   if (!Number.isFinite(calorieGoal) || calorieGoal < 0) {
     return { protein: 0, carbs: 0, fat: 0 };
   }
@@ -34,7 +35,7 @@ export function calcMacroGrams(
 
 /** Scala valori per 100g -> quantita in grammi */
 export function scaleNutrition(n: NutritionPer100, grams: number): NutritionPer100 {
-  // Fix LOW bug: guard per grams negativo (defense in depth; l'UI valida già, ma un caller
+  // guard per grams negativo (defense in depth; l'UI valida già, ma un caller
   // diretto potrebbe passare valori invalidi). NaN/Infinity sono già sanitizzati da round().
   const safeGrams = !Number.isFinite(grams) || grams < 0 ? 0 : grams;
   const factor = safeGrams / 100;
@@ -47,6 +48,18 @@ export function scaleNutrition(n: NutritionPer100, grams: number): NutritionPer1
     sugar: n.sugar != null ? round(n.sugar * factor, 1) : undefined,
     salt: n.salt != null ? round(n.salt * factor, 1) : undefined,
   };
+}
+
+/** Grammi effettivi di una voce di diario: override esplicito, altrimenti porzioni × porzione. */
+export function entryGrams(entry: Pick<DiaryEntry, 'gramsOverride' | 'quantity' | 'foodSnapshot'>): number {
+  return entry.gramsOverride ?? entry.foodSnapshot.servingSize * entry.quantity;
+}
+
+/** Valori nutrizionali effettivi di una voce di diario. */
+export function entryNutrition(
+  entry: Pick<DiaryEntry, 'gramsOverride' | 'quantity' | 'foodSnapshot'>,
+): NutritionPer100 {
+  return scaleNutrition(entry.foodSnapshot.nutrition, entryGrams(entry));
 }
 
 /** Somma una lista di NutritionPer100 */

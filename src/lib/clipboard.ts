@@ -1,13 +1,12 @@
 // Copy-to-clipboard helpers: esportazione di diario e ricette in formato
 // markdown human-readable, copiabile su WhatsApp/Telegram/email per
 // condividere il piano alimentare con medico o amici.
-// P2 #1 Step 02 "Qualità della vita quotidiana".
 //
 // Niente dipendenze esterne: usa navigator.clipboard.writeText con
 // fallback a document.execCommand('copy') per browser/Safari vecchi.
 
 import { getState } from './store';
-import { scaleNutrition, sumNutrition, calcMacroGrams } from './nutrition';
+import { scaleNutrition, sumNutrition, calcMacroGrams, entryNutrition } from './nutrition';
 import { formatDateIT } from './utils';
 import { MEAL_LABELS, MEAL_ORDER, MEAL_ICONS } from '../types';
 import type { Recipe } from '../types';
@@ -52,10 +51,7 @@ export function formatDiaryAsMarkdown(date: string): string {
   }
 
   const macroGrams = calcMacroGrams(state.settings.calorieGoal, state.settings.macroSplit);
-  const allNutritions = entries.map((e) => {
-    const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-    return scaleNutrition(e.foodSnapshot.nutrition, grams);
-  });
+  const allNutritions = entries.map(entryNutrition);
   const totals = sumNutrition(allNutritions);
 
   const lines: string[] = [];
@@ -74,16 +70,12 @@ export function formatDiaryAsMarkdown(date: string): string {
     if (mealEntries.length === 0) continue;
     lines.push(`## ${MEAL_ICONS[meal]} ${MEAL_LABELS[meal]}`);
     for (const e of mealEntries) {
-      const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-      const n = scaleNutrition(e.foodSnapshot.nutrition, grams);
+      const n = entryNutrition(e);
       const qtyLabel = e.gramsOverride ? `${e.gramsOverride}g` : `${e.quantity}× ${e.foodSnapshot.servingSize}g`;
       const brand = e.foodSnapshot.brand ? ` (${e.foodSnapshot.brand})` : '';
       lines.push(`- **${e.foodSnapshot.name}**${brand} — ${qtyLabel} · ${Math.round(n.calories)} kcal`);
     }
-    const mealNutritions = mealEntries.map((e) => {
-      const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-      return scaleNutrition(e.foodSnapshot.nutrition, grams);
-    });
+    const mealNutritions = mealEntries.map(entryNutrition);
     const mealTotals = sumNutrition(mealNutritions);
     lines.push(
       `  *Subtotale: ${Math.round(mealTotals.calories)} kcal · P ${Math.round(mealTotals.protein)}g · C ${Math.round(mealTotals.carbs)}g · G ${Math.round(mealTotals.fat)}g*`,

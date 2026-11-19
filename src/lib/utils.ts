@@ -47,18 +47,29 @@ export function safeNum(v: unknown, fallback = 0, min?: number, max?: number): n
   return out;
 }
 
-/** True se la stringa è un URL http(s) valido (anti-javascript:) */
+/**
+ * URL immagine utilizzabile: solo https e solo host di Open Food Facts, l'unica fonte di
+ * immagini dell'app. Così un backup importato non può far caricare immagini (tracking pixel)
+ * da host arbitrari e l'informativa privacy resta vera.
+ */
 export function safeImageUrl(url: unknown): string | undefined {
-  if (typeof url !== 'string' || !url) return undefined;
+  if (typeof url !== 'string') return undefined;
   const trimmed = url.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return undefined;
-  // lunghezza guard
-  if (trimmed.length > 2048) return undefined;
+  if (!trimmed || trimmed.length > 2048) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== 'https:') return undefined;
+  const host = parsed.hostname.toLowerCase();
+  if (host !== 'openfoodfacts.org' && !host.endsWith('.openfoodfacts.org')) return undefined;
   return trimmed;
 }
 
 /** Parse YYYY-MM-DD -> Date timezone-safe (non usa new Date(isoString)).
- *  Fix B9: round-trip check — se la data normalizza a una diversa (es. 2024-13-45 -> 2025-02-14), ritorna NaN.
+ *  round-trip check — se la data normalizza a una diversa (es. 2024-13-45 -> 2025-02-14), ritorna NaN.
  *  Fix: richiede formato stretto \d{4}-\d{2}-\d{2} (niente single-digit). */
 export function parseISODateLocal(key: string): Date {
   if (typeof key !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(key)) {
@@ -78,7 +89,7 @@ export function parseISODateLocal(key: string): Date {
 }
 
 /** Date -> YYYY-MM-DD (locale)
- *  Fix LOW bug: pad year a 4 cifre per evitare date invalide (es. year 999 → "999-01-14")
+ *  pad year a 4 cifre per evitare date invalide (es. year 999 → "999-01-14")
  *  che falliscono la regex `/^\d{4}-\d{2}-\d{2}$/` in isValidDateKey e bloccano la navigazione
  *  silenziosamente. Scenario teorico (700k+ click < prev), ma fixato per robustezza. */
 export function toDateKey(d: Date): string {

@@ -1,8 +1,8 @@
-// Vista Dashboard: diario giornaliero con macro ring + bar + meal cards + riepilogo settimana via worker.
+// Vista Dashboard: diario giornaliero con macro ring + bar + meal cards + statistiche settimana/mese/anno.
 
-import { getState, openFoodSearch, setCurrentDate, emitChange, openEntryEditor } from '../lib/store';
+import { getState, openFoodSearch, setCurrentDate, emitViewChange, openEntryEditor } from '../lib/store';
 import { removeDiaryEntry, changeEntryQuantity } from '../lib/diary';
-import { calcMacroGrams, scaleNutrition, sumNutrition } from '../lib/nutrition';
+import { calcMacroGrams, entryNutrition, sumNutrition } from '../lib/nutrition';
 import {
   escapeHtml,
   escapeAttr,
@@ -42,10 +42,7 @@ export function renderDashboard(main: HTMLElement): void {
   const macroGrams = calcMacroGrams(state.settings.calorieGoal, state.settings.macroSplit);
 
   // Totale giornata
-  const nutritions = diary.map((e) => {
-    const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-    return scaleNutrition(e.foodSnapshot.nutrition, grams);
-  });
+  const nutritions = diary.map(entryNutrition);
   const totals = sumNutrition(nutritions);
 
   // Totali per meal
@@ -56,8 +53,7 @@ export function renderDashboard(main: HTMLElement): void {
     snack: { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 },
   };
   for (const e of diary) {
-    const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-    const n = scaleNutrition(e.foodSnapshot.nutrition, grams);
+    const n = entryNutrition(e);
     byMeal[e.meal].calories += n.calories;
     byMeal[e.meal].protein += n.protein;
     byMeal[e.meal].carbs += n.carbs;
@@ -136,7 +132,7 @@ export function renderDashboard(main: HTMLElement): void {
   bindDashboardEvents(main);
 }
 
-// ============ Biometrica card (P1 #3) ============
+// ============ Biometrica card ============
 
 /** Renderizza la card Biometrica: acqua (quick-add bicchieri), sonno, peso +
  *  mini sparkline SVG del trend peso degli ultimi 14 giorni con dato. */
@@ -278,7 +274,7 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-// ============ Recent foods card (P2 #2) ============
+// ============ Recent foods card ============
 
 /** Renderizza la card "Aggiunti di recente" con quick-add 1-click.
  *  Nascosta se non ci sono alimenti recenti (diario vuoto). */
@@ -314,7 +310,7 @@ function renderRecentFoodsCard(_state: ReturnType<typeof getState>): string {
   `;
 }
 
-// ============ Streak & badges card (P3 #1) ============
+// ============ Streak & badges card ============
 
 /** Renderizza la card gamification: streak corrente + badge sbloccabili.
  *  Card sempre visibile (anche con streak 0) per motivare l'utente. */
@@ -366,7 +362,7 @@ function renderStreakCard(): string {
   `;
 }
 
-// ============ Stats card con tab Settimana/Mese/Anno (P1 #1) ============
+// ============ Stats card con tab Settimana/Mese/Anno ============
 
 /** Renderizza la card Statistiche con 3 tab (Settimana/Mese/Anno) + trend peso SVG. */
 function renderStatsCard(state: ReturnType<typeof getState>): string {
@@ -404,9 +400,6 @@ function renderStatsCard(state: ReturnType<typeof getState>): string {
 /** Tab Settimana: 7 barre verticali (comportamento originale). */
 function renderWeekTab(state: ReturnType<typeof getState>): string {
   const stats = getDashboardStats('week', state.diary, state.currentDate);
-  if (!stats) {
-    return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
-  }
   const bars = stats.days
     .map((d) => {
       const ratio = state.settings.calorieGoal > 0 ? Math.min(d.calories / state.settings.calorieGoal, 1.2) : 0;
@@ -435,9 +428,6 @@ function renderWeekTab(state: ReturnType<typeof getState>): string {
 /** Tab Mese: 30 barre verticali più compatte. */
 function renderMonthTab(state: ReturnType<typeof getState>): string {
   const stats = getDashboardStats('month', state.diary, state.currentDate);
-  if (!stats) {
-    return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
-  }
   const maxCal = Math.max(1, ...stats.days.map((d) => d.calories));
   const bars = stats.days
     .map((d) => {
@@ -463,9 +453,6 @@ function renderMonthTab(state: ReturnType<typeof getState>): string {
 /** Tab Anno: heatmap 365 giorni stile GitHub contribution graph. */
 function renderYearTab(state: ReturnType<typeof getState>): string {
   const stats = getDashboardStats('year', state.diary, state.currentDate);
-  if (!stats) {
-    return `<div class="week-loading"><div class="spinner" aria-hidden="true"></div> Calcolo statistiche…</div>`;
-  }
   const goal = state.settings.calorieGoal;
   const calMap = new Map<string, number>();
   for (const d of stats.days) calMap.set(d.date, d.calories);
@@ -602,9 +589,14 @@ function renderWeightTrendChart(state: ReturnType<typeof getState>): string {
   `;
 }
 
+/** L'immagine è dell'alimento in libreria: lo snapshot del diario non la conserva. */
+function libraryImage(e: DiaryEntry): string | undefined {
+  if (!e.foodId) return undefined;
+  return getState().foods.find((f) => f.id === e.foodId)?.image;
+}
+
 function entryRow(e: DiaryEntry): string {
-  const grams = e.gramsOverride ?? e.foodSnapshot.servingSize * e.quantity;
-  const n = scaleNutrition(e.foodSnapshot.nutrition, grams);
+  const n = entryNutrition(e);
   const qtyControl = !e.gramsOverride
     ? `
       <div class="qty-control">
@@ -616,7 +608,7 @@ function entryRow(e: DiaryEntry): string {
     : '';
   return `
     <div class="entry-row" data-action="editEntry" data-entry-id="${escapeAttr(e.id)}" role="button" tabindex="0" aria-label="Modifica quantità di ${escapeAttr(e.foodSnapshot.name)}">
-      ${imgTag(e.foodSnapshot.image, e.foodSnapshot.name, 'thumb', e.foodSnapshot.source === 'custom' ? '✏️' : '🥫')}
+      ${imgTag(libraryImage(e), e.foodSnapshot.name, 'thumb', e.foodSnapshot.source === 'custom' ? '✏️' : '🥫')}
       <div class="entry-info">
         <p class="entry-name">${escapeHtml(e.foodSnapshot.name)}</p>
         <p class="entry-meta">
@@ -735,7 +727,7 @@ function bindDashboardEvents(main: HTMLElement): void {
       const tab = target.dataset.tab as StatsTab | undefined;
       if (tab && (tab === 'week' || tab === 'month' || tab === 'year')) {
         setStatsTab(tab);
-        emitChange();
+        emitViewChange();
       }
       return;
     }

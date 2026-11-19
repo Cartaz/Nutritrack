@@ -1,5 +1,5 @@
 // Store observer minimale con RAF batching.
-// Pattern 1 dello standard: singolo oggetto state, Set<Listener>, emitChange su RAF.
+// singolo oggetto state, Set<Listener>, emitChange su RAF.
 // Anti-pattern rispettati: niente Proxy, niente librerie esterne, niente emit sincrono.
 
 import type {
@@ -22,7 +22,7 @@ import { MAX_DIARY_ENTRIES_PER_DAY } from './constants';
 import { MEAL_ORDER } from '../types';
 
 const state: AppState = {
-  // Fix Bug #15 (T1): deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
+  // deep-copy macroSplit per evitare condivisione reference con DEFAULT_SETTINGS
   settings: { ...DEFAULT_SETTINGS, macroSplit: { ...DEFAULT_SETTINGS.macroSplit } },
   foods: [],
   diary: {},
@@ -40,9 +40,6 @@ const listeners = new Set<() => void>();
 export function getState(): AppState {
   return state;
 }
-
-/** Alias per chiarezza semantica nei moduli UI (renderer, views) */
-export const getStoreState = getState;
 
 /**
  * Patch shallow riservata a hydration/persistence e test.
@@ -92,6 +89,21 @@ export function emitChange(): void {
       }
     });
   });
+}
+
+let _viewRevision = 0;
+
+/**
+ * Emit per uno stato locale di una vista (tab statistiche, filtro di ricerca, bozze in
+ * impostazioni): obbliga il renderer a ricostruire la vista anche se i dati non sono cambiati.
+ */
+export function emitViewChange(): void {
+  _viewRevision++;
+  emitChange();
+}
+
+export function getViewRevision(): number {
+  return _viewRevision;
 }
 
 // ============ View navigation ============
@@ -190,12 +202,8 @@ export function deleteFood(id: string): void {
   emitChange();
 }
 
-export function getFood(id: string): FoodItem | undefined {
-  return state.foods.find((f) => f.id === id);
-}
-
 export function toggleFavorite(id: string): void {
-  // Fix BUG #18 (T5): pulisci id stale che non corrispondono a nessun food salvato
+  // pulisci id stale che non corrispondono a nessun food salvato
   // (previene accumulo di id orfani da OFF food non salvati favoritati per errore)
   if (!state.foods.some((f) => f.id === id)) {
     // Food non esiste: rimuovi da preferiti se presente, non aggiungere
@@ -252,6 +260,7 @@ export function addDiaryEntries(inputs: DiaryEntryInput[]): AddDiaryEntriesResul
   const now = Date.now();
   const entries = inputs.map((input) => ({
     ...input,
+    foodSnapshot: diarySnapshot(input.foodSnapshot),
     id: safeId('entry_'),
     createdAt: now,
   }));
@@ -262,6 +271,17 @@ export function addDiaryEntries(inputs: DiaryEntryInput[]): AddDiaryEntriesResul
   state.diary = next;
   emitChange();
   return { ok: true, entries };
+}
+
+/**
+ * Lo snapshot nel diario conserva ciò che serve a ricostruire la storia (nome, nutrizione,
+ * porzioni) ma non l'URL dell'immagine, che è dell'alimento in libreria (schema v2).
+ */
+function diarySnapshot(food: FoodItem): FoodItem {
+  if (!('image' in food)) return food;
+
+  const { image: _image, ...rest } = food;
+  return rest;
 }
 
 export function addDiaryEntry(input: DiaryEntryInput): DiaryEntry | null {
@@ -293,14 +313,14 @@ export function setDiaryEntryAmount(id: string, quantity: number, gramsOverride?
 
 /** Aggiorna lo snapshot storico del food senza esporre un patch generico della DiaryEntry. */
 export function setDiaryEntryFoodSnapshot(id: string, foodSnapshot: FoodItem): boolean {
-  return replaceDiaryEntry(id, (entry) => ({ ...entry, foodSnapshot }));
+  return replaceDiaryEntry(id, (entry) => ({ ...entry, foodSnapshot: diarySnapshot(foodSnapshot) }));
 }
 
 export function deleteDiaryEntry(id: string): void {
   const newDiary: DayDiary = {};
   for (const [date, entries] of Object.entries(state.diary)) {
     const filtered = entries.filter((e) => e.id !== id);
-    // Fix LOW bug: rimuovi le chiavi date con array vuoto, altrimenti rimangono in memoria
+    // rimuovi le chiavi date con array vuoto, altrimenti rimangono in memoria
     // come `diary[date] = []`. normalizeDayDiary le pulirebbe su rehydrate, ma in-memory
     // potrebbero causare over-count in futuri consumer che iterano Object.keys.
     if (filtered.length > 0) {
@@ -309,10 +329,6 @@ export function deleteDiaryEntry(id: string): void {
   }
   state.diary = newDiary;
   emitChange();
-}
-
-export function getDiaryForDate(date: string): DiaryEntry[] {
-  return state.diary[date] || [];
 }
 
 // ============ Recipes ============
@@ -361,16 +377,7 @@ export function deleteRecipe(id: string): void {
   emitChange();
 }
 
-export function getRecipe(id: string): Recipe | undefined {
-  return state.recipes.find((r) => r.id === id);
-}
-
-// ============ Biometrics (acqua / sonno / peso) — P1 #3 Step 02 ============
-
-/** Restituisce la biometrica di una data (oggetto vuoto se non registrata). */
-export function getBiometric(date: string): BiometricEntry {
-  return state.biometrics[date] ?? {};
-}
+// ============ Biometrics (acqua / sonno / peso) ============
 
 /** Patch parziale della biometrica di una data.
  *  Solo i campi ESPPLICITAMENTE presenti nel patch vengono toccati (usa `in`).
@@ -400,12 +407,6 @@ export function setBiometric(date: string, patch: Partial<BiometricEntry>): void
     next[date] = merged;
   }
   state.biometrics = next;
-  emitChange();
-}
-
-/** Sostituisce l'intera mappa biometrics (usato da loadData/reconcile/import). */
-export function setAllBiometrics(b: Biometrics): void {
-  state.biometrics = b;
   emitChange();
 }
 

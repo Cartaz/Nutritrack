@@ -239,8 +239,48 @@ export function showModal(opts: ShowModalOptions): HTMLElement {
   return overlay;
 }
 
+/** True se l'overlay è nel DOM e non sta chiudendo (durante il fade-out conta come chiuso). */
+export function isModalOpen(el: HTMLElement | null | undefined): boolean {
+  return !!el && el.isConnected && !_closing.has(el);
+}
+
 /** Chiude il modal più recente con dato modalId, se presente. */
 export function closeModalById(modalId: string): void {
   const el = getLatestModalById(modalId);
   if (el) closeModal(el);
+}
+
+let _confirmSeq = 0;
+
+/**
+ * Conferma asincrona con il modale dell'app (al posto di window.confirm, che blocca la
+ * pagina e ha un aspetto diverso su ogni piattaforma). Risolve true solo su conferma.
+ */
+export function confirmAction(opts: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  danger?: boolean;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    showModal({
+      // Id univoco: una conferma non deve mai sostituirne un'altra lasciandone la promise appesa.
+      modalId: `confirm-action-${++_confirmSeq}`,
+      title: opts.title,
+      bodyText: opts.body,
+      actions: [
+        { label: opts.cancelLabel ?? 'Annulla', action: 'close', variant: 'outline' },
+        { label: opts.confirmLabel, action: 'confirm', variant: opts.danger ? 'danger' : 'primary' },
+      ],
+      onConfirm: () => settle(true),
+      onClose: () => settle(false),
+    });
+  });
 }

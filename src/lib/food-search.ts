@@ -1,9 +1,8 @@
 import { getOffByBarcode, searchOff } from './api';
-import { SEARCH_AUTO_RETRY_DELAY_MS } from './constants';
 import { buildFoodFromOff } from './normalize';
 import type { FoodItem, OffProduct } from '../types';
 
-export type FoodSearchErrorKind = 'offline' | 'network' | 'timeout' | 'unavailable' | 'unknown';
+export type FoodSearchErrorKind = 'offline' | 'network' | 'timeout' | 'rate_limited' | 'unavailable' | 'unknown';
 
 export class FoodSearchError extends Error {
   readonly kind: FoodSearchErrorKind;
@@ -39,62 +38,43 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+/** Classifica per nome/status dell'ApiError; mai per sottostringhe del messaggio. */
 function classifyError(error: unknown): FoodSearchErrorKind {
-  const e = error as { name?: string; status?: number; message?: string };
+  const e = error as { name?: string; status?: number };
   if (e?.name === 'OfflineError') return 'offline';
+  if (e?.name === 'RateLimitError' || e?.status === 429) return 'rate_limited';
   if (e?.name === 'NetworkError' || e?.name === 'TypeError') return 'network';
   if (e?.name === 'TimeoutError') return 'timeout';
-  if (e?.status === 429 || (typeof e?.status === 'number' && e.status >= 500)) return 'unavailable';
-
-  const message = e?.message ?? '';
-  if (message.includes('non disponibile') || message.includes('non JSON') || message.includes('non valida')) {
-    return 'unavailable';
+  if (e?.name === 'ApiError') {
+    // 4xx = richiesta rifiutata (errore nostro o prodotto inesistente), il resto = servizio giù.
+    return typeof e.status === 'number' && e.status >= 400 && e.status < 500 ? 'unknown' : 'unavailable';
   }
   return 'unknown';
 }
 
-function isRetryable(kind: FoodSearchErrorKind): boolean {
-  return kind !== 'unknown' && kind !== 'offline';
+function toFoodSearchError(error: unknown, signal?: AbortSignal): unknown {
+  if (signal?.aborted || isAbortError(error)) return error;
+  return new FoodSearchError(classifyError(error), error);
 }
 
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      const error = new Error('Aborted');
-      error.name = 'AbortError';
-      reject(error);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      const error = new Error('Aborted');
-      error.name = 'AbortError';
-      reject(error);
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-async function withSingleRetry<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-  try {
-    return await operation();
-  } catch (error) {
-    if (signal?.aborted || isAbortError(error)) throw error;
-    const kind = classifyError(error);
-    if (!isRetryable(kind)) throw new FoodSearchError(kind, error);
-
-    await abortableDelay(SEARCH_AUTO_RETRY_DELAY_MS, signal);
-    try {
-      return await operation();
-    } catch (retryError) {
-      if (signal?.aborted || isAbortError(retryError)) throw retryError;
-      throw new FoodSearchError(classifyError(retryError), retryError);
-    }
+/** Messaggio utente per un errore di ricerca o di lookup barcode. */
+export function foodSearchErrorMessage(error: unknown, context: 'search' | 'barcode'): string {
+  const kind = error instanceof FoodSearchError ? error.kind : 'unknown';
+  switch (kind) {
+    case 'offline':
+      return 'Sei offline. Verifica la connessione e riprova.';
+    case 'rate_limited':
+      return 'Troppe ricerche ravvicinate: Open Food Facts ne consente circa 10 al minuto. Attendi qualche secondo e riprova.';
+    case 'network':
+      return 'Open Food Facts non raggiungibile. Riprova tra qualche secondo.';
+    case 'timeout':
+      return 'Risposta di Open Food Facts troppo lenta. Riprova tra poco.';
+    case 'unavailable':
+      return context === 'search'
+        ? 'Database Open Food Facts temporaneamente non disponibile. Riprova tra qualche minuto, oppure crea un ingrediente custom.'
+        : 'Servizio Open Food Facts non disponibile. Riprova tra poco.';
+    default:
+      return context === 'search' ? 'Errore nella ricerca. Riprova tra poco.' : 'Errore nella ricerca del prodotto.';
   }
 }
 
@@ -125,8 +105,7 @@ export async function searchFoods(query: string, options: SearchOptions = {}): P
       continuation: continuationFor(effectiveInput, result.page, result.pageSize, result.count, italianOnly),
     };
   } catch (error) {
-    if (options.signal?.aborted || isAbortError(error)) throw error;
-    throw new FoodSearchError(classifyError(error), error);
+    throw toFoodSearchError(error, options.signal);
   }
 }
 
@@ -153,14 +132,21 @@ export async function continueFoodSearch(
       ),
     };
   } catch (error) {
-    if (options.signal?.aborted || isAbortError(error)) throw error;
-    throw new FoodSearchError(classifyError(error), error);
+    throw toFoodSearchError(error, options.signal);
   }
 }
 
-/** Remote OFF barcode lookup. Saved/local database precedence remains a UI/application concern. */
+/**
+ * Lookup barcode remoto su OFF. I retry (per istanza e tra istanze) vivono in apiGetJson:
+ * qui non se ne aggiunge un secondo livello. La precedenza degli alimenti salvati è della UI.
+ */
 export async function lookupFoodByBarcode(barcode: string, signal?: AbortSignal): Promise<BarcodeFoodLookup> {
-  const product = await withSingleRetry(() => getOffByBarcode(barcode, signal), signal);
+  let product: OffProduct | null;
+  try {
+    product = await getOffByBarcode(barcode, signal);
+  } catch (error) {
+    throw toFoodSearchError(error, signal);
+  }
   if (!product) return { kind: 'not-found' };
   const food = buildFoodFromOff(product);
   return food ? { kind: 'found', food } : { kind: 'incomplete' };
