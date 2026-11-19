@@ -1,6 +1,11 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/client" />
 
+// ============ Informazioni di build (iniettate da build-info.ts) ============
+declare const __APP_VERSION__: string;
+declare const __BUILD_DATE__: string;
+declare const __BUILD_COMMIT__: string;
+
 // ============ BarcodeDetector API (Chromium/Android) ============
 // Native API not yet in lib.dom.d.ts (Chrome 83+, Android WebView).
 // On Safari iOS we fall back to @zxing/library (see src/lib/barcode.ts).

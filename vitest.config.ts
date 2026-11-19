@@ -1,8 +1,10 @@
 import { defineConfig } from 'vitest/config';
+import { buildInfoDefines } from './build-info';
 
 // jsdom è necessario per i moduli che usano window, localStorage e document.
 // Coverage su tutto src/ con soglie separate per dominio e UI.
 export default defineConfig({
+  define: buildInfoDefines(),
   test: {
     environment: 'jsdom',
     globals: false,

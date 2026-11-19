@@ -91,7 +91,7 @@ Per un altro hosting statico: `VITE_BASE_PATH=/percorso/ npm run build` e pubbli
 - **Android (Chrome)**: menu ⋮ → Installa app.
 - **Desktop (Chrome/Edge)**: icona Installa nella barra degli indirizzi.
 
-Quando esce una nuova versione l'app la scarica in background e ti chiede se aggiornare (la pagina viene ricaricata).
+Quando esce una nuova versione l'app la scarica in background e ti chiede se aggiornare (la pagina viene ricaricata). La versione installata, con data del build e commit, è in **Impostazioni → Informazioni**.
 
 ## Privacy
 

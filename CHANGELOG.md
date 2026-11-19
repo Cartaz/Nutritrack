@@ -2,9 +2,11 @@
 
 Le note delle versioni fino alla 1.2.0 sono riportate così come furono scritte all'epoca (in parte in inglese). Dove una funzione è stata poi rimossa o corretta, c'è una nota.
 
-## Non rilasciato
+## v1.3.0 — 19 novembre 2026
 
 Pulizia guidata da [ANALISI.md](ANALISI.md).
+
+- Impostazioni → Informazioni mostra la versione installata, la data del build e il commit.
 
 - Test e toolchain verdi su Node 22, 24 e 26 (`engines`, `.nvmrc`, matrice CI).
 - Rimossi il database italiano di override (dati non reali), il codice morto e i commenti storici.

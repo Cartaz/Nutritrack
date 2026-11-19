@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { buildInfoDefines } from './build-info';
 
 // Base path auto-rilevato per GitHub Pages.
 // In CI viene passato via VITE_BASE_PATH; in dev è '/'.
@@ -19,6 +20,7 @@ function stripDevOnlyCsp(): Plugin {
 
 export default defineConfig({
   base,
+  define: buildInfoDefines(),
   plugins: [
     stripDevOnlyCsp(),
     VitePWA({

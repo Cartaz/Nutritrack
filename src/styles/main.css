@@ -2735,3 +2735,10 @@ textarea {
     font-size: max(16px, 1em) !important;
   }
 }
+
+/* Versione dell'app in Impostazioni → Informazioni */
+.app-version {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
